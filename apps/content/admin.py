@@ -1,20 +1,37 @@
-
 from django.contrib import admin
+from unfold.admin import ModelAdmin
 from unfold.admin import ModelAdmin, TabularInline
-from .models import Department, Course, CourseProgram, Resource, FileInbox
+from .models import (
+    Department,
+    Course,
+    CoursePlacement,
+    Resource,
+    FileInbox,
+)
 
 
-@admin.register(CourseProgram)
-class CourseProgramAdmin(ModelAdmin):
-    list_display = ['name']
 
 
 @admin.register(Department)
 class DepartmentAdmin(ModelAdmin):
-    list_display = ['name', 'code', 'is_active', 'created_at']
-    list_filter = ['is_active']
-    search_fields = ['name', 'code']
+    list_display = ['name', 'level', 'is_active', 'created_at']
+    list_filter = ['level', 'is_active']
+    search_fields = ['name']
     list_editable = ['is_active']
+
+
+
+class CoursePlacementInline(TabularInline):
+    model = CoursePlacement
+    extra = 1
+    can_delete = True
+    show_change_link = False
+    fields = [
+        'department',
+        'program',
+        'year',
+        'period',
+    ]
 
 
 @admin.register(Course)
@@ -24,30 +41,42 @@ class CourseAdmin(ModelAdmin):
         'code',
         'display_departments',
         'display_programs',
-        'year',
-        'period_type',
-        'period',
+        'display_years',
         'is_active',
-    ]
-    list_filter = [
-        'year',
-        'period',
-        'period_type',
-        'is_active',
-        'departments',
-        'programs',
     ]
     search_fields = ['name', 'code']
-    filter_horizontal = ['departments', 'programs']
+    list_filter = [
+        'is_active',
+        'placements__department',
+        'placements__program',
+        'placements__year',
+    ]
     list_editable = ['is_active']
+    inlines = [CoursePlacementInline]
 
     @admin.display(description='Departments')
     def display_departments(self, obj):
-        return ', '.join([d.code for d in obj.departments.all()]) or '—'
+        depts = obj.placements.values_list(
+            'department__name', flat=True
+        )
+        unique_depts = sorted(set(depts))
+        return ', '.join(unique_depts) if unique_depts else '—'
 
     @admin.display(description='Programs')
     def display_programs(self, obj):
-        return ', '.join([p.get_name_display() for p in obj.programs.all()]) or '—'
+        programs = obj.placements.values_list(
+            'program', flat=True
+        )
+        unique_programs = sorted(set(programs))
+        return ', '.join(unique_programs) if unique_programs else '—'
+
+    @admin.display(description='Years')
+    def display_years(self, obj):
+        years = obj.placements.values_list(
+            'year', flat=True
+        )
+        unique_years = sorted(set(years))
+        return ', '.join([f'Y{y}' for y in unique_years]) if unique_years else '—'
 
 
 @admin.register(Resource)
@@ -65,8 +94,7 @@ class ResourceAdmin(ModelAdmin):
         'status',
         'file_type',
         'access_level',
-        'course__year',
-        'course__departments',
+        'course__is_active',
     ]
     search_fields = [
         'title',
@@ -206,7 +234,11 @@ class FileInboxAdmin(ModelAdmin):
     @admin.display(description='Caption')
     def telegram_caption_preview(self, obj):
         if obj.telegram_caption:
-            return obj.telegram_caption[:60] + '...' if len(obj.telegram_caption) > 60 else obj.telegram_caption
+            return (
+                obj.telegram_caption[:60] + '...'
+                if len(obj.telegram_caption) > 60
+                else obj.telegram_caption
+            )
         return '—'
 
     @admin.display(description='Assigned', boolean=True)
@@ -216,4 +248,7 @@ class FileInboxAdmin(ModelAdmin):
     @admin.action(description='Mark selected as processed')
     def mark_as_processed(self, request, queryset):
         queryset.update(processing_status=FileInbox.STATUS_PROCESSED)
-        self.message_user(request, f'{queryset.count()} item(s) marked as processed.')
+        self.message_user(
+            request,
+            f'{queryset.count()} item(s) marked as processed.'
+        )

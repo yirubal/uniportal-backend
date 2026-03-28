@@ -1,8 +1,23 @@
 from django.db import models
 
+
+
+
+
 class Department(models.Model):
-    name = models.CharField(max_length=255)
-    code = models.CharField(max_length=20, unique=True)
+    LEVEL_UNDERGRADUATE = 'undergraduate'
+    LEVEL_POSTGRADUATE = 'postgraduate'
+    LEVEL_CHOICES = [
+        (LEVEL_UNDERGRADUATE, 'Undergraduate'),
+        (LEVEL_POSTGRADUATE, 'Postgraduate'),
+    ]
+
+    name = models.CharField(max_length=255, unique=True)
+    level = models.CharField(
+        max_length=20,
+        choices=LEVEL_CHOICES,
+        default=LEVEL_UNDERGRADUATE,
+    )
     description = models.TextField(blank=True)
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -10,71 +25,15 @@ class Department(models.Model):
     class Meta:
         verbose_name = 'Department'
         verbose_name_plural = 'Departments'
-        ordering = ['name']
+        ordering = ['level', 'name']
 
     def __str__(self):
-        return f'{self.name} ({self.code})'
+        return self.name
 
 
 class Course(models.Model):
-    YEAR_CHOICES = [(i, f'Year {i}') for i in range(1, 6)]
-
-    PERIOD_TYPE_SEMESTER = 'semester'
-    PERIOD_TYPE_TERM = 'term'
-    PERIOD_TYPE_CHOICES = [
-        (PERIOD_TYPE_SEMESTER, 'Semester'),
-        (PERIOD_TYPE_TERM, 'Term'),
-    ]
-
-    PERIOD_CHOICES = [
-        (1, 'Semester I / Term I'),
-        (2, 'Semester II / Term II'),
-        (3, 'Term III'),
-        (4, 'Term IV'),
-    ]
-
-    PROGRAM_REGULAR = 'regular'
-    PROGRAM_DISTANCE = 'distance'
-    PROGRAM_EXTENSION = 'extension'
-    PROGRAM_CHOICES = [
-        (PROGRAM_REGULAR, 'Regular'),
-        (PROGRAM_DISTANCE, 'Distance'),
-        (PROGRAM_EXTENSION, 'Extension'),
-    ]
-
     name = models.CharField(max_length=255)
     code = models.CharField(max_length=20, unique=True)
-
-    # ManyToMany — one course can belong to multiple departments
-    departments = models.ManyToManyField(
-        Department,
-        related_name='courses',
-        blank=True,
-    )
-
-    # ManyToMany — one course can belong to multiple programs
-    # e.g. "Introduction to Statistics" exists in both Regular and Extension
-    programs = models.ManyToManyField(
-        'CourseProgram',
-        related_name='courses',
-        blank=True,
-        help_text='Which programs offer this course',
-    )
-
-    year = models.IntegerField(choices=YEAR_CHOICES)
-    period_type = models.CharField(
-        max_length=10,
-        choices=PERIOD_TYPE_CHOICES,
-        default=PERIOD_TYPE_SEMESTER,
-        help_text='Semester for regular/extension. Term for distance.',
-    )
-    period = models.IntegerField(
-        choices=PERIOD_CHOICES,
-        help_text=(
-            'Regular/Extension: 1 or 2 (Semester I or II). '
-            'Distance: 1, 2, 3, or 4 (Term I to IV).'
-        ),
-    )
     description = models.TextField(blank=True)
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -82,19 +41,31 @@ class Course(models.Model):
     class Meta:
         verbose_name = 'Course'
         verbose_name_plural = 'Courses'
-        ordering = ['year', 'period', 'name']
+        ordering = ['name']
 
     def __str__(self):
-        period_label = 'Sem' if self.period_type == self.PERIOD_TYPE_SEMESTER else 'Term'
-        return f'{self.name} (Year {self.year} {period_label} {self.period})'
+        return f'{self.name} ({self.code})'
 
 
-class CourseProgram(models.Model):
-    """
-    Represents a program type.
-    Used as ManyToMany on Course so a course can be offered
-    in Regular, Distance, Extension or any combination.
-    """
+class CoursePlacement(models.Model):
+    YEAR_CHOICES = [(i, f'Year {i}') for i in range(1, 6)]
+
+    PERIOD_CHOICES = [
+        (1, 'Semester I / Term I'),
+        (2, 'Semester II / Term II'),
+        (3, 'Term III'),
+    ]
+
+    course = models.ForeignKey(
+        Course,
+        on_delete=models.CASCADE,
+        related_name='placements',
+    )
+    department = models.ForeignKey(
+        Department,
+        on_delete=models.CASCADE,
+        related_name='course_placements',
+    )
     PROGRAM_REGULAR = 'regular'
     PROGRAM_DISTANCE = 'distance'
     PROGRAM_EXTENSION = 'extension'
@@ -104,18 +75,28 @@ class CourseProgram(models.Model):
         (PROGRAM_EXTENSION, 'Extension'),
     ]
 
-    name = models.CharField(
+    program = models.CharField(
         max_length=10,
         choices=PROGRAM_CHOICES,
-        unique=True,
     )
+    year = models.IntegerField(choices=YEAR_CHOICES)
+    period = models.IntegerField(choices=PERIOD_CHOICES)
 
     class Meta:
-        verbose_name = 'Program'
-        verbose_name_plural = 'Programs'
+        verbose_name = 'Course Placement'
+        verbose_name_plural = 'Course Placements'
+        ordering = ['year', 'period', 'course__name']
+        unique_together = [
+            'course', 'department', 'program', 'year', 'period'
+        ]
 
     def __str__(self):
-        return self.get_name_display()
+        return (
+            f'{self.course.name} — '
+            f'{self.department.name} / '
+            f'{self.get_program_display()} / '
+            f'Year {self.year} Period {self.period}'
+        )
 
 
 class Resource(models.Model):
@@ -238,5 +219,3 @@ class FileInbox(models.Model):
 
     def __str__(self):
         return f'{self.original_filename} ({self.get_processing_status_display()})'
-
-

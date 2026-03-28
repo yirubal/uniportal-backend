@@ -1,0 +1,12 @@
+{
+  "pythonVersion": "3.13",
+  "pythonPlatform": "Linux",
+  "venvPath": ".",
+  "venv": "venv",
+  "executionEnvironments": [
+    {
+      "root": ".",
+      "extraPaths": ["."]
+    }
+  ]
+}

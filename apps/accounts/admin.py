@@ -1,5 +1,5 @@
-from django.contrib import admin
 from datetime import timedelta
+from django.contrib import admin
 from django.utils import timezone
 from unfold.admin import ModelAdmin
 from .models import Student
@@ -100,17 +100,26 @@ class StudentAdmin(ModelAdmin):
     @admin.action(description='Activate Premium — 120 days (Semester Pass)')
     def activate_premium_120_days(self, request, queryset):
         self._activate_premium(queryset, 120)
-        self.message_user(request, f'Activated 120-day premium for {queryset.count()} student(s).')
+        self.message_user(
+            request,
+            f'Activated 120-day premium for {queryset.count()} student(s).'
+        )
 
     @admin.action(description='Activate Premium — 90 days (Exit Exam Pass)')
     def activate_premium_90_days(self, request, queryset):
         self._activate_premium(queryset, 90)
-        self.message_user(request, f'Activated 90-day premium for {queryset.count()} student(s).')
+        self.message_user(
+            request,
+            f'Activated 90-day premium for {queryset.count()} student(s).'
+        )
 
     @admin.action(description='Activate Premium — 365 days (Full Year Pass)')
     def activate_premium_365_days(self, request, queryset):
         self._activate_premium(queryset, 365)
-        self.message_user(request, f'Activated 365-day premium for {queryset.count()} student(s).')
+        self.message_user(
+            request,
+            f'Activated 365-day premium for {queryset.count()} student(s).'
+        )
 
     @admin.action(description='Deactivate Premium')
     def deactivate_premium(self, request, queryset):
@@ -118,7 +127,10 @@ class StudentAdmin(ModelAdmin):
             subscription_status=Student.SUBSCRIPTION_FREE,
             subscription_expiry=None,
         )
-        self.message_user(request, f'Deactivated premium for {queryset.count()} student(s).')
+        self.message_user(
+            request,
+            f'Deactivated premium for {queryset.count()} student(s).'
+        )
 
     def _activate_premium(self, queryset, days):
         expiry = timezone.now() + timedelta(days=days)
