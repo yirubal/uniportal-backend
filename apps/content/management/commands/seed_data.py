@@ -8,7 +8,18 @@ class Command(BaseCommand):
     def handle(self, *args, **kwargs):
         self.seed_departments()
         self.seed_management_distance_courses()
+        self.seed_subscription_plans()
+        self.seed_site_settings()
         self.stdout.write(self.style.SUCCESS('Database seeded successfully.'))
+
+
+    def seed_site_settings(self):
+        from apps.accounts.models import SiteSettings
+        obj, created = SiteSettings.objects.get_or_create(id=1)
+        status = 'Created' if created else 'Already exists'
+        self.stdout.write(f'  {status}: Site Settings')
+
+
 
     def seed_departments(self):
         departments = [
@@ -786,8 +797,6 @@ class Command(BaseCommand):
                 ),
             },
         ]
-
-
         for data in courses:
             course, course_created = Course.objects.update_or_create(
                 code=data['code'],
@@ -807,3 +816,43 @@ class Command(BaseCommand):
                 f'| Placement [{placement_status}] '
                 f'Y{data["year"]} T{data["period"]}'
             )
+
+    def seed_subscription_plans(self):
+            from apps.accounts.models import SubscriptionPlan
+
+            plans = [
+                {
+                    'plan_id': 'semester',
+                    'name': 'Semester Pass',
+                    'price': 99,
+                    'days': 120,
+                    'description': 'Full access for one semester. Best for Year 1-3 students.',
+                    'badge': 'Most Popular',
+                },
+                {
+                    'plan_id': 'exit_exam',
+                    'name': 'Exit Exam Pass',
+                    'price': 149,
+                    'days': 90,
+                    'description': 'Full exit exam archive and simulation. Best for Year 3-4.',
+                    'badge': 'Best for Exit Exam',
+                },
+                {
+                    'plan_id': 'annual',
+                    'name': 'Full Year Pass',
+                    'price': 199,
+                    'days': 365,
+                    'description': 'Full access for an entire year. Best value.',
+                    'badge': 'Best Value',
+                },
+            ]
+
+            for plan_data in plans:
+                obj, created = SubscriptionPlan.objects.update_or_create(
+                    plan_id=plan_data['plan_id'],
+                    defaults=plan_data,
+                )
+                status = 'Created' if created else 'Updated'
+                self.stdout.write(f'  {status} plan: {obj.name} — ETB {obj.price}')
+
+

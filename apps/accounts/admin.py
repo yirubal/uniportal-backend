@@ -2,7 +2,10 @@ from datetime import timedelta
 from django.contrib import admin
 from django.utils import timezone
 from unfold.admin import ModelAdmin
+from .models import  SubscriptionPlan
+from .models import  SiteSettings
 from .models import Student
+
 
 
 @admin.register(Student)
@@ -138,3 +141,59 @@ class StudentAdmin(ModelAdmin):
             subscription_status=Student.SUBSCRIPTION_PREMIUM,
             subscription_expiry=expiry,
         )
+
+
+
+@admin.register(SubscriptionPlan)
+class SubscriptionPlanAdmin(ModelAdmin):
+    list_display = [
+        'name',
+        'plan_id',
+        'price',
+        'days',
+        'badge',
+        'is_active',
+        'updated_at',
+    ]
+    list_editable = ['price', 'days', 'is_active']
+    fields = [
+        'plan_id',
+        'name',
+        'price',
+        'days',
+        'description',
+        'badge',
+        'is_active',
+    ]
+
+
+
+@admin.register(SiteSettings)
+class SiteSettingsAdmin(ModelAdmin):
+    list_display = ['telebirr_number', 'telebirr_name', 'updated_at']
+    fieldsets = (
+        ('Telebirr', {
+            'fields': (
+                'telebirr_number',
+                'telebirr_name',
+            )
+        }),
+        ('CBE Bank (Optional)', {
+            'fields': (
+                'cbe_account',
+                'cbe_name',
+            )
+        }),
+        ('Instructions', {
+            'fields': (
+                'payment_instructions',
+            )
+        }),
+    )
+
+    def has_add_permission(self, request):
+        # Only one settings record allowed
+        return not SiteSettings.objects.exists()
+
+    def has_delete_permission(self, request, obj=None):
+        return False

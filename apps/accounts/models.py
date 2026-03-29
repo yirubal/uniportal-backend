@@ -105,3 +105,81 @@ class Student(models.Model):
             self.downloads_today = 0
             self.last_download_reset = today
             self.save(update_fields=['downloads_today', 'last_download_reset'])
+
+class SubscriptionPlan(models.Model):
+    PLAN_SEMESTER = 'semester'
+    PLAN_EXIT_EXAM = 'exit_exam'
+    PLAN_ANNUAL = 'annual'
+    PLAN_CHOICES = [
+        (PLAN_SEMESTER, 'Semester Pass'),
+        (PLAN_EXIT_EXAM, 'Exit Exam Pass'),
+        (PLAN_ANNUAL, 'Full Year Pass'),
+    ]
+
+    plan_id = models.CharField(
+        max_length=20,
+        choices=PLAN_CHOICES,
+        unique=True,
+    )
+    name = models.CharField(max_length=100)
+    price = models.DecimalField(max_digits=10, decimal_places=2)
+    days = models.IntegerField()
+    description = models.TextField(blank=True)
+    badge = models.CharField(
+        max_length=50,
+        blank=True,
+        help_text='e.g. Most Popular, Best Value',
+    )
+    is_active = models.BooleanField(default=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = 'Subscription Plan'
+        verbose_name_plural = 'Subscription Plans'
+        ordering = ['price']
+
+    def __str__(self):
+        return f'{self.name} — ETB {self.price}'
+
+
+
+class SiteSettings(models.Model):
+    telebirr_number = models.CharField(
+        max_length=20,
+        default='0912345678',
+        help_text='Telebirr phone number students send payment to',
+    )
+    telebirr_name = models.CharField(
+        max_length=100,
+        blank=True,
+        help_text='Account name shown to students',
+    )
+    cbe_account = models.CharField(
+        max_length=50,
+        blank=True,
+        help_text='CBE bank account number (optional)',
+    )
+    cbe_name = models.CharField(
+        max_length=100,
+        blank=True,
+        help_text='CBE account holder name (optional)',
+    )
+    payment_instructions = models.TextField(
+        blank=True,
+        help_text='Additional payment instructions shown to students',
+    )
+    is_active = models.BooleanField(default=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = 'Site Settings'
+        verbose_name_plural = 'Site Settings'
+
+    def __str__(self):
+        return f'Site Settings (updated {self.updated_at.strftime("%Y-%m-%d")})'
+
+    @classmethod
+    def get(cls):
+        """Always returns the single settings record. Creates it if missing."""
+        obj, _ = cls.objects.get_or_create(id=1)
+        return obj
