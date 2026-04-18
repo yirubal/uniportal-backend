@@ -17,7 +17,7 @@ environ.Env.read_env(BASE_DIR / '.env')
 SECRET_KEY = env('SECRET_KEY')
 DEBUG = env('DEBUG')
 ALLOWED_HOSTS = env.list('ALLOWED_HOSTS', default=['localhost', '127.0.0.1'])
-
+GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 
 # Installed apps
 INSTALLED_APPS = [

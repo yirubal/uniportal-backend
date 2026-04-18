@@ -101,14 +101,12 @@ class CoursePlacement(models.Model):
 
 class Resource(models.Model):
     TYPE_LECTURE_NOTE = 'lecture_note'
+    TYPE_MODULE = 'module'
     TYPE_WORKSHEET = 'worksheet'
-    TYPE_PAST_EXAM = 'past_exam'
-    TYPE_EXIT_EXAM = 'exit_exam'
     TYPE_CHOICES = [
         (TYPE_LECTURE_NOTE, 'Lecture Notes'),
+        (TYPE_MODULE, 'Course Module'),
         (TYPE_WORKSHEET, 'Worksheet'),
-        (TYPE_PAST_EXAM, 'Past Exam'),
-        (TYPE_EXIT_EXAM, 'Exit Exam'),
     ]
 
     ACCESS_FREE = 'free'

@@ -1,5 +1,6 @@
 from django.contrib import admin
 from unfold.admin import ModelAdmin
+from django.contrib import messages
 from unfold.admin import ModelAdmin, TabularInline
 from .models import (
     Department,
@@ -201,7 +202,7 @@ class FileInboxAdmin(ModelAdmin):
         'processing_error',
         'created_at',
     ]
-    actions = ['mark_as_processed']
+    actions = ['mark_as_processed', 'publish_as_resource', 'extract_questions']
     fieldsets = (
         ('File Info', {
             'fields': (
@@ -250,5 +251,89 @@ class FileInboxAdmin(ModelAdmin):
         queryset.update(processing_status=FileInbox.STATUS_PROCESSED)
         self.message_user(
             request,
-            f'{queryset.count()} item(s) marked as processed.'
+            f'{queryset.count()} item(s) marked as processed.',
+        )
+
+    @admin.action(description='Publish selected as Resource — assign course after')
+    def publish_as_resource(self, request, queryset):
+        created = 0
+        for item in queryset.filter(
+                processing_status=FileInbox.STATUS_PROCESSED,
+                assigned_resource__isnull=True,
+        ):
+            resource = Resource.objects.create(
+                title=item.original_filename,
+                file=item.file,
+                file_type=Resource.TYPE_LECTURE_NOTE,
+                extracted_text=item.extracted_text,
+                access_level=Resource.ACCESS_PREMIUM,
+                status=Resource.STATUS_PENDING,
+                course_id=1,
+                telegram_message_id=item.telegram_message_id,
+                original_caption=item.telegram_caption,
+            )
+            item.assigned_resource = resource
+            item.save(update_fields=['assigned_resource'])
+            created += 1
+        self.message_user(
+            request,
+            f'{created} resource(s) created. Please update the course for each one.',
+        )
+
+    @admin.action(description='Extract questions from selected files using AI')
+    def extract_questions(self, request, queryset):
+        from apps.bot.extractor import extract_questions_from_text
+        from apps.quiz.models import Question
+
+        eligible = queryset.filter(
+            processing_status=FileInbox.STATUS_PROCESSED,
+        ).exclude(extracted_text='')
+
+        if not eligible.exists():
+            self.message_user(
+                request,
+                'No eligible files found. Files must be processed and have extracted text.',
+                level=messages.WARNING,
+            )
+            return
+
+        total_created = 0
+
+        for item in eligible:
+            questions_data = extract_questions_from_text(item.extracted_text)
+
+            if not questions_data:
+                self.message_user(
+                    request,
+                    f'No questions found in: {item.original_filename}',
+                    level=messages.WARNING,
+                )
+                continue
+
+            for q_data in questions_data:
+                Question.objects.create(
+                    text=q_data.get('question', ''),
+                    option_a=q_data.get('option_a', ''),
+                    option_b=q_data.get('option_b', ''),
+                    option_c=q_data.get('option_c', ''),
+                    option_d=q_data.get('option_d', ''),
+                    option_e=q_data.get('option_e', ''),
+                    correct_option=q_data.get('correct_option', ''),
+                    explanation=q_data.get('explanation', ''),
+                    access_level=Question.ACCESS_PREMIUM,
+                    is_active=False,
+                )
+                total_created += 1
+
+            self.message_user(
+                request,
+                f'Extracted {len(questions_data)} questions from {item.original_filename}. '
+                f'Please review and assign department/course in Questions admin.',
+                level=messages.SUCCESS,
+            )
+
+        self.message_user(
+            request,
+            f'Total questions created: {total_created}. Go to Quiz > Questions to review.',
+            level=messages.SUCCESS,
         )

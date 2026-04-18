@@ -1,11 +1,16 @@
 from django.db import models
 
+
 class ExamPaper(models.Model):
     TYPE_FINAL = 'final'
-    TYPE_EXIT = 'exit'
+    TYPE_EXIT_REAL = 'exit_real'
+    TYPE_EXIT_MODEL = 'exit_model'
+    TYPE_QUIZ = 'quiz'
     TYPE_CHOICES = [
         (TYPE_FINAL, 'Final Exam'),
-        (TYPE_EXIT, 'Exit Exam'),
+        (TYPE_EXIT_REAL, 'Exit Exam — Official'),
+        (TYPE_EXIT_MODEL, 'Exit Exam — Model'),
+        (TYPE_QUIZ, 'Team Quiz'),
     ]
 
     ACCESS_FREE = 'free'
@@ -18,14 +23,22 @@ class ExamPaper(models.Model):
     title = models.CharField(max_length=500)
     course = models.ForeignKey(
         'content.Course',
-        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
         related_name='exam_papers',
+        help_text='Required for Final Exam and Team Quiz. Leave blank for Exit Exams.',
     )
-    exam_type = models.CharField(max_length=10, choices=TYPE_CHOICES)
+    department = models.ForeignKey(
+        'content.Department',
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name='exam_papers',
+        help_text='Required for Exit Exams. Leave blank for Final Exam and Team Quiz.',
+    )
+    exam_type = models.CharField(max_length=15, choices=TYPE_CHOICES)
     year = models.IntegerField()
-
-    # These are nullable — unknown until admin fills them in
-    # after extraction from the uploaded PDF/image
     duration_minutes = models.IntegerField(
         null=True,
         blank=True,
@@ -35,7 +48,6 @@ class ExamPaper(models.Model):
         blank=True,
         help_text='Official exam instructions shown to students before simulation starts.',
     )
-
     access_level = models.CharField(
         max_length=10,
         choices=ACCESS_CHOICES,
@@ -57,7 +69,7 @@ class ExamPaper(models.Model):
         verbose_name = 'Exam Paper'
         verbose_name_plural = 'Exam Papers'
         ordering = ['-year']
-        unique_together = ['course', 'exam_type', 'year']
+        unique_together = ['course', 'department', 'exam_type', 'year']
 
     def __str__(self):
         return f'{self.title} ({self.year})'
@@ -68,12 +80,11 @@ class ExamPaper(models.Model):
 
     @property
     def is_ready(self):
-        """
-        An exam is ready for simulation only when:
-        - It has questions
-        - Duration is set by admin
-        """
         return self.total_questions > 0 and self.duration_minutes is not None
+
+    @property
+    def is_exit_exam(self):
+        return self.exam_type in [self.TYPE_EXIT_REAL, self.TYPE_EXIT_MODEL]
 
 
 class Question(models.Model):
@@ -87,7 +98,7 @@ class Question(models.Model):
         (OPTION_B, 'B'),
         (OPTION_C, 'C'),
         (OPTION_D, 'D'),
-        (OPTION_E, 'E'),  # some exams have 5 options
+        (OPTION_E, 'E'),
     ]
 
     DIFFICULTY_EASY = 'easy'
@@ -107,8 +118,6 @@ class Question(models.Model):
     ]
 
     text = models.TextField()
-
-    # Options — e is nullable since not all exams have 5 options
     option_a = models.CharField(max_length=500)
     option_b = models.CharField(max_length=500)
     option_c = models.CharField(max_length=500)
@@ -118,7 +127,6 @@ class Question(models.Model):
         blank=True,
         help_text='Optional 5th choice — only used if exam paper has 5 options',
     )
-
     correct_option = models.CharField(
         max_length=1,
         choices=OPTION_CHOICES,
@@ -131,8 +139,19 @@ class Question(models.Model):
     )
     course = models.ForeignKey(
         'content.Course',
-        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
         related_name='questions',
+        help_text='For final exam and team quiz questions.',
+    )
+    department = models.ForeignKey(
+        'content.Department',
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name='questions',
+        help_text='For exit exam questions.',
     )
     exam_paper = models.ForeignKey(
         ExamPaper,
@@ -206,6 +225,13 @@ class QuizAttempt(models.Model):
     )
     course = models.ForeignKey(
         'content.Course',
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name='quiz_attempts',
+    )
+    department = models.ForeignKey(
+        'content.Department',
         null=True,
         blank=True,
         on_delete=models.SET_NULL,

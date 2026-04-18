@@ -261,31 +261,33 @@ class QuestionListView(APIView):
     permission_classes = [IsTelegramAuthenticated]
 
     def get(self, request, course_id):
-        import random
+        from apps.quiz.engine import get_practice_questions, get_topic_questions
 
         student = request.student
         mode = request.query_params.get('mode', 'practice')
         limit = int(request.query_params.get('limit', 10))
         topic = request.query_params.get('topic')
+        department_id = request.query_params.get('department')
 
-        questions = Question.objects.filter(
-            course_id=course_id,
-            is_active=True,
+        if mode == 'topic' and department_id and topic:
+            questions = get_topic_questions(
+                department_id=int(department_id),
+                topic=topic,
+                is_premium=student.is_premium,
+                limit=limit,
+            )
+        else:
+            questions = get_practice_questions(
+                course_id=course_id,
+                is_premium=student.is_premium,
+                limit=limit,
+                topic=topic,
+            )
+
+        serializer = (
+            QuestionSerializer if mode == 'practice'
+            else QuestionSimulationSerializer
         )
-
-        # Free users only get free questions
-        if not student.is_premium:
-            questions = questions.filter(access_level=Question.ACCESS_FREE)
-            limit = min(limit, 5)
-
-        if topic:
-            questions = questions.filter(topic_tags__contains=topic)
-
-        questions = list(questions)
-        random.shuffle(questions)
-        questions = questions[:limit]
-
-        serializer = QuestionSerializer if mode == 'practice' else QuestionSimulationSerializer
         return Response(serializer(questions, many=True).data)
 
 
@@ -303,7 +305,7 @@ class ExamPaperListView(APIView):
 
         if department_id:
             exams = exams.filter(
-                course__placements__department_id=department_id
+                department_id=department_id
             ).distinct()
 
         return Response(
@@ -319,29 +321,39 @@ class ExamPaperQuestionsView(APIView):
     permission_classes = [IsTelegramAuthenticated]
 
     def get(self, request, exam_id):
-        try:
-            exam = ExamPaper.objects.get(id=exam_id, is_active=True)
-        except ExamPaper.DoesNotExist:
+        from apps.quiz.engine import get_simulation_questions
+
+        student = request.student
+        mode = request.query_params.get('mode', 'simulation')
+
+        questions = get_simulation_questions(
+            exam_paper_id=exam_id,
+            is_premium=student.is_premium,
+        )
+
+        if questions is None:
+            try:
+                exam = ExamPaper.objects.get(id=exam_id)
+                if exam.access_level == ExamPaper.ACCESS_PREMIUM and not student.is_premium:
+                    return Response(
+                        {
+                            'error': 'INSUFFICIENT_ACCESS',
+                            'message': 'Upgrade to premium to access this exam.',
+                            'upgrade_required': True,
+                        },
+                        status=status.HTTP_403_FORBIDDEN,
+                    )
+            except ExamPaper.DoesNotExist:
+                pass
             return Response(
-                {'error': 'NOT_FOUND', 'message': 'Exam not found.'},
+                {'error': 'NOT_FOUND', 'message': 'Exam not found or not ready.'},
                 status=status.HTTP_404_NOT_FOUND,
             )
 
-        # Check access
-        if exam.access_level == ExamPaper.ACCESS_PREMIUM and not request.student.is_premium:
-            return Response(
-                {
-                    'error': 'INSUFFICIENT_ACCESS',
-                    'message': 'Upgrade to premium to access this exam.',
-                    'upgrade_required': True,
-                },
-                status=status.HTTP_403_FORBIDDEN,
-            )
-
-        questions = exam.questions.filter(is_active=True)
-        mode = request.query_params.get('mode', 'simulation')
-        serializer = QuestionSerializer if mode == 'practice' else QuestionSimulationSerializer
-
+        serializer = (
+            QuestionSerializer if mode == 'practice'
+            else QuestionSimulationSerializer
+        )
         return Response(serializer(questions, many=True).data)
 
 
@@ -353,15 +365,15 @@ class ExitExamTopicsView(APIView):
 
         questions = Question.objects.filter(
             is_active=True,
-            exam_paper__exam_type=ExamPaper.TYPE_EXIT,
+            exam_paper__exam_type__in=[
+                ExamPaper.TYPE_EXIT_REAL,
+                ExamPaper.TYPE_EXIT_MODEL,
+            ],
         )
 
         if department_id:
-            questions = questions.filter(
-                course__placements__department_id=department_id
-            )
+            questions = questions.filter(department_id=department_id)
 
-        # Collect all topic tags
         topics = {}
         for q in questions.exclude(topic_tags=[]):
             for tag in q.topic_tags:
@@ -378,11 +390,14 @@ class QuizAttemptView(APIView):
     permission_classes = [IsTelegramAuthenticated]
 
     def post(self, request):
+        from apps.quiz.engine import calculate_score
+
         student = request.student
         answers = request.data.get('answers', [])
         mode = request.data.get('mode', 'practice')
         course_id = request.data.get('course_id')
         exam_paper_id = request.data.get('exam_paper_id')
+        department_id = request.data.get('department_id')
 
         if not answers:
             return Response(
@@ -390,52 +405,31 @@ class QuizAttemptView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        # Calculate score
-        score = 0
-        total = len(answers)
-        results = []
+        question_ids = [a.get('question_id') for a in answers]
+        questions = list(Question.objects.filter(
+            id__in=question_ids,
+            is_active=True,
+        ))
 
-        for answer in answers:
-            question_id = answer.get('question_id')
-            selected = answer.get('selected_option')
+        result = calculate_score(questions=questions, answers=answers)
 
-            try:
-                question = Question.objects.get(id=question_id, is_active=True)
-                is_correct = question.correct_option == selected
-                if is_correct:
-                    score += 1
-                results.append({
-                    'question_id': question_id,
-                    'question': question.text,
-                    'selected_option': selected,
-                    'correct_option': question.correct_option,
-                    'is_correct': is_correct,
-                    'explanation': question.explanation,
-                    'options': question.available_options,
-                })
-            except Question.DoesNotExist:
-                pass
-
-        percentage = round((score / total) * 100, 1) if total > 0 else 0
-
-        # Save attempt
         attempt = QuizAttempt.objects.create(
             student=student,
             course_id=course_id,
             exam_paper_id=exam_paper_id,
-            score=score,
-            total_questions=total,
-            answers={a['question_id']: a['selected_option'] for a in answers},
+            department_id=department_id,
+            score=result['score'],
+            total_questions=result['total'],
+            answers={
+                str(a['question_id']): a['selected_option']
+                for a in answers
+            },
             mode=mode,
         )
 
         return Response({
             'attempt_id': attempt.id,
-            'score': score,
-            'total': total,
-            'percentage': percentage,
-            'passed': percentage >= 50,
-            'results': results,
+            **result,
         })
 
     def get(self, request):
@@ -451,41 +445,8 @@ class PerformanceView(APIView):
     permission_classes = [IsTelegramAuthenticated, IsPremium]
 
     def get(self, request):
-        student = request.student
-        attempts = QuizAttempt.objects.filter(student=student)
-
-        total_attempts = attempts.count()
-        if total_attempts == 0:
-            return Response({
-                'total_attempts': 0,
-                'average_score': 0,
-                'best_score': 0,
-                'weak_topics': [],
-                'score_over_time': [],
-                'attempts_by_course': [],
-            })
-
-        scores = [a.percentage for a in attempts]
-        average_score = round(sum(scores) / len(scores), 1)
-        best_score = max(scores)
-
-        # Score over time
-        score_over_time = [
-            {
-                'date': a.completed_at.strftime('%Y-%m-%d'),
-                'score': a.percentage,
-            }
-            for a in attempts.order_by('completed_at')[:30]
-        ]
-
-        return Response({
-            'total_attempts': total_attempts,
-            'average_score': average_score,
-            'best_score': best_score,
-            'weak_topics': [],
-            'score_over_time': score_over_time,
-            'attempts_by_course': [],
-        })
+        from apps.quiz.engine import get_performance_summary
+        return Response(get_performance_summary(request.student))
 
 
 # ─── SUBSCRIPTION ─────────────────────────────────────────────────────────────
