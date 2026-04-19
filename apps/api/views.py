@@ -479,9 +479,11 @@ class SubscriptionRequestView(APIView):
     def post(self, request):
         import random
         import string
-        from apps.accounts.models import SubscriptionPlan, SiteSettings
+        from apps.accounts.models import SubscriptionPlan, SiteSettings, SubscriptionRequest
 
-        plan_id = request.data.get('plan')
+        plan_id        = request.data.get('plan')
+        payment_method = request.data.get('payment_method', 'telebirr')  # telebirr or cbe
+        paid_from      = request.data.get('paid_from', '')  # phone or account number student paid from
 
         try:
             plan = SubscriptionPlan.objects.get(plan_id=plan_id, is_active=True)
@@ -491,29 +493,92 @@ class SubscriptionRequestView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        settings_obj = SiteSettings.get()
-        reference    = 'UNI-' + ''.join(random.choices(string.digits, k=5))
+        # Check if student already has a pending request for this plan
+        existing = SubscriptionRequest.objects.filter(
+            student=request.student,
+            plan=plan,
+            status=SubscriptionRequest.STATUS_PENDING,
+        ).first()
 
-        instructions = f'Send ETB {plan.price} to Telebirr: {settings_obj.telebirr_number}'
-        if settings_obj.telebirr_name:
-            instructions += f' ({settings_obj.telebirr_name})'
+        if existing:
+            # Return the existing pending request instead of creating a new one
+            return _build_payment_response(existing, plan)
+
+        # Generate unique reference
+        while True:
+            reference = 'UNI-' + ''.join(random.choices(string.digits, k=5))
+            if not SubscriptionRequest.objects.filter(reference=reference).exists():
+                break
+
+        # Save the request
+        sub_request = SubscriptionRequest.objects.create(
+            student=request.student,
+            plan=plan,
+            reference=reference,
+            payment_method=payment_method,
+            paid_from=paid_from,
+            amount=plan.price,
+            status=SubscriptionRequest.STATUS_PENDING,
+        )
+
+        return _build_payment_response(sub_request, plan)
+
+    def get(self, request):
+        from apps.accounts.models import SubscriptionRequest, SiteSettings
+
+        pending = SubscriptionRequest.objects.filter(
+            student=request.student,
+            status=SubscriptionRequest.STATUS_PENDING,
+        ).select_related('plan').first()
+
+        settings_obj = SiteSettings.get()
 
         return Response({
-            'reference':               reference,
-            'plan':                    plan.name,
-            'amount':                  float(plan.price),
-            'instructions':            instructions,
-            'note':                    f'Include reference {reference} in your payment note.',
-            'additional_instructions': settings_obj.payment_instructions or '',
-            'days':                    plan.days,
+            'has_pending_request': pending is not None,
+            'pending_request': {
+                'reference': pending.reference,
+                'plan': pending.plan.name,
+                'amount': float(pending.amount),
+                'requested_at': pending.requested_at,
+            } if pending else None,
             'payment_options': {
                 'telebirr': {
                     'number': settings_obj.telebirr_number,
-                    'name':   settings_obj.telebirr_name,
+                    'name': settings_obj.telebirr_name,
                 },
                 'cbe': {
                     'account': settings_obj.cbe_account,
-                    'name':    settings_obj.cbe_name,
+                    'name': settings_obj.cbe_name,
                 } if settings_obj.cbe_account else None,
-            }
+            },
         })
+
+
+def _build_payment_response(sub_request, plan):
+    from apps.accounts.models import SiteSettings
+    from rest_framework.response import Response
+
+    settings_obj = SiteSettings.get()
+
+    payment_options = {
+        'telebirr': {
+            'number': settings_obj.telebirr_number,
+            'name':   settings_obj.telebirr_name,
+        },
+    }
+    if settings_obj.cbe_account:
+        payment_options['cbe'] = {
+            'account': settings_obj.cbe_account,
+            'name':    settings_obj.cbe_name,
+        }
+
+    return Response({
+        'reference':               sub_request.reference,
+        'plan':                    plan.name,
+        'amount':                  float(plan.price),
+        'days':                    plan.days,
+        'status':                  sub_request.status,
+        'note':                    f'Include reference {sub_request.reference} in your payment note.',
+        'additional_instructions': settings_obj.payment_instructions or '',
+        'payment_options':         payment_options,
+    })
