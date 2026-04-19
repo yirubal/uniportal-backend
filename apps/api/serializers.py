@@ -92,7 +92,6 @@ class ResourceSerializer(serializers.ModelSerializer):
         request = self.context.get('request')
         if not request or not hasattr(request, 'student'):
             return None
-        # Only return URL if not locked
         if obj.access_level == Resource.ACCESS_PREMIUM and not request.student.is_premium:
             return None
         if obj.file:
@@ -102,15 +101,18 @@ class ResourceSerializer(serializers.ModelSerializer):
 
 class QuestionSerializer(serializers.ModelSerializer):
     """
-    Serializer for practice mode — includes correct answer and explanation.
+    Practice mode — includes correct answer, explanation, and question_type.
+    Frontend uses question_type to render the correct UI component.
     """
     available_options = serializers.DictField(read_only=True)
+    is_auto_gradable = serializers.BooleanField(read_only=True)
 
     class Meta:
         model = Question
         fields = [
             'id',
             'text',
+            'question_type',
             'option_a',
             'option_b',
             'option_c',
@@ -122,26 +124,31 @@ class QuestionSerializer(serializers.ModelSerializer):
             'topic_tags',
             'year_source',
             'available_options',
+            'is_auto_gradable',
         ]
 
 
 class QuestionSimulationSerializer(serializers.ModelSerializer):
     """
-    Serializer for simulation mode — hides correct answer and explanation.
+    Simulation mode — hides correct answer and explanation.
+    Still exposes question_type so frontend renders the right input.
     """
     available_options = serializers.DictField(read_only=True)
+    is_auto_gradable = serializers.BooleanField(read_only=True)
 
     class Meta:
         model = Question
         fields = [
             'id',
             'text',
+            'question_type',
             'option_a',
             'option_b',
             'option_c',
             'option_d',
             'option_e',
             'available_options',
+            'is_auto_gradable',
         ]
 
 
@@ -149,6 +156,8 @@ class ExamPaperSerializer(serializers.ModelSerializer):
     total_questions = serializers.IntegerField(read_only=True)
     is_ready = serializers.BooleanField(read_only=True)
     is_locked = serializers.SerializerMethodField()
+    department = DepartmentSerializer(read_only=True)
+    course = CourseSerializer(read_only=True)
 
     class Meta:
         model = ExamPaper
@@ -163,6 +172,8 @@ class ExamPaperSerializer(serializers.ModelSerializer):
             'total_questions',
             'is_ready',
             'is_locked',
+            'department',
+            'course',
         ]
 
     def get_is_locked(self, obj) -> bool:
@@ -177,11 +188,13 @@ class ExamPaperSerializer(serializers.ModelSerializer):
 class QuizAttemptSerializer(serializers.ModelSerializer):
     percentage = serializers.FloatField(read_only=True)
     passed = serializers.BooleanField(read_only=True)
+    exam_paper = ExamPaperSerializer(read_only=True)
 
     class Meta:
         model = QuizAttempt
         fields = [
             'id',
+            'exam_paper',
             'score',
             'total_questions',
             'percentage',

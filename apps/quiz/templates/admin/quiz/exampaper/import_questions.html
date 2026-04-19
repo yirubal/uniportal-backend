@@ -1,0 +1,300 @@
+{% extends "admin/base.html" %}
+{% load i18n %}
+
+{% block title %}Import Questions — {{ site_title }}{% endblock %}
+
+{% block extrahead %}
+{{ block.super }}
+<style>
+  .bm-wrap {
+    max-width: 620px;
+    margin: 0 auto;
+    padding: 1.5rem 0 4rem;
+  }
+  .bm-card {
+    background-color: var(--color-base-50, #f9fafb);
+    border: 1px solid var(--color-base-200, #e5e7eb);
+    border-radius: var(--border-radius, 6px);
+    padding: 1.25rem 1.5rem;
+    margin-bottom: 1rem;
+  }
+  .dark .bm-card {
+    background-color: var(--color-base-900, #111827);
+    border-color: var(--color-base-700, #374151);
+  }
+  .bm-section-label {
+    font-size: 0.65rem;
+    font-weight: 600;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--color-base-400, #9ca3af);
+    margin-bottom: 0.85rem;
+    display: block;
+  }
+  .bm-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    margin-bottom: 1.5rem;
+    gap: 1rem;
+  }
+  .bm-header h1 {
+    font-size: 1.25rem;
+    font-weight: 700;
+    color: var(--color-base-800, #1f2937);
+    margin: 0 0 0.25rem;
+  }
+  .dark .bm-header h1 { color: var(--color-base-100, #f3f4f6); }
+  .bm-header p {
+    font-size: 0.8rem;
+    color: var(--color-base-400, #9ca3af);
+    margin: 0;
+  }
+  .bm-paper-badge {
+    display: inline-flex;
+    align-items: center;
+    font-size: 0.72rem;
+    font-weight: 600;
+    padding: 0.25rem 0.65rem;
+    border-radius: 999px;
+    background: color-mix(in oklch, var(--color-primary-500, #8b5cf6) 12%, transparent);
+    color: var(--color-primary-600, #7c3aed);
+    border: 1px solid color-mix(in oklch, var(--color-primary-500, #8b5cf6) 25%, transparent);
+    white-space: nowrap;
+  }
+  .dark .bm-paper-badge { color: var(--color-primary-300, #c4b5fd); }
+  /* Upload zone */
+  .bm-upload-zone {
+    border: 2px dashed var(--color-base-300, #d1d5db);
+    border-radius: var(--border-radius, 6px);
+    padding: 2rem;
+    text-align: center;
+    cursor: pointer;
+    transition: border-color 0.15s, background 0.15s;
+    position: relative;
+  }
+  .dark .bm-upload-zone {
+    border-color: var(--color-base-600, #4b5563);
+  }
+  .bm-upload-zone:hover,
+  .bm-upload-zone.dragover {
+    border-color: var(--color-primary-500, #8b5cf6);
+    background: color-mix(in oklch, var(--color-primary-500, #8b5cf6) 5%, transparent);
+  }
+  .bm-upload-zone input[type="file"] {
+    position: absolute;
+    inset: 0;
+    opacity: 0;
+    cursor: pointer;
+    width: 100%;
+    height: 100%;
+  }
+  .bm-upload-icon {
+    font-size: 2rem;
+    margin-bottom: 0.5rem;
+    display: block;
+  }
+  .bm-upload-label {
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: var(--color-base-700, #374151);
+    display: block;
+    margin-bottom: 0.25rem;
+  }
+  .dark .bm-upload-label { color: var(--color-base-200, #e5e7eb); }
+  .bm-upload-hint {
+    font-size: 0.78rem;
+    color: var(--color-base-400, #9ca3af);
+  }
+  .bm-file-selected {
+    display: none;
+    margin-top: 0.75rem;
+    font-size: 0.82rem;
+    font-weight: 500;
+    color: var(--color-primary-600, #7c3aed);
+  }
+  .dark .bm-file-selected { color: var(--color-primary-300, #c4b5fd); }
+  /* Info list */
+  .bm-info-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+  }
+  .bm-info-list li {
+    font-size: 0.82rem;
+    color: var(--color-base-600, #4b5563);
+    padding-left: 1.1rem;
+    position: relative;
+    line-height: 1.5;
+  }
+  .dark .bm-info-list li { color: var(--color-base-300, #d1d5db); }
+  .bm-info-list li::before {
+    content: '→';
+    position: absolute;
+    left: 0;
+    color: var(--color-primary-500, #8b5cf6);
+    font-size: 0.75rem;
+  }
+  /* Template link */
+  .bm-template-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    font-size: 0.82rem;
+    font-weight: 500;
+    color: var(--color-primary-600, #7c3aed);
+    text-decoration: none;
+    padding: 0.4rem 0.75rem;
+    border-radius: var(--border-radius, 6px);
+    border: 1px solid color-mix(in oklch, var(--color-primary-500, #8b5cf6) 30%, transparent);
+    background: color-mix(in oklch, var(--color-primary-500, #8b5cf6) 8%, transparent);
+    transition: all 0.15s;
+  }
+  .bm-template-link:hover {
+    background: color-mix(in oklch, var(--color-primary-500, #8b5cf6) 15%, transparent);
+  }
+  .dark .bm-template-link { color: var(--color-primary-300, #c4b5fd); }
+  /* Actions */
+  .bm-actions {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding-top: 0.5rem;
+  }
+  .bm-btn-submit {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.6rem 1.4rem;
+    border-radius: var(--border-radius, 6px);
+    font-size: 0.875rem;
+    font-weight: 600;
+    cursor: pointer;
+    border: none;
+    background: var(--color-primary-600, #7c3aed);
+    color: #fff;
+    transition: background 0.15s, transform 0.1s;
+  }
+  .bm-btn-submit:hover {
+    background: var(--color-primary-700, #6d28d9);
+    transform: translateY(-1px);
+  }
+  .bm-btn-cancel {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.6rem 1rem;
+    border-radius: var(--border-radius, 6px);
+    font-size: 0.82rem;
+    font-weight: 500;
+    text-decoration: none;
+    color: var(--color-base-500, #6b7280);
+    border: 1px solid var(--color-base-200, #e5e7eb);
+    background: transparent;
+    transition: all 0.15s;
+  }
+  .bm-btn-cancel:hover {
+    color: var(--color-base-700, #374151);
+    border-color: var(--color-base-300, #d1d5db);
+  }
+  .dark .bm-btn-cancel {
+    border-color: var(--color-base-600, #4b5563);
+    color: var(--color-base-400, #9ca3af);
+  }
+  .dark .bm-btn-cancel:hover {
+    color: var(--color-base-200, #e5e7eb);
+    border-color: var(--color-base-500, #6b7280);
+    background: var(--color-base-800, #1f2937);
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="bm-wrap">
+  <form method="post" enctype="multipart/form-data">
+    {% csrf_token %}
+
+    <div class="bm-header">
+      <div>
+        <h1>Import Questions from Excel</h1>
+        <p>Questions will be created as inactive — review and activate after import.</p>
+      </div>
+      <span class="bm-paper-badge">{{ exam_paper.title }} · {{ exam_paper.year }}</span>
+    </div>
+
+    <!-- Template download -->
+    <div class="bm-card">
+      <span class="bm-section-label">Step 1 — Get the Template</span>
+      <p style="font-size:0.82rem; color:var(--color-base-500,#6b7280); margin:0 0 0.75rem;">
+        Download the official Excel template, fill in your questions, then upload below.
+      </p>
+      <a href="{{ template_url }}" class="bm-template-link" download>
+        ⬇ Download quiz_import_template.xlsx
+      </a>
+    </div>
+
+    <!-- Upload -->
+    <div class="bm-card">
+      <span class="bm-section-label">Step 2 — Upload Filled Template</span>
+      <div class="bm-upload-zone" id="upload-zone">
+        <input type="file" name="excel_file" accept=".xlsx,.xls"
+               id="excel-file-input" required>
+        <span class="bm-upload-icon">📊</span>
+        <span class="bm-upload-label">Click to choose file or drag & drop</span>
+        <span class="bm-upload-hint">.xlsx or .xls files only</span>
+        <span class="bm-file-selected" id="file-name-display"></span>
+      </div>
+    </div>
+
+    <!-- Rules -->
+    <div class="bm-card">
+      <span class="bm-section-label">What happens on import</span>
+      <ul class="bm-info-list">
+        <li>Each row in the Questions sheet becomes one Question record.</li>
+        <li>All imported questions are set to <strong>inactive</strong> — you review them first.</li>
+        <li>After import you will be redirected to the Questions list filtered to this exam paper.</li>
+        <li>Rows with missing question text or invalid question_type are skipped with a warning.</li>
+        <li>true_false options are enforced automatically — no need to fill option_a/b.</li>
+        <li>difficulty defaults to <strong>medium</strong> if left blank.</li>
+      </ul>
+    </div>
+
+    <div class="bm-actions">
+      <a href="{% url 'admin:quiz_exampaper_change' exam_paper.id %}" class="bm-btn-cancel">
+        ← Back to Exam Paper
+      </a>
+      <button type="submit" class="bm-btn-submit">
+        Import Questions →
+      </button>
+    </div>
+
+  </form>
+</div>
+
+<script>
+  const input = document.getElementById('excel-file-input');
+  const zone  = document.getElementById('upload-zone');
+  const label = document.getElementById('file-name-display');
+
+  input.addEventListener('change', () => {
+    if (input.files.length) {
+      label.style.display = 'block';
+      label.textContent = '✓ ' + input.files[0].name;
+    }
+  });
+
+  zone.addEventListener('dragover', e => { e.preventDefault(); zone.classList.add('dragover'); });
+  zone.addEventListener('dragleave', () => zone.classList.remove('dragover'));
+  zone.addEventListener('drop', e => {
+    e.preventDefault();
+    zone.classList.remove('dragover');
+    if (e.dataTransfer.files.length) {
+      input.files = e.dataTransfer.files;
+      label.style.display = 'block';
+      label.textContent = '✓ ' + e.dataTransfer.files[0].name;
+    }
+  });
+</script>
+{% endblock %}

@@ -1,5 +1,6 @@
 from django.urls import path
 from . import views
+from .views import TopicQuestionsView
 
 urlpatterns = [
     # Auth
@@ -22,7 +23,7 @@ urlpatterns = [
     path('resources/<int:resource_id>/download/', views.ResourceDownloadView.as_view(), name='resource-download'),
 
     # Quiz
-    path('courses/<int:course_id>/questions/', views.QuestionListView.as_view(), name='question-list'),
+    # path('courses/<int:course_id>/questions/', views.QuestionListView.as_view(), name='question-list'),
     path('quiz/attempts/', views.QuizAttemptView.as_view(), name='quiz-attempts'),
 
     # Exams
@@ -33,4 +34,5 @@ urlpatterns = [
     # Subscription
     path('subscription/plans/', views.SubscriptionPlansView.as_view(), name='subscription-plans'),
     path('subscription/request/', views.SubscriptionRequestView.as_view(), name='subscription-request'),
+    path('exit-exams/topics/questions/', TopicQuestionsView.as_view()),
 ]

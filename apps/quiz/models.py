@@ -308,7 +308,7 @@ class QuizAttempt(models.Model):
 
     @property
     def percentage(self):
-        if self.total_questions == 0:
+        if not self.total_questions or not self.score:
             return 0
         return round((self.score / self.total_questions) * 100, 1)
 

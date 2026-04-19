@@ -1,12 +1,10 @@
 from django.shortcuts import render
 
-# Create your views here.
 import logging
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
 from rest_framework.permissions import AllowAny
-from django.utils import timezone
 from django.conf import settings
 
 from apps.accounts.models import Student
@@ -29,7 +27,7 @@ from .permissions import IsTelegramAuthenticated, IsPremium, FreeQuotaNotExceede
 logger = logging.getLogger(__name__)
 
 
-# ─── AUTH ────────────────────────────────────────────────────────────────────
+# ─── AUTH ─────────────────────────────────────────────────────────────────────
 
 class TelegramAuthView(APIView):
     permission_classes = [AllowAny]
@@ -37,7 +35,6 @@ class TelegramAuthView(APIView):
     def post(self, request):
         init_data = request.data.get('init_data', '')
 
-        # Dev mode — allow mock login
         if settings.DEBUG and request.data.get('dev_mode'):
             student, _ = Student.objects.get_or_create(
                 telegram_id=request.data.get('telegram_id', 999999),
@@ -60,13 +57,12 @@ class TelegramAuthView(APIView):
                 status=status.HTTP_401_UNAUTHORIZED,
             )
 
-        # Create or update student
         student, created = Student.objects.update_or_create(
             telegram_id=user_data['id'],
             defaults={
                 'first_name': user_data.get('first_name', ''),
-                'last_name': user_data.get('last_name', ''),
-                'username': user_data.get('username', ''),
+                'last_name':  user_data.get('last_name', ''),
+                'username':   user_data.get('username', ''),
             }
         )
 
@@ -80,12 +76,12 @@ class TelegramAuthView(APIView):
 def _generate_jwt(student: Student) -> str:
     from rest_framework_simplejwt.tokens import RefreshToken
     refresh = RefreshToken()
-    refresh['student_id'] = student.id
+    refresh['student_id']  = student.id
     refresh['telegram_id'] = student.telegram_id
     return str(refresh.access_token)
 
 
-# ─── STUDENT ─────────────────────────────────────────────────────────────────
+# ─── STUDENT ──────────────────────────────────────────────────────────────────
 
 class StudentProfileView(APIView):
     permission_classes = [IsTelegramAuthenticated]
@@ -113,34 +109,34 @@ class StudentWatermarkView(APIView):
     permission_classes = [IsTelegramAuthenticated]
 
     def get(self, request):
-        student = request.student
+        student  = request.student
         username = f'@{student.username}' if student.username else f'ID:{student.telegram_id}'
         watermark = f'{username} · {student.telegram_id} · Unity Uni'
         return Response({'watermark': watermark})
 
 
-# ─── DEPARTMENTS ─────────────────────────────────────────────────────────────
+# ─── DEPARTMENTS ──────────────────────────────────────────────────────────────
 
 class DepartmentListView(APIView):
     permission_classes = [AllowAny]
 
     def get(self, request):
-        level = request.query_params.get('level')
+        level       = request.query_params.get('level')
         departments = Department.objects.filter(is_active=True)
         if level:
             departments = departments.filter(level=level)
         return Response(DepartmentSerializer(departments, many=True).data)
 
 
-# ─── COURSES ─────────────────────────────────────────────────────────────────
+# ─── COURSES ──────────────────────────────────────────────────────────────────
 
 class CourseListView(APIView):
     permission_classes = [IsTelegramAuthenticated]
 
     def get(self, request, department_id):
         program = request.query_params.get('program')
-        year = request.query_params.get('year')
-        period = request.query_params.get('period')
+        year    = request.query_params.get('year')
+        period  = request.query_params.get('period')
 
         placements = CoursePlacement.objects.filter(
             department_id=department_id,
@@ -156,14 +152,14 @@ class CourseListView(APIView):
         return Response(CoursePlacementSerializer(placements, many=True).data)
 
 
-# ─── RESOURCES ───────────────────────────────────────────────────────────────
+# ─── RESOURCES ────────────────────────────────────────────────────────────────
 
 class ResourceListView(APIView):
     permission_classes = [IsTelegramAuthenticated]
 
     def get(self, request, course_id):
         file_type = request.query_params.get('type')
-        search = request.query_params.get('search')
+        search    = request.query_params.get('search')
 
         resources = Resource.objects.filter(
             course_id=course_id,
@@ -181,11 +177,7 @@ class ResourceListView(APIView):
             )
 
         return Response(
-            ResourceSerializer(
-                resources,
-                many=True,
-                context={'request': request}
-            ).data
+            ResourceSerializer(resources, many=True, context={'request': request}).data
         )
 
 
@@ -203,7 +195,6 @@ class ResourceDetailView(APIView):
                 {'error': 'NOT_FOUND', 'message': 'Resource not found.'},
                 status=status.HTTP_404_NOT_FOUND,
             )
-
         return Response(
             ResourceSerializer(resource, context={'request': request}).data
         )
@@ -226,94 +217,52 @@ class ResourceDownloadView(APIView):
 
         student = request.student
 
-        # Check access
         if resource.access_level == Resource.ACCESS_PREMIUM and not student.is_premium:
             return Response(
                 {
-                    'error': 'INSUFFICIENT_ACCESS',
-                    'message': 'Upgrade to premium to download this resource.',
+                    'error':            'INSUFFICIENT_ACCESS',
+                    'message':          'Upgrade to premium to download this resource.',
                     'upgrade_required': True,
                 },
                 status=status.HTTP_403_FORBIDDEN,
             )
 
-        # Reset quota if needed
         student.reset_daily_quota()
 
-        # Log download
         resource.downloads_count += 1
         resource.save(update_fields=['downloads_count'])
 
         student.downloads_today += 1
         student.save(update_fields=['downloads_today'])
 
-        # Return download URL
         file_url = request.build_absolute_uri(resource.file.url)
         return Response({
-            'url': file_url,
+            'url':      file_url,
             'filename': resource.file.name.split('/')[-1],
         })
 
 
-# ─── QUIZ ─────────────────────────────────────────────────────────────────────
-
-class QuestionListView(APIView):
-    permission_classes = [IsTelegramAuthenticated]
-
-    def get(self, request, course_id):
-        from apps.quiz.engine import get_practice_questions, get_topic_questions
-
-        student = request.student
-        mode = request.query_params.get('mode', 'practice')
-        limit = int(request.query_params.get('limit', 10))
-        topic = request.query_params.get('topic')
-        department_id = request.query_params.get('department')
-
-        if mode == 'topic' and department_id and topic:
-            questions = get_topic_questions(
-                department_id=int(department_id),
-                topic=topic,
-                is_premium=student.is_premium,
-                limit=limit,
-            )
-        else:
-            questions = get_practice_questions(
-                course_id=course_id,
-                is_premium=student.is_premium,
-                limit=limit,
-                topic=topic,
-            )
-
-        serializer = (
-            QuestionSerializer if mode == 'practice'
-            else QuestionSimulationSerializer
-        )
-        return Response(serializer(questions, many=True).data)
-
+# ─── EXAM PAPERS ──────────────────────────────────────────────────────────────
 
 class ExamPaperListView(APIView):
     permission_classes = [IsTelegramAuthenticated]
 
     def get(self, request):
-        exam_type = request.query_params.get('type')
+        exam_type     = request.query_params.get('type')
         department_id = request.query_params.get('department')
+        course_id     = request.query_params.get('course')
 
         exams = ExamPaper.objects.filter(is_active=True)
 
         if exam_type:
             exams = exams.filter(exam_type=exam_type)
-
         if department_id:
-            exams = exams.filter(
-                department_id=department_id
-            ).distinct()
+            exams = exams.filter(department_id=department_id)
+        if course_id:
+            exams = exams.filter(course_id=course_id)
 
         return Response(
-            ExamPaperSerializer(
-                exams,
-                many=True,
-                context={'request': request}
-            ).data
+            ExamPaperSerializer(exams, many=True, context={'request': request}).data
         )
 
 
@@ -321,15 +270,23 @@ class ExamPaperQuestionsView(APIView):
     permission_classes = [IsTelegramAuthenticated]
 
     def get(self, request, exam_id):
-        from apps.quiz.engine import get_simulation_questions
+        from apps.quiz.engine import get_simulation_questions, get_practice_questions
 
         student = request.student
-        mode = request.query_params.get('mode', 'simulation')
+        mode    = request.query_params.get('mode', 'simulation')
 
-        questions = get_simulation_questions(
-            exam_paper_id=exam_id,
-            is_premium=student.is_premium,
-        )
+        if mode == 'practice':
+            questions = get_practice_questions(
+                exam_paper_id=exam_id,
+                is_premium=student.is_premium,
+                limit=int(request.query_params.get('limit', 10)),
+                topic=request.query_params.get('topic'),
+            )
+        else:
+            questions = get_simulation_questions(
+                exam_paper_id=exam_id,
+                is_premium=student.is_premium,
+            )
 
         if questions is None:
             try:
@@ -337,8 +294,8 @@ class ExamPaperQuestionsView(APIView):
                 if exam.access_level == ExamPaper.ACCESS_PREMIUM and not student.is_premium:
                     return Response(
                         {
-                            'error': 'INSUFFICIENT_ACCESS',
-                            'message': 'Upgrade to premium to access this exam.',
+                            'error':            'INSUFFICIENT_ACCESS',
+                            'message':          'Upgrade to premium to access this exam.',
                             'upgrade_required': True,
                         },
                         status=status.HTTP_403_FORBIDDEN,
@@ -350,12 +307,14 @@ class ExamPaperQuestionsView(APIView):
                 status=status.HTTP_404_NOT_FOUND,
             )
 
-        serializer = (
+        serializer_class = (
             QuestionSerializer if mode == 'practice'
             else QuestionSimulationSerializer
         )
-        return Response(serializer(questions, many=True).data)
+        return Response(serializer_class(questions, many=True).data)
 
+
+# ─── QUESTIONS ────────────────────────────────────────────────────────────────
 
 class ExitExamTopicsView(APIView):
     permission_classes = [IsTelegramAuthenticated]
@@ -369,14 +328,18 @@ class ExitExamTopicsView(APIView):
                 ExamPaper.TYPE_EXIT_REAL,
                 ExamPaper.TYPE_EXIT_MODEL,
             ],
+            exam_paper__is_active=True,
         )
 
         if department_id:
-            questions = questions.filter(department_id=department_id)
+            # Filter through exam_paper since department is no longer on Question
+            questions = questions.filter(
+                exam_paper__department_id=department_id
+            )
 
         topics = {}
         for q in questions.exclude(topic_tags=[]):
-            for tag in q.topic_tags:
+            for tag in (q.topic_tags or []):
                 topics[tag] = topics.get(tag, 0) + 1
 
         result = [
@@ -386,17 +349,49 @@ class ExitExamTopicsView(APIView):
         return Response(result)
 
 
+class TopicQuestionsView(APIView):
+    """
+    Returns questions filtered by topic tag.
+    Used for topic-based practice mode.
+    """
+    permission_classes = [IsTelegramAuthenticated]
+
+    def get(self, request):
+        from apps.quiz.engine import get_topic_questions
+
+        department_id = request.query_params.get('department')
+        topic         = request.query_params.get('topic')
+        limit         = int(request.query_params.get('limit', 20))
+
+        if not department_id or not topic:
+            return Response(
+                {'error': 'INVALID', 'message': 'department and topic are required.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        questions = get_topic_questions(
+            department_id=int(department_id),
+            topic=topic,
+            is_premium=request.student.is_premium,
+            limit=limit,
+        )
+
+        return Response(QuestionSerializer(questions, many=True).data)
+
+
+# ─── QUIZ ATTEMPTS ────────────────────────────────────────────────────────────
+
 class QuizAttemptView(APIView):
     permission_classes = [IsTelegramAuthenticated]
 
     def post(self, request):
         from apps.quiz.engine import calculate_score
 
-        student = request.student
-        answers = request.data.get('answers', [])
-        mode = request.data.get('mode', 'practice')
-        course_id = request.data.get('course_id')
+        student       = request.student
+        answers       = request.data.get('answers', [])
+        mode          = request.data.get('mode', 'practice')
         exam_paper_id = request.data.get('exam_paper_id')
+        course_id     = request.data.get('course_id')
         department_id = request.data.get('department_id')
 
         if not answers:
@@ -406,22 +401,28 @@ class QuizAttemptView(APIView):
             )
 
         question_ids = [a.get('question_id') for a in answers]
-        questions = list(Question.objects.filter(
+        questions    = list(Question.objects.filter(
             id__in=question_ids,
             is_active=True,
         ))
+
+        if not questions:
+            return Response(
+                {'error': 'INVALID', 'message': 'No valid questions found.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         result = calculate_score(questions=questions, answers=answers)
 
         attempt = QuizAttempt.objects.create(
             student=student,
-            course_id=course_id,
             exam_paper_id=exam_paper_id,
+            course_id=course_id,
             department_id=department_id,
             score=result['score'],
             total_questions=result['total'],
             answers={
-                str(a['question_id']): a['selected_option']
+                str(a['question_id']): a.get('selected_option', '')
                 for a in answers
             },
             mode=mode,
@@ -430,16 +431,17 @@ class QuizAttemptView(APIView):
         return Response({
             'attempt_id': attempt.id,
             **result,
-        })
+        }, status=status.HTTP_201_CREATED)
 
     def get(self, request):
         attempts = QuizAttempt.objects.filter(
             student=request.student
-        ).order_by('-completed_at')[:20]
+        ).select_related('exam_paper').order_by('-completed_at')[:20]
+
         return Response(QuizAttemptSerializer(attempts, many=True).data)
 
 
-# ─── PERFORMANCE ─────────────────────────────────────────────────────────────
+# ─── PERFORMANCE ──────────────────────────────────────────────────────────────
 
 class PerformanceView(APIView):
     permission_classes = [IsTelegramAuthenticated, IsPremium]
@@ -457,14 +459,14 @@ class SubscriptionPlansView(APIView):
     def get(self, request):
         from apps.accounts.models import SubscriptionPlan
         plans = SubscriptionPlan.objects.filter(is_active=True)
-        data = [
+        data  = [
             {
-                'id': p.plan_id,
-                'name': p.name,
-                'price': float(p.price),
-                'days': p.days,
+                'id':          p.plan_id,
+                'name':        p.name,
+                'price':       float(p.price),
+                'days':        p.days,
                 'description': p.description,
-                'badge': p.badge,
+                'badge':       p.badge,
             }
             for p in plans
         ]
@@ -482,10 +484,7 @@ class SubscriptionRequestView(APIView):
         plan_id = request.data.get('plan')
 
         try:
-            plan = SubscriptionPlan.objects.get(
-                plan_id=plan_id,
-                is_active=True,
-            )
+            plan = SubscriptionPlan.objects.get(plan_id=plan_id, is_active=True)
         except SubscriptionPlan.DoesNotExist:
             return Response(
                 {'error': 'INVALID_PLAN', 'message': 'Invalid plan selected.'},
@@ -493,31 +492,28 @@ class SubscriptionRequestView(APIView):
             )
 
         settings_obj = SiteSettings.get()
-        reference = 'UNI-' + ''.join(random.choices(string.digits, k=5))
+        reference    = 'UNI-' + ''.join(random.choices(string.digits, k=5))
 
-        # Build payment instructions
         instructions = f'Send ETB {plan.price} to Telebirr: {settings_obj.telebirr_number}'
         if settings_obj.telebirr_name:
             instructions += f' ({settings_obj.telebirr_name})'
 
-        additional = settings_obj.payment_instructions or ''
-
         return Response({
-            'reference': reference,
-            'plan': plan.name,
-            'amount': float(plan.price),
-            'instructions': instructions,
-            'note': f'Include reference {reference} in your payment note.',
-            'additional_instructions': additional,
-            'days': plan.days,
+            'reference':               reference,
+            'plan':                    plan.name,
+            'amount':                  float(plan.price),
+            'instructions':            instructions,
+            'note':                    f'Include reference {reference} in your payment note.',
+            'additional_instructions': settings_obj.payment_instructions or '',
+            'days':                    plan.days,
             'payment_options': {
                 'telebirr': {
                     'number': settings_obj.telebirr_number,
-                    'name': settings_obj.telebirr_name,
+                    'name':   settings_obj.telebirr_name,
                 },
                 'cbe': {
                     'account': settings_obj.cbe_account,
-                    'name': settings_obj.cbe_name,
+                    'name':    settings_obj.cbe_name,
                 } if settings_obj.cbe_account else None,
             }
         })

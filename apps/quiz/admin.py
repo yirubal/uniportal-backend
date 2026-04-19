@@ -3,6 +3,10 @@ from django.shortcuts import render, redirect
 from django.urls import path
 from django.http import HttpResponseRedirect
 from unfold.admin import ModelAdmin
+from django.http import HttpResponse, HttpResponseRedirect
+from django.urls import path, reverse
+import os
+
 
 from .models import ExamPaper, Question, QuizAttempt
 
@@ -27,7 +31,7 @@ class AssignmentStatusFilter(admin.SimpleListFilter):
         return queryset
 
 
-# ─── ExamPaper Admin ───────────────────────────────────────────────────────────
+# ─── ExamPaper Admin ───────────────────────────────────────────────────────────"
 
 @admin.register(ExamPaper)
 class ExamPaperAdmin(ModelAdmin):
@@ -101,6 +105,95 @@ class ExamPaperAdmin(ModelAdmin):
     @admin.display(description='Total Questions')
     def total_questions_display(self, obj):
         return obj.questions.filter(is_active=True).count()
+
+    # ── Extra URLs ────────────────────────────────────────────────────────────
+
+    def get_urls(self):
+        urls = super().get_urls()
+        custom = [
+            path(
+                '<int:paper_id>/import-questions/',
+                self.admin_site.admin_view(self.import_questions_view),
+                name='quiz_exampaper_import_questions',
+            ),
+            path(
+                'download-template/',
+                self.admin_site.admin_view(self.download_template_view),
+                name='quiz_exampaper_download_template',
+            ),
+        ]
+        return custom + urls
+
+    # ── Download template ─────────────────────────────────────────────────────
+
+    def download_template_view(self, request):
+        template_path = os.path.join(
+            os.path.dirname(__file__), 'static', 'quiz', 'quiz_import_template.xlsx'
+        )
+        if not os.path.exists(template_path):
+            messages.error(request, 'Template file not found. Contact the developer.')
+            return HttpResponseRedirect(reverse('admin:quiz_exampaper_changelist'))
+
+        with open(template_path, 'rb') as f:
+            response = HttpResponse(
+                f.read(),
+                content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+            )
+            response['Content-Disposition'] = 'attachment; filename="quiz_import_template.xlsx"'
+            return response
+
+    # ── Import questions view ─────────────────────────────────────────────────
+
+    def import_questions_view(self, request, paper_id):
+        from apps.quiz.models import ExamPaper
+        from apps.quiz.importers import import_questions_from_excel
+
+        try:
+            exam_paper = ExamPaper.objects.get(pk=paper_id)
+        except ExamPaper.DoesNotExist:
+            messages.error(request, 'Exam paper not found.')
+            return HttpResponseRedirect(reverse('admin:quiz_exampaper_changelist'))
+
+        if request.method == 'POST':
+            excel_file = request.FILES.get('excel_file')
+            if not excel_file:
+                messages.error(request, 'No file uploaded.')
+            else:
+                result = import_questions_from_excel(excel_file, exam_paper)
+
+                if result.created:
+                    messages.success(
+                        request,
+                        f'✅ {result.created} question(s) imported successfully. '
+                        f'They are inactive — review and activate them in the Questions table.'
+                    )
+                if result.skipped:
+                    messages.warning(request, f'⚠️ {result.skipped} row(s) were skipped.')
+                for error in result.errors:
+                    messages.warning(request, error)
+
+                if result.created:
+                    return HttpResponseRedirect(
+                        reverse('admin:quiz_question_changelist') +
+                        f'?exam_paper__id__exact={paper_id}'
+                    )
+
+        context = {
+            **self.admin_site.each_context(request),
+            'title': f'Import Questions — {exam_paper.title}',
+            'exam_paper': exam_paper,
+            'template_url': reverse('admin:quiz_exampaper_download_template'),
+        }
+        return render(request, 'admin/quiz/exampaper/import_questions.html', context)
+
+
+    def change_view(self, request, object_id, form_url='', extra_context=None):
+        extra_context = extra_context or {}
+        extra_context['import_url'] = reverse(
+            'admin:quiz_exampaper_import_questions',
+            args=[object_id]
+        )
+        return super().change_view(request, object_id, form_url, extra_context)
 
 
 # ─── Question Admin ────────────────────────────────────────────────────────────
@@ -316,6 +409,4 @@ class QuizAttemptAdmin(ModelAdmin):
         'answers',
         'mode',
         'completed_at',
-        'percentage',
-        'passed',
     ]
