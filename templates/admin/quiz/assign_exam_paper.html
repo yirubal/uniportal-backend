@@ -1,0 +1,237 @@
+{% extends "admin/base.html" %}
+{% load i18n %}
+
+{% block title %}Assign to Exam Paper — {{ site_title }}{% endblock %}
+
+{% block extrahead %}
+{{ block.super }}
+<style>
+  .bm-wrap {
+    max-width: 620px;
+    margin: 0 auto;
+    padding: 1.5rem 0 4rem;
+  }
+  .bm-card {
+    background-color: var(--color-base-50, #f9fafb);
+    border: 1px solid var(--color-base-200, #e5e7eb);
+    border-radius: var(--border-radius, 6px);
+    padding: 1.25rem 1.5rem;
+    margin-bottom: 1rem;
+  }
+  .dark .bm-card {
+    background-color: var(--color-base-900, #111827);
+    border-color: var(--color-base-700, #374151);
+  }
+  .bm-section-label {
+    font-size: 0.65rem;
+    font-weight: 600;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--color-base-400, #9ca3af);
+    margin-bottom: 0.85rem;
+    display: block;
+  }
+  .bm-field {
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+  }
+  .bm-label {
+    font-size: 0.78rem;
+    font-weight: 500;
+    color: var(--color-base-600, #4b5563);
+  }
+  .dark .bm-label { color: var(--color-base-300, #d1d5db); }
+  .bm-select {
+    width: 100%;
+    padding: 0.5rem 0.75rem;
+    font-size: 0.875rem;
+    border-radius: var(--border-radius, 6px);
+    border: 1px solid var(--color-base-200, #e5e7eb);
+    background-color: var(--color-base-50, #ffffff);
+    color: var(--color-base-800, #1f2937);
+    outline: none;
+    transition: border-color 0.15s, box-shadow 0.15s;
+    appearance: none;
+    -webkit-appearance: none;
+  }
+  .dark .bm-select {
+    background-color: var(--color-base-800, #1f2937);
+    border-color: var(--color-base-600, #4b5563);
+    color: var(--color-base-100, #f3f4f6);
+  }
+  .bm-select:focus {
+    border-color: var(--color-primary-500, #8b5cf6);
+    box-shadow: 0 0 0 3px color-mix(in oklch, var(--color-primary-500, #8b5cf6) 15%, transparent);
+  }
+  .bm-select-wrap { position: relative; }
+  .bm-select-wrap::after {
+    content: '';
+    position: absolute;
+    right: 0.75rem;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 0; height: 0;
+    border-left: 4px solid transparent;
+    border-right: 4px solid transparent;
+    border-top: 5px solid var(--color-base-400, #9ca3af);
+    pointer-events: none;
+  }
+  .bm-badge {
+    display: inline-flex;
+    align-items: center;
+    font-size: 0.72rem;
+    font-weight: 600;
+    padding: 0.25rem 0.65rem;
+    border-radius: 999px;
+    background: color-mix(in oklch, var(--color-primary-500, #8b5cf6) 12%, transparent);
+    color: var(--color-primary-600, #7c3aed);
+    border: 1px solid color-mix(in oklch, var(--color-primary-500, #8b5cf6) 25%, transparent);
+  }
+  .dark .bm-badge { color: var(--color-primary-300, #c4b5fd); }
+  .bm-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    margin-bottom: 1.5rem;
+    gap: 1rem;
+  }
+  .bm-header h1 {
+    font-size: 1.25rem;
+    font-weight: 700;
+    color: var(--color-base-800, #1f2937);
+    margin: 0 0 0.25rem;
+  }
+  .dark .bm-header h1 { color: var(--color-base-100, #f3f4f6); }
+  .bm-header p {
+    font-size: 0.8rem;
+    color: var(--color-base-400, #9ca3af);
+    margin: 0;
+  }
+  .bm-question-list {
+    margin-top: 0.75rem;
+    max-height: 220px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-base-300, #d1d5db) transparent;
+  }
+  .bm-question-item {
+    font-size: 0.8rem;
+    color: var(--color-base-600, #4b5563);
+    background: var(--color-base-100, #f3f4f6);
+    border: 1px solid var(--color-base-200, #e5e7eb);
+    border-radius: calc(var(--border-radius, 6px) - 2px);
+    padding: 0.4rem 0.65rem;
+    line-height: 1.4;
+  }
+  .dark .bm-question-item {
+    color: var(--color-base-300, #d1d5db);
+    background: var(--color-base-800, #1f2937);
+    border-color: var(--color-base-700, #374151);
+  }
+  .bm-actions {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding-top: 0.5rem;
+  }
+  .bm-btn-submit {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.6rem 1.4rem;
+    border-radius: var(--border-radius, 6px);
+    font-size: 0.875rem;
+    font-weight: 600;
+    cursor: pointer;
+    border: none;
+    background: var(--color-primary-600, #7c3aed);
+    color: #fff;
+    transition: background 0.15s, transform 0.1s;
+  }
+  .bm-btn-submit:hover {
+    background: var(--color-primary-700, #6d28d9);
+    transform: translateY(-1px);
+  }
+  .bm-btn-cancel {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.6rem 1rem;
+    border-radius: var(--border-radius, 6px);
+    font-size: 0.82rem;
+    font-weight: 500;
+    text-decoration: none;
+    color: var(--color-base-500, #6b7280);
+    border: 1px solid var(--color-base-200, #e5e7eb);
+    background: transparent;
+    transition: all 0.15s;
+  }
+  .bm-btn-cancel:hover {
+    color: var(--color-base-700, #374151);
+    border-color: var(--color-base-300, #d1d5db);
+    background: var(--color-base-50, #f9fafb);
+  }
+  .dark .bm-btn-cancel {
+    border-color: var(--color-base-600, #4b5563);
+    color: var(--color-base-400, #9ca3af);
+  }
+  .dark .bm-btn-cancel:hover {
+    color: var(--color-base-200, #e5e7eb);
+    border-color: var(--color-base-500, #6b7280);
+    background: var(--color-base-800, #1f2937);
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="bm-wrap">
+  <form method="post">
+    {% csrf_token %}
+
+    <div class="bm-header">
+      <div>
+        <h1>Assign to Exam Paper</h1>
+        <p>All selected questions will be linked to the chosen exam paper.</p>
+      </div>
+      <span class="bm-badge">{{ question_count }} question{{ question_count|pluralize }}</span>
+    </div>
+
+    <div class="bm-card">
+      <span class="bm-section-label">Exam Paper</span>
+      <div class="bm-field">
+        <label class="bm-label" for="id_exam_paper">Select Exam Paper</label>
+        <div class="bm-select-wrap">
+          <select name="exam_paper" id="id_exam_paper" class="bm-select" required>
+            <option value="">— Choose an exam paper —</option>
+            {% for exam in exam_papers %}
+            <option value="{{ exam.id }}">
+              {{ exam.title }} ({{ exam.year }}) — {{ exam.get_exam_type_display }}{% if exam.department %} · {{ exam.department.name }}{% endif %}{% if exam.course %} · {{ exam.course.code }}{% endif %}
+            </option>
+            {% endfor %}
+          </select>
+        </div>
+      </div>
+    </div>
+
+    <div class="bm-card">
+      <span class="bm-section-label">Questions to be assigned</span>
+      <div class="bm-question-list">
+        {% for q in questions %}
+        <div class="bm-question-item">{{ q.text|truncatechars:100 }}</div>
+        {% endfor %}
+      </div>
+    </div>
+
+    <div class="bm-actions">
+      <a href="/admin/quiz/question/" class="bm-btn-cancel">← Cancel</a>
+      <button type="submit" class="bm-btn-submit">
+        Assign {{ question_count }} Question{{ question_count|pluralize }} →
+      </button>
+    </div>
+
+  </form>
+</div>
+{% endblock %}

@@ -1,0 +1,35 @@
+{% extends "admin/base_site.html" %}
+{% block content %}
+<h1>Assign {{ question_count }} Question(s) to Department</h1>
+<p>Select the department to assign the selected questions to.</p>
+<p>This will set the <strong>department</strong> field and clear the <strong>course</strong> field.</p>
+<form method="post">
+    {% csrf_token %}
+    <div style="margin: 20px 0;">
+        <label for="department" style="display:block; margin-bottom:8px; font-weight:bold;">
+            Select Department:
+        </label>
+        <select name="department" id="department"
+            style="width:400px; padding:8px; font-size:14px; border:1px solid #ccc; border-radius:4px;"
+            required>
+            <option value="">— Choose a department —</option>
+            {% for dept in departments %}
+                <option value="{{ dept.id }}">{{ dept.name }} ({{ dept.level }})</option>
+            {% endfor %}
+        </select>
+    </div>
+    <div style="margin: 20px 0;">
+        <strong>Questions to be assigned ({{ question_count }}):</strong>
+        <ul style="max-height:200px; overflow-y:auto; border:1px solid #eee; padding:10px; margin-top:8px;">
+            {% for q in questions %}
+                <li style="margin-bottom:4px; font-size:13px;">{{ q.text|truncatechars:80 }}</li>
+            {% endfor %}
+        </ul>
+    </div>
+    <div>
+        <input type="submit" value="Assign to Selected Department"
+            style="background:#417690; color:white; padding:10px 20px; border:none; border-radius:4px; cursor:pointer; font-size:14px;" />
+        <a href="/admin/quiz/question/" style="margin-left:10px; color:#417690;">Cancel</a>
+    </div>
+</form>
+{% endblock %}

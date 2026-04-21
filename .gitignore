@@ -13,3 +13,45 @@ staticfiles/
 dist/
 build/
 EOF.env
+
+
+# Python
+*.pyc
+*.pyo
+__pycache__/
+*.py[cod]
+
+# Virtual environment
+venv/
+.venv/
+env/
+
+# Django
+*.log
+local_settings.py
+db.sqlite3
+db.sqlite3-journal
+
+# Media and static
+media/
+staticfiles/
+
+# Environment variables
+.env
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# Logs
+logs/*.log
+
+# Distribution
+dist/
+build/
+*.egg-info/
