@@ -6,6 +6,7 @@ from rest_framework.response import Response
 from rest_framework import status
 from rest_framework.permissions import AllowAny
 from django.conf import settings
+from .throttles import AuthRateThrottle, SubscriptionRateThrottle
 
 from apps.accounts.models import Student
 from apps.accounts.auth import validate_telegram_init_data
@@ -31,6 +32,7 @@ logger = logging.getLogger(__name__)
 
 class TelegramAuthView(APIView):
     permission_classes = [AllowAny]
+    throttle_classes = [AuthRateThrottle]
 
     def post(self, request):
         init_data = request.data.get('init_data', '')
@@ -475,6 +477,7 @@ class SubscriptionPlansView(APIView):
 
 class SubscriptionRequestView(APIView):
     permission_classes = [IsTelegramAuthenticated]
+    throttle_classes = [SubscriptionRateThrottle]
 
     def post(self, request):
         import random

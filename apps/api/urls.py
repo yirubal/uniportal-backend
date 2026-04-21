@@ -1,6 +1,5 @@
 from django.urls import path
 from . import views
-from .views import TopicQuestionsView
 
 urlpatterns = [
     # Auth
@@ -22,17 +21,18 @@ urlpatterns = [
     path('resources/<int:resource_id>/', views.ResourceDetailView.as_view(), name='resource-detail'),
     path('resources/<int:resource_id>/download/', views.ResourceDownloadView.as_view(), name='resource-download'),
 
-    # Quiz
-    # path('courses/<int:course_id>/questions/', views.QuestionListView.as_view(), name='question-list'),
-    path('quiz/attempts/', views.QuizAttemptView.as_view(), name='quiz-attempts'),
-
     # Exams
     path('exams/', views.ExamPaperListView.as_view(), name='exam-list'),
     path('exams/<int:exam_id>/questions/', views.ExamPaperQuestionsView.as_view(), name='exam-questions'),
+
+    # Exit Exam Topics
     path('exit-exams/topics/', views.ExitExamTopicsView.as_view(), name='exit-exam-topics'),
+    path('exit-exams/topics/questions/', views.TopicQuestionsView.as_view(), name='exit-exam-topic-questions'),
+
+    # Quiz Attempts
+    path('quiz/attempts/', views.QuizAttemptView.as_view(), name='quiz-attempts'),
 
     # Subscription
     path('subscription/plans/', views.SubscriptionPlansView.as_view(), name='subscription-plans'),
     path('subscription/request/', views.SubscriptionRequestView.as_view(), name='subscription-request'),
-    path('exit-exams/topics/questions/', TopicQuestionsView.as_view()),
 ]
