@@ -5,7 +5,7 @@ DEBUG = False
 ALLOWED_HOSTS = env.list('ALLOWED_HOSTS')
 
 # ── Security headers ──────────────────────────────────────────────────────────
-SECURE_SSL_REDIRECT             = True
+SECURE_SSL_REDIRECT             = False
 SECURE_HSTS_SECONDS             = 31536000  # 1 year
 SECURE_HSTS_INCLUDE_SUBDOMAINS  = True
 SECURE_HSTS_PRELOAD             = True
@@ -56,6 +56,10 @@ STORAGES = {
         'BACKEND': 'whitenoise.storage.CompressedStaticFilesStorage',
     },
 }
+
+# Railway handles SSL termination at the proxy level
+SECURE_SSL_REDIRECT = False
+SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
 
 # Media URL points to R2
 MEDIA_URL = f'https://{env("R2_BUCKET_NAME", default="uniportal-media")}.{env("R2_ACCOUNT_ID")}.r2.cloudflarestorage.com/'
