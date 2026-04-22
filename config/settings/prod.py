@@ -5,7 +5,12 @@ DEBUG = False
 ALLOWED_HOSTS = env.list('ALLOWED_HOSTS')
 
 # ── Security headers ──────────────────────────────────────────────────────────
-SECURE_SSL_REDIRECT             = True
+# Disabled because Railway's internal healthchecks use plain HTTP. With this
+# set to True, Django redirects every HTTP request to HTTPS, the healthcheck
+# times out, and Railway kills the container. Once a custom healthcheck path
+# (e.g. /health/) is in place and Railway is configured to use it, this can
+# be re-enabled — or handled via SECURE_REDIRECT_EXEMPT for that path.
+SECURE_SSL_REDIRECT             = False
 SECURE_HSTS_SECONDS             = 31536000  # 1 year
 SECURE_HSTS_INCLUDE_SUBDOMAINS  = True
 SECURE_HSTS_PRELOAD             = True
