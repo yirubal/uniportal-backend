@@ -1,19 +1,3 @@
-# Create .gitignore before first commit
-cat > .gitignore << 'EOF'
-venv/
-__pycache__/
-*.pyc
-*.pyo
-.env
-*.sqlite3
-media/
-staticfiles/
-.DS_Store
-*.egg-info/
-dist/
-build/
-EOF.env
-
 
 # Python
 *.pyc
@@ -55,3 +39,4 @@ logs/*.log
 dist/
 build/
 *.egg-info/
+logs/*.log
