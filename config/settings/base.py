@@ -230,11 +230,7 @@ UNFOLD = {
                         'icon':  'menu_book',
                         'link':  '/admin/content/course/',
                     },
-                    {
-                        'title': 'Course Placements',
-                        'icon':  'table_chart',
-                        'link':  '/admin/content/courseplacement/',
-                    },
+
                     {
                         'title': 'Resources',
                         'icon':  'folder',
