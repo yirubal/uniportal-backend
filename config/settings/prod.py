@@ -21,7 +21,7 @@ CORS_ALLOW_CREDENTIALS = True
 
 # ── Static files — whitenoise for production ──────────────────────────────────
 MIDDLEWARE.insert(1, 'whitenoise.middleware.WhiteNoiseMiddleware')
-STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
+
 
 # ── No browsable API in production ────────────────────────────────────────────
 REST_FRAMEWORK['DEFAULT_RENDERER_CLASSES'] = [
@@ -35,3 +35,27 @@ LOGGING['handlers']['file'] = {
     'formatter': 'verbose',
 }
 LOGGING['root']['handlers'] = ['console', 'file']
+
+
+# ── Cloudflare R2 Storage ─────────────────────────────────────────────────────
+
+AWS_ACCESS_KEY_ID       = env('R2_ACCESS_KEY_ID')
+AWS_SECRET_ACCESS_KEY   = env('R2_SECRET_ACCESS_KEY')
+AWS_STORAGE_BUCKET_NAME = env('R2_BUCKET_NAME', default='uniportal-media')
+AWS_S3_ENDPOINT_URL     = f'https://{env("R2_ACCOUNT_ID")}.r2.cloudflarestorage.com'
+AWS_S3_REGION_NAME      = 'auto'
+AWS_DEFAULT_ACL         = 'public-read'
+AWS_S3_FILE_OVERWRITE   = False
+AWS_QUERYSTRING_AUTH    = False  # public URLs without signatures
+
+STORAGES = {
+    'default': {
+        'BACKEND': 'storages.backends.s3boto3.S3Boto3Storage',
+    },
+    'staticfiles': {
+        'BACKEND': 'whitenoise.storage.CompressedManifestStaticFilesStorage',
+    },
+}
+
+# Media URL points to R2
+MEDIA_URL = f'https://{env("R2_BUCKET_NAME", default="uniportal-media")}.{env("R2_ACCOUNT_ID")}.r2.cloudflarestorage.com/'
