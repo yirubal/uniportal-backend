@@ -1,7 +1,6 @@
 import json
 import logging
 import time
-from datetime import datetime  # use datetime instead if you need it
 from django.conf import settings
 
 logger = logging.getLogger(__name__)
@@ -66,7 +65,7 @@ Text to extract from:
 
 def extract_questions_from_text(raw_text: str) -> list[dict]:
     """
-    Sends raw extracted text to Groq AI and returns structured
+    Sends raw extracted text to Gemini AI and returns structured
     list of question dicts supporting mcq, true_false, fill_blank,
     matching, and essay types.
     For large texts processes in chunks of 8000 chars.
@@ -75,9 +74,9 @@ def extract_questions_from_text(raw_text: str) -> list[dict]:
         logger.warning('Text too short for question extraction')
         return []
 
-    api_key = settings.GROQ_API_KEY
+    api_key = settings.GEMINI_API_KEY
     if not api_key:
-        logger.error('GROQ_API_KEY not configured')
+        logger.error('GEMINI_API_KEY not configured')
         return []
 
     chunk_size = 8000
@@ -92,9 +91,9 @@ def extract_questions_from_text(raw_text: str) -> list[dict]:
     for chunk_index, chunk in enumerate(chunks):
         logger.info(f'Processing chunk {chunk_index + 1} of {len(chunks)}')
 
-        # Wait between chunks to avoid Groq rate limiting
         if chunk_index > 0:
-            time.sleep(10)  # wait 60 seconds between chunks
+            time.sleep(3)  # short delay between chunks
+
         questions = _extract_from_chunk(api_key, chunk)
         all_questions.extend(questions)
 
@@ -104,22 +103,19 @@ def extract_questions_from_text(raw_text: str) -> list[dict]:
 
 def _extract_from_chunk(api_key: str, text_chunk: str) -> list[dict]:
     try:
-        from groq import Groq
-        client = Groq(api_key=api_key)
+        import google.generativeai as genai
+        genai.configure(api_key=api_key)
+        model = genai.GenerativeModel('gemini-1.5-flash')
 
-        response = client.chat.completions.create(
-            model='llama-3.3-70b-versatile',
-            messages=[
-                {
-                    'role': 'user',
-                    'content': EXTRACTION_PROMPT + text_chunk,
-                }
-            ],
-            temperature=0.1,
-            max_tokens=8000,
+        response = model.generate_content(
+            EXTRACTION_PROMPT + text_chunk,
+            generation_config=genai.GenerationConfig(
+                temperature=0.1,
+                max_output_tokens=8000,
+            )
         )
 
-        content = response.choices[0].message.content.strip()
+        content = response.text.strip()
         logger.info(f'AI response (first 200 chars): {content[:200]}')
 
         # Strip markdown code fences if present
@@ -155,45 +151,34 @@ def _extract_from_chunk(api_key: str, text_chunk: str) -> list[dict]:
         valid_types = {'mcq', 'true_false', 'fill_blank', 'matching', 'essay'}
 
         for q in questions:
-            # Must have a question text
             if not q.get('question', '').strip():
                 logger.warning(f'Skipping question with no text: {q}')
                 continue
 
-            # Normalize question_type
             q_type = q.get('question_type', '').strip().lower()
             if q_type not in valid_types:
-                # Try to guess the type if AI returned something unexpected
                 q_type = _guess_type(q)
                 logger.warning(f'Unknown type "{q.get("question_type")}", guessed "{q_type}"')
             q['question_type'] = q_type
 
-            # Ensure all option fields exist
             for opt in ['option_a', 'option_b', 'option_c', 'option_d', 'option_e']:
                 if opt not in q:
                     q[opt] = ''
                 q[opt] = (q[opt] or '').strip()
 
-            # Normalize correct_option
             correct = q.get('correct_option', '')
 
-            if q_type == 'mcq' or q_type == 'true_false':
-                # Must be a single letter a-e
+            if q_type in ('mcq', 'true_false'):
                 correct = str(correct).lower().strip()
                 if correct not in ['a', 'b', 'c', 'd', 'e']:
                     correct = ''
-
             elif q_type == 'fill_blank':
-                # correct_option holds the answer text — keep as-is
                 correct = str(correct).strip()
-
             elif q_type in ('matching', 'essay'):
-                # No correct_option for these types
                 correct = ''
 
             q['correct_option'] = correct
 
-            # Ensure true_false always has the right options
             if q_type == 'true_false':
                 q['option_a'] = 'True'
                 q['option_b'] = 'False'
@@ -201,7 +186,6 @@ def _extract_from_chunk(api_key: str, text_chunk: str) -> list[dict]:
                 q['option_d'] = ''
                 q['option_e'] = ''
 
-            # Ensure explanation field exists
             if 'explanation' not in q:
                 q['explanation'] = ''
             q['explanation'] = (q['explanation'] or '').strip()
@@ -221,9 +205,6 @@ def _extract_from_chunk(api_key: str, text_chunk: str) -> list[dict]:
 
 
 def _guess_type(q: dict) -> str:
-    """
-    Fallback type guesser when AI returns an unrecognized question_type.
-    """
     text = q.get('question', '').lower()
     option_a = q.get('option_a', '').lower().strip()
 
@@ -241,7 +222,6 @@ def _guess_type(q: dict) -> str:
 
 
 def _log_type_summary(questions: list[dict]):
-    """Log a breakdown of extracted question types for debugging."""
     from collections import Counter
     counts = Counter(q.get('question_type') for q in questions)
     summary = ', '.join(f'{t}: {c}' for t, c in sorted(counts.items()))
