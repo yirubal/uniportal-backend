@@ -1,7 +1,7 @@
 import json
 import logging
-from datetime import time
-
+import time
+from datetime import datetime  # use datetime instead if you need it
 from django.conf import settings
 
 logger = logging.getLogger(__name__)
