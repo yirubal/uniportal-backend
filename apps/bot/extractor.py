@@ -94,7 +94,7 @@ def extract_questions_from_text(raw_text: str) -> list[dict]:
 
         # Wait between chunks to avoid Groq rate limiting
         if chunk_index > 0:
-            time.sleep(60)  # wait 60 seconds between chunks
+            time.sleep(10)  # wait 60 seconds between chunks
         questions = _extract_from_chunk(api_key, chunk)
         all_questions.extend(questions)
 
