@@ -320,7 +320,6 @@ class FileInboxAdmin(ModelAdmin):
                     option_e=q_data.get('option_e', ''),
                     correct_option=q_data.get('correct_option', ''),
                     explanation=q_data.get('explanation', ''),
-                    access_level=Question.ACCESS_PREMIUM,
                     is_active=False,
                 )
                 total_created += 1
