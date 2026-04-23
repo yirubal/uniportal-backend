@@ -109,7 +109,7 @@ def _extract_from_chunk(api_key: str, text_chunk: str) -> list[dict]:
         client = genai.Client(api_key=api_key)
 
         response = client.models.generate_content(
-            model='gemini-2.0-flash',
+            model='gemini-1.5-flash',
             contents=EXTRACTION_PROMPT + text_chunk,
             config=types.GenerateContentConfig(
                 temperature=0.1,
