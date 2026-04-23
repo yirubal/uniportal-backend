@@ -92,7 +92,7 @@ def extract_questions_from_text(raw_text: str) -> list[dict]:
         logger.info(f'Processing chunk {chunk_index + 1} of {len(chunks)}')
 
         if chunk_index > 0:
-            time.sleep(3)  # short delay between chunks
+            time.sleep(3)
 
         questions = _extract_from_chunk(api_key, chunk)
         all_questions.extend(questions)
@@ -103,13 +103,15 @@ def extract_questions_from_text(raw_text: str) -> list[dict]:
 
 def _extract_from_chunk(api_key: str, text_chunk: str) -> list[dict]:
     try:
-        import google.generativeai as genai
-        genai.configure(api_key=api_key)
-        model = genai.GenerativeModel('gemini-1.5-flash')
+        from google import genai
+        from google.genai import types
 
-        response = model.generate_content(
-            EXTRACTION_PROMPT + text_chunk,
-            generation_config=genai.GenerationConfig(
+        client = genai.Client(api_key=api_key)
+
+        response = client.models.generate_content(
+            model='gemini-2.0-flash',
+            contents=EXTRACTION_PROMPT + text_chunk,
+            config=types.GenerateContentConfig(
                 temperature=0.1,
                 max_output_tokens=8000,
             )

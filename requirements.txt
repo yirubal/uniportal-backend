@@ -18,7 +18,6 @@ djangorestframework==3.16.1
 djangorestframework_simplejwt==5.5.1
 drf-spectacular==0.29.0
 et_xmlfile==2.0.0
-groq==1.2.0
 gunicorn==25.3.0
 h11==0.16.0
 httpcore==1.0.9
@@ -57,4 +56,4 @@ uritemplate==4.2.0
 urllib3==2.6.3
 Wand==0.7.0
 whitenoise==6.12.0
-google-generativeai
+google-genai==1.10.0
