@@ -26,11 +26,13 @@ def validate_telegram_init_data(init_data: str) -> dict:
     raw_parsed     = {}  # URL-encoded — used for data check string
     decoded_parsed = {}  # decoded — used for reading actual values
 
+    # Parse the init_data string into key-value pairs
+    parsed = {}
     for part in init_data.split('&'):
         if '=' in part:
             key, value = part.split('=', 1)
-            raw_parsed[key]     = value
-            decoded_parsed[key] = unquote(value)
+            # Double-decode — frontend sends double-encoded initData
+            parsed[key] = unquote(unquote(value))
 
     # Extract hash — exclude from data check string
     received_hash = decoded_parsed.pop('hash', None)
