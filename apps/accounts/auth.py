@@ -62,6 +62,12 @@ def validate_telegram_init_data(init_data: str) -> dict:
         digestmod=hashlib.sha256,
     ).hexdigest()
 
+    # TEMP DEBUG — remove after fixing
+    logger.info(f'Data check string:\n{data_check_string}')
+    logger.info(f'Expected: {expected_hash}')
+    logger.info(f'Received: {received_hash}')
+    logger.info(f'Token first 10 chars: {settings.TELEGRAM_BOT_TOKEN[:10]}')
+
     if not hmac.compare_digest(expected_hash, received_hash):
         raise ValueError('Invalid initData signature')
 
