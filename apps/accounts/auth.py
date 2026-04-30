@@ -31,9 +31,9 @@ def validate_telegram_init_data(init_data: str) -> dict:
     if not received_hash:
         raise ValueError('Hash missing from initData')
 
-    # Remove signature — newer Telegram Bot API includes this field
-    # it must also be excluded from the data check string
+    # Remove fields that must be excluded from data check string
     parsed.pop('signature', None)
+    parsed.pop('query_id', None)
 
     # Check timestamp — reject if older than 24 hours
     auth_date = parsed.get('auth_date')
