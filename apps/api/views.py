@@ -93,18 +93,10 @@ class StudentProfileView(APIView):
 
     def patch(self, request):
         student = request.student
-        allowed_fields = [
-            'preferred_department',
-            'preferred_program',
-            'preferred_year',
-            'preferred_period',
-            'onboarding_complete',
-        ]
-        for field in allowed_fields:
-            if field in request.data:
-                setattr(student, field, request.data[field])
-        student.save()
-        return Response(StudentSerializer(student).data)
+        serializer = StudentSerializer(student, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(serializer.data)
 
 
 class StudentWatermarkView(APIView):
