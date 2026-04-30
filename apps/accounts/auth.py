@@ -1,3 +1,15 @@
+
+import hashlib
+import hmac
+import json
+import logging
+import time
+from urllib.parse import unquote
+
+from django.conf import settings
+
+logger = logging.getLogger(__name__)
+
 def validate_telegram_init_data(init_data: str) -> dict:
     if not init_data:
         raise ValueError('initData is empty')
