@@ -31,7 +31,7 @@ from django.utils import timezone
 
 logger = logging.getLogger(__name__)
 
-MISS_THRESHOLD = 50  # stop after this many consecutive missing messages
+MISS_THRESHOLD = 50
 
 
 class Command(BaseCommand):
@@ -83,7 +83,6 @@ class Command(BaseCommand):
             self.stdout.write(self.style.ERROR('TELEGRAM_CHANNEL_ID is not set.'))
             return
 
-        # Get admin chat ID from args or settings
         admin_chat_id = options['admin_chat_id'] or getattr(
             settings, 'TELEGRAM_ADMIN_CHAT_ID', None
         )
@@ -125,9 +124,7 @@ class Command(BaseCommand):
         current_id         = from_id
 
         if dry_run:
-            self.stdout.write(self.style.WARNING(
-                '[DRY RUN] No files will be saved.\n'
-            ))
+            self.stdout.write(self.style.WARNING('[DRY RUN] No files will be saved.\n'))
 
         while True:
             # ── Stop conditions ───────────────────────────────────────────────
@@ -164,14 +161,11 @@ class Command(BaseCommand):
                     'message_id_invalid',
                     'not found',
                 ]):
-                    # Message doesn't exist — normal gap in history
                     consecutive_misses += 1
                     current_id += 1
                     continue
                 else:
-                    self.stdout.write(self.style.WARNING(
-                        f'[{current_id}] BadRequest: {e}'
-                    ))
+                    self.stdout.write(self.style.WARNING(f'[{current_id}] BadRequest: {e}'))
                     consecutive_misses += 1
                     current_id += 1
                     await asyncio.sleep(delay)
@@ -186,15 +180,12 @@ class Command(BaseCommand):
 
             except telegram.error.Forbidden:
                 self.stdout.write(self.style.ERROR(
-                    'Bot is not an admin of the channel or was blocked. '
-                    'Make sure the bot is an admin with read permissions.'
+                    'Bot is not an admin of the channel or was blocked.'
                 ))
                 break
 
             except Exception as e:
-                self.stdout.write(self.style.WARNING(
-                    f'[{current_id}] Unexpected error: {e}'
-                ))
+                self.stdout.write(self.style.WARNING(f'[{current_id}] Unexpected error: {e}'))
                 consecutive_misses += 1
                 current_id += 1
                 await asyncio.sleep(delay)
@@ -204,17 +195,16 @@ class Command(BaseCommand):
             from apps.bot.downloader import get_file_info
             file_id, filename = get_file_info(forwarded)
 
-            # Delete the forwarded proxy copy immediately
+            # Delete proxy copy immediately
             try:
                 await bot.delete_message(
                     chat_id=admin_chat_id,
                     message_id=forwarded.message_id,
                 )
             except Exception:
-                pass  # not critical if delete fails
+                pass
 
             if not file_id:
-                # Text-only message — skip
                 current_id += 1
                 await asyncio.sleep(delay)
                 continue
@@ -224,40 +214,31 @@ class Command(BaseCommand):
             from apps.content.models import FileInbox
 
             already_exists = await sync_to_async(
-                FileInbox.objects.filter(
-                    telegram_message_id=current_id
-                ).exists
+                FileInbox.objects.filter(telegram_message_id=current_id).exists
             )()
 
             if already_exists:
-                self.stdout.write(
-                    f'  [{current_id}] Already exists — skipping {filename}'
-                )
+                self.stdout.write(f'  [{current_id}] Already exists — skipping {filename}')
                 skipped += 1
                 current_id += 1
                 await asyncio.sleep(delay)
                 continue
 
-            # ── Dry run ───────────────────────────────────────────────────────
             if dry_run:
-                self.stdout.write(self.style.SUCCESS(
-                    f'  [{current_id}] Would download: {filename}'
-                ))
+                self.stdout.write(self.style.SUCCESS(f'  [{current_id}] Would download: {filename}'))
                 downloaded += 1
                 current_id += 1
                 await asyncio.sleep(delay)
                 continue
 
-            # ── Download the file ─────────────────────────────────────────────
+            # ── Download ──────────────────────────────────────────────────────
             self.stdout.write(f'  [{current_id}] Downloading: {filename}...')
 
             from apps.bot.downloader import download_file
             file_path = await download_file(bot, file_id, filename)
 
             if not file_path:
-                self.stdout.write(self.style.WARNING(
-                    f'  [{current_id}] Failed to download {filename}'
-                ))
+                self.stdout.write(self.style.WARNING(f'  [{current_id}] Failed to download {filename}'))
                 await sync_to_async(FileInbox.objects.create)(
                     file='',
                     original_filename=filename,
@@ -283,16 +264,13 @@ class Command(BaseCommand):
                 telegram_message_id=current_id,
                 telegram_caption=forwarded.caption or '',
                 posted_date=forwarded.date or timezone.now(),
-                processing_status=FileInbox.STATUS_FAILED,
+                processing_status=FileInbox.STATUS_UNPROCESSED,  # ← fixed (was STATUS_FAILED)
             )
 
-            # Trigger text extraction
             from apps.bot.tasks import process_inbox_item
             await process_inbox_item(inbox_item.id)
 
-            self.stdout.write(self.style.SUCCESS(
-                f'  [{current_id}] ✅ Saved: {filename}'
-            ))
+            self.stdout.write(self.style.SUCCESS(f'  [{current_id}] ✅ Saved: {filename}'))
             downloaded += 1
             current_id += 1
             await asyncio.sleep(delay)
@@ -309,6 +287,5 @@ class Command(BaseCommand):
 
         if dry_run:
             self.stdout.write(self.style.WARNING(
-                '\n[DRY RUN] No files were saved. '
-                'Remove --dry-run to run for real.'
+                '\n[DRY RUN] No files were saved. Remove --dry-run to run for real.'
             ))
