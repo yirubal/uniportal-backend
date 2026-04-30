@@ -1,4 +1,3 @@
-
 import hashlib
 import hmac
 import json
@@ -10,58 +9,63 @@ from django.conf import settings
 
 logger = logging.getLogger(__name__)
 
+
 def validate_telegram_init_data(init_data: str) -> dict:
+    """
+    Validates Telegram WebApp initData using HMAC-SHA256.
+    Returns parsed user dict if valid.
+    Raises ValueError if invalid or expired.
+    """
     if not init_data:
         raise ValueError('initData is empty')
 
-    # TEMP DEBUG — remove after fixing
-    import logging
-    logger = logging.getLogger(__name__)
-    logger.info(f'RAW initData: {init_data[:200]}')
-
+    # Parse the init_data string into key-value pairs
     parsed = {}
     for part in init_data.split('&'):
         if '=' in part:
             key, value = part.split('=', 1)
             parsed[key] = unquote(value)
 
+    # Extract hash — must not be included in data check string
     received_hash = parsed.pop('hash', None)
-    logger.info(f'Received hash: {received_hash}')
-    logger.info(f'Parsed keys: {list(parsed.keys())}')
+    if not received_hash:
+        raise ValueError('Hash missing from initData')
 
+    # Remove signature — newer Telegram Bot API includes this field
+    # it must also be excluded from the data check string
+    parsed.pop('signature', None)
+
+    # Check timestamp — reject if older than 24 hours
     auth_date = parsed.get('auth_date')
     if auth_date:
         age = time.time() - int(auth_date)
-        logger.info(f'initData age: {age:.0f} seconds')
         if age > 86400:
             raise ValueError('initData has expired')
 
+    # Build data check string (sorted alphabetically, joined by newlines)
     data_check_string = '\n'.join(
         f'{k}={v}'
         for k, v in sorted(parsed.items())
     )
-    logger.info(f'Data check string: {data_check_string[:200]}')
 
+    # Generate secret key from bot token
     secret_key = hmac.new(
         key=settings.TELEGRAM_BOT_TOKEN.encode(),
         msg=b'WebAppData',
         digestmod=hashlib.sha256,
     ).digest()
 
+    # Calculate expected hash
     expected_hash = hmac.new(
         key=secret_key,
         msg=data_check_string.encode(),
         digestmod=hashlib.sha256,
     ).hexdigest()
 
-    logger.info(f'Expected hash: {expected_hash}')
-    logger.info(f'Received hash: {received_hash}')
-    logger.info(f'Match: {expected_hash == received_hash}')
-
     if not hmac.compare_digest(expected_hash, received_hash):
         raise ValueError('Invalid initData signature')
 
-    import json
+    # Parse user data
     user_str = parsed.get('user', '{}')
     try:
         user_data = json.loads(user_str)
