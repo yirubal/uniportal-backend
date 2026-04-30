@@ -50,8 +50,8 @@ def validate_telegram_init_data(init_data: str) -> dict:
 
     # Generate secret key from bot token
     secret_key = hmac.new(
-        key=settings.TELEGRAM_BOT_TOKEN.encode(),
-        msg=b'WebAppData',
+        key=b'WebAppData',
+        msg=settings.TELEGRAM_BOT_TOKEN.encode(),
         digestmod=hashlib.sha256,
     ).digest()
 
@@ -63,10 +63,13 @@ def validate_telegram_init_data(init_data: str) -> dict:
     ).hexdigest()
 
     # TEMP DEBUG — remove after fixing
+    logger.info(f'Token length: {len(settings.TELEGRAM_BOT_TOKEN)}')
+    logger.info(f'Token first 10: {settings.TELEGRAM_BOT_TOKEN[:10]}')
+    logger.info(f'Token last 5: {settings.TELEGRAM_BOT_TOKEN[-5:]}')
     logger.info(f'Data check string:\n{data_check_string}')
     logger.info(f'Expected: {expected_hash}')
     logger.info(f'Received: {received_hash}')
-    logger.info(f'Token first 10 chars: {settings.TELEGRAM_BOT_TOKEN[:10]}')
+    logger.info(f'Match: {expected_hash == received_hash}')
 
     if not hmac.compare_digest(expected_hash, received_hash):
         raise ValueError('Invalid initData signature')
