@@ -6,6 +6,7 @@ from django.http import HttpResponseRedirect
 from unfold.admin import ModelAdmin
 
 from .models import Student, SubscriptionPlan, SubscriptionRequest, SiteSettings
+from .notifications import notify_subscription_approved, notify_subscription_rejected
 
 
 # ─── Student Admin ─────────────────────────────────────────────────────────────
@@ -267,7 +268,7 @@ class SubscriptionRequestAdmin(ModelAdmin):
         for sub_request in pending:
             sub_request.status = SubscriptionRequest.STATUS_REJECTED
             sub_request.save(update_fields=['status', 'updated_at'])
-            _notify_student_rejected(sub_request)
+            notify_subscription_rejected(sub_request)
         self.message_user(request, f'❌ Rejected {count} request(s).')
 
     # ── Override save to auto-approve when admin changes status to approved ───
@@ -357,71 +358,4 @@ def _approve_subscription_request(sub_request: SubscriptionRequest, admin_user):
         'status', 'activated_by', 'activated_at', 'updated_at'
     ])
 
-    _notify_student_approved(sub_request)
-
-
-def _notify_student_approved(sub_request: SubscriptionRequest):
-    """Send Telegram notification to student on approval."""
-    try:
-        from django.conf import settings
-        import requests as http_requests
-
-        student  = sub_request.student
-        days     = sub_request.plan.days
-        expiry   = student.subscription_expiry.strftime('%B %d, %Y')
-        name     = student.first_name or 'Student'
-
-        text = (
-            f"🎉 *Premium Activated!*\n\n"
-            f"Hi {name}, your payment has been verified and your premium subscription is now active.\n\n"
-            f"📦 *Plan:* {sub_request.plan.name}\n"
-            f"📅 *Valid until:* {expiry}\n"
-            f"🔑 *Reference:* `{sub_request.reference}`\n\n"
-            f"You now have full access to all study materials and exit exam questions. Good luck! 🚀"
-        )
-
-        http_requests.post(
-            f'https://api.telegram.org/bot{settings.TELEGRAM_BOT_TOKEN}/sendMessage',
-            json={
-                'chat_id':    student.telegram_id,
-                'text':       text,
-                'parse_mode': 'Markdown',
-            },
-            timeout=10,
-        )
-    except Exception as e:
-        import logging
-        logging.getLogger(__name__).warning(f'Telegram notify failed for approval: {e}')
-
-
-def _notify_student_rejected(sub_request: SubscriptionRequest):
-    """Send Telegram notification to student on rejection."""
-    try:
-        from django.conf import settings
-        import requests as http_requests
-
-        student = sub_request.student
-        name    = student.first_name or 'Student'
-
-        text = (
-            f"❌ *Payment Not Verified*\n\n"
-            f"Hi {name}, unfortunately we could not verify your payment for "
-            f"*{sub_request.plan.name}* (Reference: `{sub_request.reference}`).\n\n"
-            f"Please make sure you:\n"
-            f"• Sent to the correct Telebirr number\n"
-            f"• Included your reference code in the payment note\n\n"
-            f"Contact support if you believe this is a mistake."
-        )
-
-        http_requests.post(
-            f'https://api.telegram.org/bot{settings.TELEGRAM_BOT_TOKEN}/sendMessage',
-            json={
-                'chat_id':    student.telegram_id,
-                'text':       text,
-                'parse_mode': 'Markdown',
-            },
-            timeout=10,
-        )
-    except Exception as e:
-        import logging
-        logging.getLogger(__name__).warning(f'Telegram notify failed for rejection: {e}')
+    notify_subscription_approved(sub_request)

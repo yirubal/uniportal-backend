@@ -1,4 +1,5 @@
 from django.db import models
+from django.db.models import Q
 
 
 class Student(models.Model):
@@ -211,6 +212,13 @@ class SubscriptionRequest(models.Model):
         verbose_name        = 'Subscription Request'
         verbose_name_plural = 'Subscription Requests'
         ordering            = ['-requested_at']
+        constraints         = [
+            models.UniqueConstraint(
+                fields=['student'],
+                condition=Q(status='pending'),
+                name='unique_pending_subscription_request_per_student',
+            ),
+        ]
 
     def __str__(self):
         return f'{self.student} — {self.plan.name} — {self.reference} [{self.status}]'

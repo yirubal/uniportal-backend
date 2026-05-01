@@ -474,7 +474,9 @@ class SubscriptionRequestView(APIView):
     def post(self, request):
         import random
         import string
-        from apps.accounts.models import SubscriptionPlan, SiteSettings, SubscriptionRequest
+        from django.db import IntegrityError, transaction
+        from apps.accounts.models import SubscriptionPlan, SubscriptionRequest
+        from apps.accounts.notifications import notify_subscription_request_created
 
         plan_id        = request.data.get('plan')
         payment_method = request.data.get('payment_method', 'telebirr')  # telebirr or cbe
@@ -488,54 +490,78 @@ class SubscriptionRequestView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        # Check if student already has a pending request for this plan
         existing = SubscriptionRequest.objects.filter(
             student=request.student,
-            plan=plan,
             status=SubscriptionRequest.STATUS_PENDING,
-        ).first()
+        ).select_related('plan').first()
 
         if existing:
-            # Return the existing pending request instead of creating a new one
-            return _build_payment_response(existing, plan)
+            return _build_payment_response(existing, existing.plan)
 
-        # Generate unique reference
-        while True:
-            reference = 'UNI-' + ''.join(random.choices(string.digits, k=5))
-            if not SubscriptionRequest.objects.filter(reference=reference).exists():
-                break
+        created = False
+        try:
+            with transaction.atomic():
+                existing = SubscriptionRequest.objects.select_for_update().filter(
+                    student=request.student,
+                    status=SubscriptionRequest.STATUS_PENDING,
+                ).select_related('plan').first()
 
-        # Save the request
-        sub_request = SubscriptionRequest.objects.create(
-            student=request.student,
-            plan=plan,
-            reference=reference,
-            payment_method=payment_method,
-            paid_from=paid_from,
-            amount=plan.price,
-            status=SubscriptionRequest.STATUS_PENDING,
-        )
+                if existing:
+                    sub_request = existing
+                else:
+                    # Generate unique reference
+                    while True:
+                        reference = 'UNI-' + ''.join(random.choices(string.digits, k=5))
+                        if not SubscriptionRequest.objects.filter(reference=reference).exists():
+                            break
 
-        return _build_payment_response(sub_request, plan)
+                    sub_request = SubscriptionRequest.objects.create(
+                        student=request.student,
+                        plan=plan,
+                        reference=reference,
+                        payment_method=payment_method,
+                        paid_from=paid_from,
+                        amount=plan.price,
+                        status=SubscriptionRequest.STATUS_PENDING,
+                    )
+                    created = True
+        except IntegrityError:
+            sub_request = SubscriptionRequest.objects.filter(
+                student=request.student,
+                status=SubscriptionRequest.STATUS_PENDING,
+            ).select_related('plan').first()
+            if sub_request is None:
+                raise
+
+        if created:
+            transaction.on_commit(lambda: notify_subscription_request_created(sub_request))
+
+        return _build_payment_response(sub_request, sub_request.plan)
 
     def get(self, request):
         from apps.accounts.models import SubscriptionRequest, SiteSettings
 
-        pending = SubscriptionRequest.objects.filter(
+        active_request = SubscriptionRequest.objects.filter(
             student=request.student,
-            status=SubscriptionRequest.STATUS_PENDING,
+            status__in=[
+                SubscriptionRequest.STATUS_PENDING,
+                SubscriptionRequest.STATUS_APPROVED,
+                SubscriptionRequest.STATUS_REJECTED,
+            ],
         ).select_related('plan').first()
 
         settings_obj = SiteSettings.get()
 
         return Response({
-            'has_pending_request': pending is not None,
-            'pending_request': {
-                'reference': pending.reference,
-                'plan': pending.plan.name,
-                'amount': float(pending.amount),
-                'requested_at': pending.requested_at,
-            } if pending else None,
+            'has_pending_request': (
+                active_request is not None
+                and active_request.status == SubscriptionRequest.STATUS_PENDING
+            ),
+            'pending_request': _serialize_subscription_request(active_request)
+            if active_request and active_request.status == SubscriptionRequest.STATUS_PENDING
+            else None,
+            'current_request': _serialize_subscription_request(active_request),
+            'active_request': _serialize_subscription_request(active_request),
             'payment_options': {
                 'telebirr': {
                     'number': settings_obj.telebirr_number,
@@ -547,6 +573,20 @@ class SubscriptionRequestView(APIView):
                 } if settings_obj.cbe_account else None,
             },
         })
+
+
+def _serialize_subscription_request(sub_request):
+    if not sub_request:
+        return None
+
+    return {
+        'reference': sub_request.reference,
+        'plan': sub_request.plan.name,
+        'amount': float(sub_request.amount),
+        'status': sub_request.status,
+        'requested_at': sub_request.requested_at,
+        'updated_at': sub_request.updated_at,
+    }
 
 
 def _build_payment_response(sub_request, plan):
