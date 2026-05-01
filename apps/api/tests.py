@@ -8,7 +8,10 @@ from django.utils import timezone
 from rest_framework.test import APITestCase
 
 from apps.accounts.admin import SubscriptionRequestAdmin, _approve_subscription_request
-from apps.accounts.notifications import notify_subscription_rejected
+from apps.accounts.notifications import (
+    notify_subscription_rejected,
+    notify_subscription_request_created,
+)
 from apps.accounts.models import Student, SubscriptionPlan, SubscriptionRequest
 from apps.api.views import _generate_jwt
 
@@ -182,6 +185,26 @@ class SubscriptionRequestTests(APITestCase):
         self.assertIsNone(approved_student.subscription_expiry)
         self.assertEqual(notify_rejected.call_count, 3)
         message_user.assert_called_once()
+
+    @patch('apps.accounts.notifications.send_telegram_message')
+    def test_under_review_notification_uses_plain_text_message(self, send_message):
+        sub_request = SubscriptionRequest.objects.create(
+            student=self.student,
+            plan=self.semester_plan,
+            reference='UNI-00001',
+            amount=self.semester_plan.price,
+            status=SubscriptionRequest.STATUS_PENDING,
+        )
+
+        notify_subscription_request_created(sub_request)
+
+        send_message.assert_called_once()
+        chat_id, text = send_message.call_args.args
+        self.assertEqual(chat_id, self.student.telegram_id)
+        self.assertIn('Payment Request Under Review', text)
+        self.assertIn('UNI-00001', text)
+        self.assertIn(self.semester_plan.name, text)
+        self.assertNotIn('parse_mode', send_message.call_args.kwargs)
 
     @patch('apps.accounts.notifications.send_telegram_message')
     def test_rejected_subscription_notification_uses_plain_text_message(self, send_message):

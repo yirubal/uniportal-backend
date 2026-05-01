@@ -35,11 +35,16 @@ def send_telegram_message(chat_id, text: str, parse_mode: str | None = None) -> 
 
 
 def notify_subscription_request_created(sub_request: SubscriptionRequest) -> bool:
+    student = sub_request.student
+    name = student.first_name or 'Student'
+
     text = (
-        'Your payment request is under review. '
-        'We will notify you once your payment is confirmed.'
+        f'⏳ Payment Request Under Review\n\n'
+        f'Hi {name}, your payment request for {sub_request.plan.name} '
+        f'(Reference: {sub_request.reference}) is under review.\n\n'
+        f'We will notify you once your payment is confirmed.'
     )
-    return send_telegram_message(sub_request.student.telegram_id, text)
+    return send_telegram_message(student.telegram_id, text)
 
 
 def notify_subscription_approved(sub_request: SubscriptionRequest) -> bool:
