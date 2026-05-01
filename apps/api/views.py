@@ -1,7 +1,7 @@
 import mimetypes
 import logging
 from pathlib import Path
-from urllib.parse import urlencode
+from urllib.parse import quote, unquote
 
 from botocore.exceptions import ClientError
 from django.core import signing
@@ -33,7 +33,7 @@ from .permissions import IsTelegramAuthenticated, IsPremium, FreeQuotaNotExceede
 
 logger = logging.getLogger(__name__)
 
-RESOURCE_DOWNLOAD_TOKEN_MAX_AGE = 300
+RESOURCE_DOWNLOAD_TOKEN_MAX_AGE = 900
 RESOURCE_DOWNLOAD_TOKEN_SALT = 'apps.api.resource-download'
 
 
@@ -248,11 +248,12 @@ class ResourceDownloadView(APIView):
         )
         download_path = reverse(
             'resource-download-file',
-            kwargs={'resource_id': resource.id},
+            kwargs={
+                'resource_id': resource.id,
+                'token': quote(token, safe=''),
+            },
         )
-        file_url = request.build_absolute_uri(
-            f'{download_path}?{urlencode({"token": token})}'
-        )
+        file_url = request.build_absolute_uri(download_path)
         return Response({
             'url':      file_url,
             'filename': _resource_download_filename(resource),
@@ -263,8 +264,8 @@ class ResourceDownloadView(APIView):
 class ResourceDownloadFileView(APIView):
     permission_classes = [AllowAny]
 
-    def get(self, request, resource_id):
-        token = request.query_params.get('token', '')
+    def get(self, request, resource_id, token=None):
+        token = unquote(token or request.query_params.get('token', ''))
         try:
             payload = signing.loads(
                 token,
