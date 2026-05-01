@@ -263,33 +263,51 @@ class SubscriptionRequestAdmin(ModelAdmin):
 
     @admin.action(description='❌ Reject selected requests')
     def reject_requests(self, request, queryset):
-        pending_requests = list(
-            queryset.filter(status=SubscriptionRequest.STATUS_PENDING).select_related('student', 'plan')
+        rejectable_requests = list(
+            queryset
+            .filter(status__in=[
+                SubscriptionRequest.STATUS_PENDING,
+                SubscriptionRequest.STATUS_APPROVED,
+            ])
+            .select_related('student', 'plan')
         )
-        count = len(pending_requests)
+        count = len(rejectable_requests)
+        notified = 0
 
-        if count:
-            SubscriptionRequest.objects.filter(
-                id__in=[sub_request.id for sub_request in pending_requests],
-            ).update(status=SubscriptionRequest.STATUS_REJECTED, updated_at=timezone.now())
-
-        for sub_request in pending_requests:
-            sub_request.status = SubscriptionRequest.STATUS_REJECTED
-            notify_subscription_rejected(sub_request)
+        for sub_request in rejectable_requests:
+            if _reject_subscription_request(sub_request):
+                notified += 1
 
         skipped = queryset.count() - count
         if count:
-            self.message_user(request, f'❌ Rejected {count} pending request(s).', messages.SUCCESS)
+            failed = count - notified
+            message = f'❌ Rejected {count} subscription request(s).'
+            if failed:
+                message += f' Telegram notification failed for {failed} request(s); check server logs.'
+                level = messages.WARNING
+            else:
+                message += ' Telegram notification sent.'
+                level = messages.SUCCESS
+            self.message_user(request, message, level)
         if skipped:
             self.message_user(
                 request,
-                f'{skipped} selected request(s) were already processed — skipped.',
+                f'{skipped} selected request(s) were already rejected — skipped.',
                 messages.WARNING,
             )
 
     # ── Override save to auto-approve when admin changes status to approved ───
 
     def save_model(self, request, obj, form, change):
+        previous_status = None
+        if change:
+            previous_status = (
+                SubscriptionRequest.objects
+                .filter(id=obj.id)
+                .values_list('status', flat=True)
+                .first()
+            )
+
         if change and obj.status == SubscriptionRequest.STATUS_APPROVED:
             if not obj.activated_at:
                 _approve_subscription_request(obj, request.user)
@@ -299,6 +317,21 @@ class SubscriptionRequestAdmin(ModelAdmin):
                     messages.SUCCESS,
                 )
                 return  # already saved inside helper
+        if (
+            change
+            and obj.status == SubscriptionRequest.STATUS_REJECTED
+            and previous_status != SubscriptionRequest.STATUS_REJECTED
+        ):
+            notified = _reject_subscription_request(obj)
+            message = f'❌ Subscription request rejected for {obj.student}.'
+            if notified:
+                message += ' Telegram notification sent.'
+                level = messages.SUCCESS
+            else:
+                message += ' Telegram notification failed; check server logs.'
+                level = messages.WARNING
+            self.message_user(request, message, level)
+            return  # already saved inside helper
         super().save_model(request, obj, form, change)
 
 
@@ -375,3 +408,30 @@ def _approve_subscription_request(sub_request: SubscriptionRequest, admin_user):
     ])
 
     notify_subscription_approved(sub_request)
+
+
+def _reject_subscription_request(sub_request: SubscriptionRequest):
+    """Mark a request rejected and roll back premium if this was its only approval."""
+    was_approved = sub_request.status == SubscriptionRequest.STATUS_APPROVED
+
+    sub_request.status = SubscriptionRequest.STATUS_REJECTED
+    sub_request.activated_by = None
+    sub_request.activated_at = None
+    sub_request.save(update_fields=[
+        'status', 'activated_by', 'activated_at', 'updated_at'
+    ])
+
+    if was_approved:
+        has_other_approved = SubscriptionRequest.objects.filter(
+            student=sub_request.student,
+            status=SubscriptionRequest.STATUS_APPROVED,
+        ).exclude(id=sub_request.id).exists()
+
+        if not has_other_approved:
+            sub_request.student.subscription_status = Student.SUBSCRIPTION_FREE
+            sub_request.student.subscription_expiry = None
+            sub_request.student.save(update_fields=[
+                'subscription_status', 'subscription_expiry'
+            ])
+
+    return notify_subscription_rejected(sub_request)

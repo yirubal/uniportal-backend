@@ -25,7 +25,7 @@ def send_telegram_message(chat_id, text: str, parse_mode: str | None = None) -> 
         response = httpx.post(
             f'https://api.telegram.org/bot{settings.TELEGRAM_BOT_TOKEN}/sendMessage',
             json=payload,
-            timeout=3,
+            timeout=10,
         )
         response.raise_for_status()
         return True
@@ -63,12 +63,12 @@ def notify_subscription_rejected(sub_request: SubscriptionRequest) -> bool:
     name = student.first_name or 'Student'
 
     text = (
-        f"❌ *Payment Not Verified*\n\n"
+        f"❌ Payment Not Verified\n\n"
         f"Hi {name}, unfortunately we could not verify your payment for "
-        f"*{sub_request.plan.name}* (Reference: `{sub_request.reference}`).\n\n"
+        f"{sub_request.plan.name} (Reference: {sub_request.reference}).\n\n"
         f"Please make sure you:\n"
         f"• Sent to the correct Telebirr number\n"
         f"• Included your reference code in the payment note\n\n"
         f"Contact support if you believe this is a mistake."
     )
-    return send_telegram_message(student.telegram_id, text, parse_mode='Markdown')
+    return send_telegram_message(student.telegram_id, text)
