@@ -68,6 +68,11 @@ class Command(BaseCommand):
             help='Preview what would be downloaded without saving.',
         )
         parser.add_argument(
+            '--redownload-missing',
+            action='store_true',
+            help='Re-download existing FileInbox rows when the stored file is missing.',
+        )
+        parser.add_argument(
             '--delay',
             type=float,
             default=0.5,
@@ -115,6 +120,7 @@ class Command(BaseCommand):
         to_id      = options['to_id']
         limit      = options['limit']
         dry_run    = options['dry_run']
+        redownload_missing = options['redownload_missing']
         delay      = options['delay']
 
         downloaded         = 0
@@ -213,16 +219,30 @@ class Command(BaseCommand):
             from asgiref.sync import sync_to_async
             from apps.content.models import FileInbox
 
-            already_exists = await sync_to_async(
-                FileInbox.objects.filter(telegram_message_id=current_id).exists
+            existing_item = await sync_to_async(
+                lambda: FileInbox.objects.filter(telegram_message_id=current_id).first()
             )()
 
-            if already_exists:
+            if existing_item and not redownload_missing:
                 self.stdout.write(f'  [{current_id}] Already exists — skipping {filename}')
                 skipped += 1
                 current_id += 1
                 await asyncio.sleep(delay)
                 continue
+
+            if existing_item and redownload_missing:
+                existing_file_exists = await sync_to_async(
+                    lambda: bool(existing_item.file and existing_item.file.storage.exists(existing_item.file.name))
+                )()
+                if existing_file_exists:
+                    self.stdout.write(f'  [{current_id}] Existing file is present — skipping {filename}')
+                    skipped += 1
+                    current_id += 1
+                    await asyncio.sleep(delay)
+                    continue
+                self.stdout.write(self.style.WARNING(
+                    f'  [{current_id}] Existing DB row has missing file — re-downloading {filename}'
+                ))
 
             if dry_run:
                 self.stdout.write(self.style.SUCCESS(f'  [{current_id}] Would download: {filename}'))
@@ -254,18 +274,29 @@ class Command(BaseCommand):
                 continue
 
             # ── Save to FileInbox ─────────────────────────────────────────────
-            relative_path = file_path.replace(
-                str(settings.MEDIA_ROOT), ''
-            ).lstrip('/')
-
-            inbox_item = await sync_to_async(FileInbox.objects.create)(
-                file=relative_path,
-                original_filename=filename,
-                telegram_message_id=current_id,
-                telegram_caption=forwarded.caption or '',
-                posted_date=forwarded.date or timezone.now(),
-                processing_status=FileInbox.STATUS_UNPROCESSED,  # ← fixed (was STATUS_FAILED)
+            from apps.content.services import (
+                create_inbox_item_from_local_file,
+                save_local_file_to_inbox_item,
             )
+            if existing_item:
+                inbox_item = await sync_to_async(save_local_file_to_inbox_item)(
+                    existing_item,
+                    file_path=file_path,
+                    original_filename=filename,
+                    telegram_caption=forwarded.caption or '',
+                    posted_date=forwarded.date or timezone.now(),
+                    processing_status=FileInbox.STATUS_UNPROCESSED,
+                    processing_error='',
+                )
+            else:
+                inbox_item = await sync_to_async(create_inbox_item_from_local_file)(
+                    file_path=file_path,
+                    original_filename=filename,
+                    telegram_message_id=current_id,
+                    telegram_caption=forwarded.caption or '',
+                    posted_date=forwarded.date or timezone.now(),
+                    processing_status=FileInbox.STATUS_UNPROCESSED,  # ← fixed (was STATUS_FAILED)
+                )
 
             from apps.bot.tasks import process_inbox_item
             await process_inbox_item(inbox_item.id)

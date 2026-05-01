@@ -5,6 +5,7 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, WebAppI
 from telegram.ext import ContextTypes
 
 from apps.content.models import FileInbox
+from apps.content.services import create_inbox_item_from_local_file
 from .downloader import download_file, get_file_info
 
 logger = logging.getLogger(__name__)
@@ -50,13 +51,8 @@ async def handle_channel_post(update: Update, context: ContextTypes.DEFAULT_TYPE
         )
         return
 
-    from django.conf import settings
-    relative_path = file_path.replace(
-        str(settings.MEDIA_ROOT), ''
-    ).lstrip('/')
-
-    inbox_item = await sync_to_async(FileInbox.objects.create)(
-        file=relative_path,
+    inbox_item = await sync_to_async(create_inbox_item_from_local_file)(
+        file_path=file_path,
         original_filename=filename,
         telegram_message_id=message.message_id,
         telegram_caption=message.caption or '',

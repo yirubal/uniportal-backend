@@ -9,6 +9,7 @@ from .models import (
     Resource,
     FileInbox,
 )
+from .services import copy_inbox_file_to_resource
 
 
 
@@ -257,13 +258,13 @@ class FileInboxAdmin(ModelAdmin):
     @admin.action(description='Publish selected as Resource — assign course after')
     def publish_as_resource(self, request, queryset):
         created = 0
+        failed = 0
         for item in queryset.filter(
                 processing_status=FileInbox.STATUS_PROCESSED,
                 assigned_resource__isnull=True,
         ):
-            resource = Resource.objects.create(
+            resource = Resource(
                 title=item.original_filename,
-                file=item.file,
                 file_type=Resource.TYPE_LECTURE_NOTE,
                 extracted_text=item.extracted_text,
                 access_level=Resource.ACCESS_PREMIUM,
@@ -272,12 +273,29 @@ class FileInboxAdmin(ModelAdmin):
                 telegram_message_id=item.telegram_message_id,
                 original_caption=item.telegram_caption,
             )
+            try:
+                copy_inbox_file_to_resource(item, resource)
+                resource.save()
+            except Exception as exc:
+                failed += 1
+                self.message_user(
+                    request,
+                    f'Could not copy file for {item.original_filename}: {exc}',
+                    level=messages.ERROR,
+                )
+                continue
             item.assigned_resource = resource
             item.save(update_fields=['assigned_resource'])
             created += 1
+        level = messages.WARNING if failed else messages.SUCCESS
         self.message_user(
             request,
-            f'{created} resource(s) created. Please update the course for each one.',
+            (
+                f'{created} resource(s) created. '
+                f'{failed} failed. '
+                'Please update the course for each one.'
+            ),
+            level=level,
         )
 
     @admin.action(description='Extract questions from selected files using AI')
