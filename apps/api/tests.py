@@ -1,10 +1,12 @@
 from unittest.mock import patch
 
+from django.contrib import admin as django_admin
 from django.contrib.auth import get_user_model
+from django.test import RequestFactory
 from django.test import override_settings
 from rest_framework.test import APITestCase
 
-from apps.accounts.admin import _approve_subscription_request
+from apps.accounts.admin import SubscriptionRequestAdmin, _approve_subscription_request
 from apps.accounts.models import Student, SubscriptionPlan, SubscriptionRequest
 from apps.api.views import _generate_jwt
 
@@ -117,3 +119,58 @@ class SubscriptionRequestTests(APITestCase):
         self.assertTrue(response.data['is_premium'])
         self.assertEqual(response.data['subscription_status'], Student.SUBSCRIPTION_PREMIUM)
         notify_approved.assert_called_once_with(sub_request)
+
+    @patch('apps.accounts.admin.notify_subscription_rejected')
+    @patch('apps.accounts.admin.SubscriptionRequestAdmin.message_user')
+    def test_admin_bulk_reject_updates_selected_pending_requests(self, message_user, notify_rejected):
+        other_student = Student.objects.create(
+            telegram_id=654321,
+            first_name='Other',
+            username='otheruser',
+        )
+        first_pending = SubscriptionRequest.objects.create(
+            student=self.student,
+            plan=self.semester_plan,
+            reference='UNI-33333',
+            amount=self.semester_plan.price,
+            status=SubscriptionRequest.STATUS_PENDING,
+        )
+        second_pending = SubscriptionRequest.objects.create(
+            student=other_student,
+            plan=self.annual_plan,
+            reference='UNI-44444',
+            amount=self.annual_plan.price,
+            status=SubscriptionRequest.STATUS_PENDING,
+        )
+        approved = SubscriptionRequest.objects.create(
+            student=Student.objects.create(
+                telegram_id=111222,
+                first_name='Approved',
+                username='approveduser',
+            ),
+            plan=self.semester_plan,
+            reference='UNI-55555',
+            amount=self.semester_plan.price,
+            status=SubscriptionRequest.STATUS_APPROVED,
+        )
+        request = RequestFactory().post('/admin/accounts/subscriptionrequest/')
+        request.user = get_user_model().objects.create_user(username='admin2')
+        model_admin = SubscriptionRequestAdmin(SubscriptionRequest, django_admin.site)
+
+        model_admin.reject_requests(
+            request,
+            SubscriptionRequest.objects.filter(id__in=[
+                first_pending.id,
+                second_pending.id,
+                approved.id,
+            ]),
+        )
+
+        first_pending.refresh_from_db()
+        second_pending.refresh_from_db()
+        approved.refresh_from_db()
+        self.assertEqual(first_pending.status, SubscriptionRequest.STATUS_REJECTED)
+        self.assertEqual(second_pending.status, SubscriptionRequest.STATUS_REJECTED)
+        self.assertEqual(approved.status, SubscriptionRequest.STATUS_APPROVED)
+        self.assertEqual(notify_rejected.call_count, 2)
+        self.assertEqual(message_user.call_count, 2)
