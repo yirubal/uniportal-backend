@@ -186,7 +186,7 @@ class FileInbox(models.Model):
         (STATUS_FAILED, 'Failed — processing error'),
     ]
 
-    file = models.FileField(upload_to='inbox/%Y/%m/')
+    file = models.FileField(upload_to='inbox/%Y/%m/', blank=True)
     original_filename = models.CharField(max_length=500)
     telegram_message_id = models.BigIntegerField(unique=True)
     telegram_caption = models.TextField(

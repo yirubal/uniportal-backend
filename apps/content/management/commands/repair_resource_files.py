@@ -5,7 +5,7 @@ from django.core.files import File
 from django.core.management.base import BaseCommand
 
 from apps.content.models import Resource
-from apps.content.services import copy_inbox_file_to_resource
+from apps.content.services import clear_inbox_file, copy_inbox_file_to_resource
 
 
 class Command(BaseCommand):
@@ -24,6 +24,7 @@ class Command(BaseCommand):
         already_ok = 0
         missing_source = 0
         failed = 0
+        cleaned = 0
 
         resources = Resource.objects.select_related('inbox_source').filter(
             inbox_source__isnull=False,
@@ -31,6 +32,23 @@ class Command(BaseCommand):
 
         for resource in resources:
             if self._file_exists(resource.file):
+                if self._file_exists(resource.inbox_source.file):
+                    if dry_run:
+                        cleaned += 1
+                        self.stdout.write(
+                            f'Would delete duplicate inbox file for resource {resource.id}: '
+                            f'{resource.inbox_source.file.name}'
+                        )
+                    elif clear_inbox_file(
+                        resource.inbox_source,
+                        protected_file_name=resource.file.name,
+                    ):
+                        cleaned += 1
+                        self.stdout.write(
+                            self.style.SUCCESS(
+                                f'Deleted duplicate inbox file for resource {resource.id}'
+                            )
+                        )
                 already_ok += 1
                 continue
 
@@ -89,6 +107,11 @@ class Command(BaseCommand):
                     resource.save(update_fields=['file', 'updated_at'])
 
                 repaired += 1
+                if clear_inbox_file(
+                    inbox_item,
+                    protected_file_name=resource.file.name,
+                ):
+                    cleaned += 1
                 self.stdout.write(
                     self.style.SUCCESS(
                         f'Repaired resource {resource.id}: {resource.file.name}'
@@ -107,7 +130,7 @@ class Command(BaseCommand):
             self.style.SUCCESS(
                 'Done. '
                 f'repaired={repaired}, already_ok={already_ok}, '
-                f'missing_source={missing_source}, failed={failed}'
+                f'cleaned={cleaned}, missing_source={missing_source}, failed={failed}'
             )
         )
 

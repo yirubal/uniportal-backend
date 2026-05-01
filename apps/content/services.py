@@ -71,3 +71,20 @@ def copy_inbox_file_to_resource(inbox_item, resource):
     finally:
         inbox_item.file.close()
     return resource
+
+
+def clear_inbox_file(inbox_item, *, protected_file_name=None):
+    file_name = inbox_item.file.name
+    if not file_name:
+        return False
+
+    if protected_file_name and file_name == protected_file_name:
+        return False
+
+    storage = inbox_item.file.storage
+    if storage.exists(file_name):
+        storage.delete(file_name)
+
+    inbox_item.file.name = ''
+    inbox_item.save(update_fields=['file'])
+    return True

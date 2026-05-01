@@ -9,7 +9,7 @@ from .models import (
     Resource,
     FileInbox,
 )
-from .services import copy_inbox_file_to_resource
+from .services import clear_inbox_file, copy_inbox_file_to_resource
 
 
 
@@ -286,6 +286,10 @@ class FileInboxAdmin(ModelAdmin):
                 continue
             item.assigned_resource = resource
             item.save(update_fields=['assigned_resource'])
+            clear_inbox_file(
+                item,
+                protected_file_name=resource.file.name,
+            )
             created += 1
         level = messages.WARNING if failed else messages.SUCCESS
         self.message_user(
