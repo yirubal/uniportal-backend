@@ -5,7 +5,11 @@ from django.core.files import File
 from django.core.management.base import BaseCommand
 
 from apps.content.models import Resource
-from apps.content.services import clear_inbox_file, copy_inbox_file_to_resource
+from apps.content.services import (
+    cleanup_assigned_inbox_duplicates,
+    clear_inbox_file,
+    copy_inbox_file_to_resource,
+)
 
 
 class Command(BaseCommand):
@@ -131,6 +135,20 @@ class Command(BaseCommand):
                 'Done. '
                 f'repaired={repaired}, already_ok={already_ok}, '
                 f'cleaned={cleaned}, missing_source={missing_source}, failed={failed}'
+            )
+        )
+
+        cleanup_stats, cleanup_messages = cleanup_assigned_inbox_duplicates(
+            dry_run=dry_run,
+        )
+        for message in cleanup_messages:
+            self.stdout.write(message)
+        self.stdout.write(
+            self.style.SUCCESS(
+                'Duplicate cleanup. '
+                f'checked={cleanup_stats["checked"]}, '
+                f'cleaned={cleanup_stats["cleaned"]}, '
+                f'failed={cleanup_stats["failed"]}'
             )
         )
 

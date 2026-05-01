@@ -88,3 +88,86 @@ def clear_inbox_file(inbox_item, *, protected_file_name=None):
     inbox_item.file.name = ''
     inbox_item.save(update_fields=['file'])
     return True
+
+
+def storage_file_exists(field_file):
+    if not field_file or not field_file.name:
+        return False
+    try:
+        return field_file.storage.exists(field_file.name)
+    except Exception:
+        return False
+
+
+def cleanup_assigned_inbox_duplicates(*, dry_run=False, limit=None):
+    stats = {
+        'checked': 0,
+        'cleaned': 0,
+        'skipped_missing_resource_file': 0,
+        'skipped_missing_inbox_file': 0,
+        'skipped_same_file': 0,
+        'failed': 0,
+    }
+    messages = []
+
+    queryset = FileInbox.objects.select_related('assigned_resource').filter(
+        assigned_resource__isnull=False,
+    ).exclude(file='')
+    if limit:
+        queryset = queryset[:limit]
+
+    for inbox_item in queryset:
+        stats['checked'] += 1
+        resource = inbox_item.assigned_resource
+
+        if not storage_file_exists(resource.file):
+            stats['skipped_missing_resource_file'] += 1
+            messages.append(
+                f'Skipped inbox {inbox_item.id}; resource file missing for resource {resource.id}'
+            )
+            continue
+
+        if inbox_item.file.name == resource.file.name:
+            stats['skipped_same_file'] += 1
+            messages.append(
+                f'Skipped inbox {inbox_item.id}; inbox and resource use the same file'
+            )
+            continue
+
+        if not storage_file_exists(inbox_item.file):
+            stats['skipped_missing_inbox_file'] += 1
+            inbox_item.file.name = ''
+            if not dry_run:
+                inbox_item.save(update_fields=['file'])
+            messages.append(
+                (
+                    f'Would clear missing inbox file reference for inbox {inbox_item.id}'
+                    if dry_run
+                    else f'Cleared missing inbox file reference for inbox {inbox_item.id}'
+                )
+            )
+            continue
+
+        if dry_run:
+            stats['cleaned'] += 1
+            messages.append(
+                f'Would delete duplicate inbox file for inbox {inbox_item.id}: {inbox_item.file.name}'
+            )
+            continue
+
+        try:
+            if clear_inbox_file(
+                inbox_item,
+                protected_file_name=resource.file.name,
+            ):
+                stats['cleaned'] += 1
+                messages.append(
+                    f'Deleted duplicate inbox file for inbox {inbox_item.id}'
+                )
+        except Exception as exc:
+            stats['failed'] += 1
+            messages.append(
+                f'Failed to clean inbox {inbox_item.id}: {exc}'
+            )
+
+    return stats, messages
