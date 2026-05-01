@@ -1,7 +1,12 @@
 from unittest.mock import patch
+import shutil
+import tempfile
+from datetime import timedelta
+from urllib.parse import urlsplit
 
 from django.contrib import admin as django_admin
 from django.contrib.auth import get_user_model
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import RequestFactory
 from django.test import override_settings
 from django.utils import timezone
@@ -13,7 +18,8 @@ from apps.accounts.notifications import (
     notify_subscription_request_created,
 )
 from apps.accounts.models import Student, SubscriptionPlan, SubscriptionRequest
-from apps.api.views import _generate_jwt
+from apps.api.views import RESOURCE_DOWNLOAD_TOKEN_MAX_AGE, _generate_jwt
+from apps.content.models import Course, Resource
 
 
 @override_settings(TELEGRAM_BOT_TOKEN='test-token')
@@ -224,3 +230,93 @@ class SubscriptionRequestTests(APITestCase):
         self.assertIn('Payment Not Verified', text)
         self.assertIn('UNI-66666', text)
         self.assertNotIn('parse_mode', send_message.call_args.kwargs)
+
+
+@override_settings(TELEGRAM_BOT_TOKEN='test-token')
+class ResourceDownloadTests(APITestCase):
+    def setUp(self):
+        self.media_root = tempfile.mkdtemp()
+        self.settings_override = override_settings(MEDIA_ROOT=self.media_root)
+        self.settings_override.enable()
+
+        self.student = Student.objects.create(
+            telegram_id=1234567,
+            first_name='Premium',
+            username='premiumuser',
+            subscription_status=Student.SUBSCRIPTION_PREMIUM,
+            subscription_expiry=timezone.now() + timedelta(days=10),
+        )
+        self.free_student = Student.objects.create(
+            telegram_id=7654321,
+            first_name='Free',
+            username='freeuser',
+        )
+        self.course = Course.objects.create(
+            name='Introduction to Accounting',
+            code='ACCT101',
+        )
+        self.resource = Resource.objects.create(
+            title='Lecture Pack',
+            file=SimpleUploadedFile(
+                'lecture-pack.pdf',
+                b'%PDF-1.4 test file',
+                content_type='application/pdf',
+            ),
+            file_type=Resource.TYPE_LECTURE_NOTE,
+            access_level=Resource.ACCESS_PREMIUM,
+            status=Resource.STATUS_PUBLISHED,
+            course=self.course,
+        )
+
+    def tearDown(self):
+        self.settings_override.disable()
+        shutil.rmtree(self.media_root, ignore_errors=True)
+
+    def authenticate(self, student):
+        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {_generate_jwt(student)}')
+
+    def test_post_returns_signed_download_url_that_streams_without_auth_headers(self):
+        self.authenticate(self.student)
+
+        response = self.client.post(f'/api/resources/{self.resource.id}/download/')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data['filename'], 'lecture-pack.pdf')
+        self.assertEqual(response.data['expires_in'], RESOURCE_DOWNLOAD_TOKEN_MAX_AGE)
+        self.assertIn(
+            f'/api/resources/{self.resource.id}/download/file/?token=',
+            response.data['url'],
+        )
+
+        self.resource.refresh_from_db()
+        self.student.refresh_from_db()
+        self.assertEqual(self.resource.downloads_count, 1)
+        self.assertEqual(self.student.downloads_today, 1)
+
+        self.client.credentials()
+        signed_url = urlsplit(response.data['url'])
+        download_response = self.client.get(f'{signed_url.path}?{signed_url.query}')
+
+        self.assertEqual(download_response.status_code, 200)
+        self.assertEqual(
+            b''.join(download_response.streaming_content),
+            b'%PDF-1.4 test file',
+        )
+        self.assertEqual(download_response['Content-Type'], 'application/pdf')
+        self.assertIn(
+            'attachment; filename="lecture-pack.pdf"',
+            download_response['Content-Disposition'],
+        )
+
+    def test_free_student_cannot_prepare_premium_resource_download(self):
+        self.authenticate(self.free_student)
+
+        response = self.client.post(f'/api/resources/{self.resource.id}/download/')
+
+        self.assertEqual(response.status_code, 403)
+        self.assertTrue(response.data['upgrade_required'])
+
+        self.resource.refresh_from_db()
+        self.free_student.refresh_from_db()
+        self.assertEqual(self.resource.downloads_count, 0)
+        self.assertEqual(self.free_student.downloads_today, 0)

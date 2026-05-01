@@ -1,6 +1,12 @@
-from django.shortcuts import render
-
+import mimetypes
 import logging
+from pathlib import Path
+from urllib.parse import urlencode
+
+from botocore.exceptions import ClientError
+from django.core import signing
+from django.http import FileResponse
+from django.urls import reverse
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
@@ -26,6 +32,9 @@ from .serializers import (
 from .permissions import IsTelegramAuthenticated, IsPremium, FreeQuotaNotExceeded
 
 logger = logging.getLogger(__name__)
+
+RESOURCE_DOWNLOAD_TOKEN_MAX_AGE = 300
+RESOURCE_DOWNLOAD_TOKEN_SALT = 'apps.api.resource-download'
 
 
 # ─── AUTH ─────────────────────────────────────────────────────────────────────
@@ -229,11 +238,96 @@ class ResourceDownloadView(APIView):
         student.downloads_today += 1
         student.save(update_fields=['downloads_today'])
 
-        file_url = request.build_absolute_uri(resource.file.url)
+        token = signing.dumps(
+            {
+                'resource_id': resource.id,
+                'student_id': student.id,
+                'file_name': resource.file.name,
+            },
+            salt=RESOURCE_DOWNLOAD_TOKEN_SALT,
+        )
+        download_path = reverse(
+            'resource-download-file',
+            kwargs={'resource_id': resource.id},
+        )
+        file_url = request.build_absolute_uri(
+            f'{download_path}?{urlencode({"token": token})}'
+        )
         return Response({
             'url':      file_url,
-            'filename': resource.file.name.split('/')[-1],
+            'filename': _resource_download_filename(resource),
+            'expires_in': RESOURCE_DOWNLOAD_TOKEN_MAX_AGE,
         })
+
+
+class ResourceDownloadFileView(APIView):
+    permission_classes = [AllowAny]
+
+    def get(self, request, resource_id):
+        token = request.query_params.get('token', '')
+        try:
+            payload = signing.loads(
+                token,
+                salt=RESOURCE_DOWNLOAD_TOKEN_SALT,
+                max_age=RESOURCE_DOWNLOAD_TOKEN_MAX_AGE,
+            )
+        except signing.SignatureExpired:
+            return Response(
+                {'error': 'DOWNLOAD_EXPIRED', 'message': 'Download link expired.'},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        except signing.BadSignature:
+            return Response(
+                {'error': 'INVALID_DOWNLOAD', 'message': 'Invalid download link.'},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        if payload.get('resource_id') != resource_id:
+            return Response(
+                {'error': 'INVALID_DOWNLOAD', 'message': 'Invalid download link.'},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        try:
+            resource = Resource.objects.get(
+                id=resource_id,
+                status=Resource.STATUS_PUBLISHED,
+            )
+        except Resource.DoesNotExist:
+            return Response(
+                {'error': 'NOT_FOUND', 'message': 'Resource not found.'},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        if payload.get('file_name') != resource.file.name:
+            return Response(
+                {'error': 'INVALID_DOWNLOAD', 'message': 'Invalid download link.'},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        try:
+            file_handle = resource.file.open('rb')
+        except (ClientError, FileNotFoundError, ValueError):
+            logger.warning('Resource file missing for download: resource_id=%s', resource_id)
+            return Response(
+                {'error': 'FILE_NOT_FOUND', 'message': 'Resource file not found.'},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        filename = _resource_download_filename(resource)
+        content_type, _ = mimetypes.guess_type(filename)
+        response = FileResponse(
+            file_handle,
+            as_attachment=True,
+            filename=filename,
+            content_type=content_type or 'application/octet-stream',
+        )
+        response['X-Content-Type-Options'] = 'nosniff'
+        return response
+
+
+def _resource_download_filename(resource):
+    return Path(resource.file.name).name or f'resource-{resource.id}'
 
 
 # ─── EXAM PAPERS ──────────────────────────────────────────────────────────────
