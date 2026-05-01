@@ -7,7 +7,7 @@ from django.test import TestCase, override_settings
 from django.utils import timezone
 
 from apps.content.models import Course, FileInbox, Resource
-from apps.content.services import copy_inbox_file_to_resource
+from apps.content.services import clear_inbox_file, copy_inbox_file_to_resource
 
 
 class ResourceFileStorageTests(TestCase):
@@ -53,8 +53,35 @@ class ResourceFileStorageTests(TestCase):
         with resource.file.open('rb') as handle:
             self.assertEqual(handle.read(), b'%PDF-1.4 source')
 
+    def test_clear_inbox_file_removes_duplicate_without_touching_resource(self):
+        inbox_item = self.create_inbox_item()
+        inbox_file_name = inbox_item.file.name
+        resource = Resource(
+            title='Global Trends',
+            file_type=Resource.TYPE_LECTURE_NOTE,
+            access_level=Resource.ACCESS_PREMIUM,
+            status=Resource.STATUS_PENDING,
+            course=self.course,
+        )
+        copy_inbox_file_to_resource(inbox_item, resource)
+        resource.save()
+
+        cleared = clear_inbox_file(
+            inbox_item,
+            protected_file_name=resource.file.name,
+        )
+
+        inbox_item.refresh_from_db()
+        self.assertTrue(cleared)
+        self.assertEqual(inbox_item.file.name, '')
+        self.assertFalse(resource.file.storage.exists(inbox_file_name))
+        self.assertTrue(resource.file.storage.exists(resource.file.name))
+        with resource.file.open('rb') as handle:
+            self.assertEqual(handle.read(), b'%PDF-1.4 source')
+
     def test_repair_resource_files_copies_assigned_inbox_source(self):
         inbox_item = self.create_inbox_item()
+        inbox_file_name = inbox_item.file.name
         resource = Resource.objects.create(
             title='Broken Resource',
             file='resources/missing.pdf',
@@ -69,7 +96,10 @@ class ResourceFileStorageTests(TestCase):
         call_command('repair_resource_files')
 
         resource.refresh_from_db()
+        inbox_item.refresh_from_db()
         self.assertTrue(resource.file.name.startswith('resources/'))
         self.assertNotEqual(resource.file.name, 'resources/missing.pdf')
+        self.assertEqual(inbox_item.file.name, '')
+        self.assertFalse(resource.file.storage.exists(inbox_file_name))
         with resource.file.open('rb') as handle:
             self.assertEqual(handle.read(), b'%PDF-1.4 source')
