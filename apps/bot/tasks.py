@@ -4,8 +4,13 @@ import tempfile
 from pathlib import Path
 
 from asgiref.sync import sync_to_async
+from django.core.cache import cache
 
 logger = logging.getLogger(__name__)
+
+INBOX_DUPLICATE_CLEANUP_CACHE_KEY = 'content:assigned-inbox-duplicate-cleanup'
+INBOX_DUPLICATE_CLEANUP_INTERVAL_SECONDS = 5 * 60
+INBOX_DUPLICATE_CLEANUP_LIMIT = 100
 
 
 def _extract_inbox_text(inbox_item):
@@ -31,6 +36,29 @@ def _extract_inbox_text(inbox_item):
         inbox_item.file.close()
 
 
+def _cleanup_assigned_inbox_duplicates_if_due():
+    if cache.get(INBOX_DUPLICATE_CLEANUP_CACHE_KEY):
+        return
+
+    from apps.content.services import cleanup_assigned_inbox_duplicates
+
+    cache.set(
+        INBOX_DUPLICATE_CLEANUP_CACHE_KEY,
+        True,
+        INBOX_DUPLICATE_CLEANUP_INTERVAL_SECONDS,
+    )
+    stats, _ = cleanup_assigned_inbox_duplicates(
+        limit=INBOX_DUPLICATE_CLEANUP_LIMIT,
+    )
+    if stats['cleaned'] or stats['failed']:
+        logger.info(
+            'Assigned inbox duplicate cleanup checked=%s cleaned=%s failed=%s',
+            stats['checked'],
+            stats['cleaned'],
+            stats['failed'],
+        )
+
+
 async def process_inbox_item(inbox_id: int):
     """
     Processes a FileInbox item:
@@ -43,6 +71,8 @@ async def process_inbox_item(inbox_id: int):
     try:
         # Get inbox item
         inbox_item = await sync_to_async(FileInbox.objects.get)(id=inbox_id)
+
+        await sync_to_async(_cleanup_assigned_inbox_duplicates_if_due)()
 
         # Update status to processing
         inbox_item.processing_status = FileInbox.STATUS_PROCESSING
