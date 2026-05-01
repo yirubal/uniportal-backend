@@ -263,13 +263,29 @@ class SubscriptionRequestAdmin(ModelAdmin):
 
     @admin.action(description='❌ Reject selected requests')
     def reject_requests(self, request, queryset):
-        pending = queryset.filter(status=SubscriptionRequest.STATUS_PENDING)
-        count   = pending.count()
-        for sub_request in pending:
+        pending_requests = list(
+            queryset.filter(status=SubscriptionRequest.STATUS_PENDING).select_related('student', 'plan')
+        )
+        count = len(pending_requests)
+
+        if count:
+            SubscriptionRequest.objects.filter(
+                id__in=[sub_request.id for sub_request in pending_requests],
+            ).update(status=SubscriptionRequest.STATUS_REJECTED, updated_at=timezone.now())
+
+        for sub_request in pending_requests:
             sub_request.status = SubscriptionRequest.STATUS_REJECTED
-            sub_request.save(update_fields=['status', 'updated_at'])
             notify_subscription_rejected(sub_request)
-        self.message_user(request, f'❌ Rejected {count} request(s).')
+
+        skipped = queryset.count() - count
+        if count:
+            self.message_user(request, f'❌ Rejected {count} pending request(s).', messages.SUCCESS)
+        if skipped:
+            self.message_user(
+                request,
+                f'{skipped} selected request(s) were already processed — skipped.',
+                messages.WARNING,
+            )
 
     # ── Override save to auto-approve when admin changes status to approved ───
 

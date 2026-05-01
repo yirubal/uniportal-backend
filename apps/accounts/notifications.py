@@ -25,7 +25,7 @@ def send_telegram_message(chat_id, text: str, parse_mode: str | None = None) -> 
         response = httpx.post(
             f'https://api.telegram.org/bot{settings.TELEGRAM_BOT_TOKEN}/sendMessage',
             json=payload,
-            timeout=10,
+            timeout=3,
         )
         response.raise_for_status()
         return True
