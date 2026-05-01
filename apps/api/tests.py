@@ -284,9 +284,10 @@ class ResourceDownloadTests(APITestCase):
         self.assertEqual(response.data['filename'], 'lecture-pack.pdf')
         self.assertEqual(response.data['expires_in'], RESOURCE_DOWNLOAD_TOKEN_MAX_AGE)
         self.assertIn(
-            f'/api/resources/{self.resource.id}/download/file/?token=',
+            f'/api/resources/{self.resource.id}/download/file/',
             response.data['url'],
         )
+        self.assertNotIn('?token=', response.data['url'])
 
         self.resource.refresh_from_db()
         self.student.refresh_from_db()
@@ -306,6 +307,32 @@ class ResourceDownloadTests(APITestCase):
         self.assertIn(
             'attachment; filename="lecture-pack.pdf"',
             download_response['Content-Disposition'],
+        )
+
+        head_response = self.client.head(f'{signed_url.path}?{signed_url.query}')
+        self.assertEqual(head_response.status_code, 200)
+        self.assertEqual(head_response['Content-Type'], 'application/pdf')
+        self.assertIn(
+            'attachment; filename="lecture-pack.pdf"',
+            head_response['Content-Disposition'],
+        )
+
+    def test_query_token_download_still_streams_for_existing_links(self):
+        self.authenticate(self.student)
+
+        response = self.client.post(f'/api/resources/{self.resource.id}/download/')
+        signed_url = urlsplit(response.data['url'])
+        token = signed_url.path.rstrip('/').rsplit('/', 1)[-1]
+
+        self.client.credentials()
+        download_response = self.client.get(
+            f'/api/resources/{self.resource.id}/download/file/?token={token}'
+        )
+
+        self.assertEqual(download_response.status_code, 200)
+        self.assertEqual(
+            b''.join(download_response.streaming_content),
+            b'%PDF-1.4 test file',
         )
 
     def test_free_student_cannot_prepare_premium_resource_download(self):

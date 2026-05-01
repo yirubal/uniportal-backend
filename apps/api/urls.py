@@ -20,7 +20,8 @@ urlpatterns = [
     path('courses/<int:course_id>/resources/', views.ResourceListView.as_view(), name='resource-list'),
     path('resources/<int:resource_id>/', views.ResourceDetailView.as_view(), name='resource-detail'),
     path('resources/<int:resource_id>/download/', views.ResourceDownloadView.as_view(), name='resource-download'),
-    path('resources/<int:resource_id>/download/file/', views.ResourceDownloadFileView.as_view(), name='resource-download-file'),
+    path('resources/<int:resource_id>/download/file/<path:token>/', views.ResourceDownloadFileView.as_view(), name='resource-download-file'),
+    path('resources/<int:resource_id>/download/file/', views.ResourceDownloadFileView.as_view(), name='resource-download-file-query'),
 
     # Exams
     path('exams/', views.ExamPaperListView.as_view(), name='exam-list'),
