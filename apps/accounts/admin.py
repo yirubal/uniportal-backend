@@ -272,13 +272,23 @@ class SubscriptionRequestAdmin(ModelAdmin):
             .select_related('student', 'plan')
         )
         count = len(rejectable_requests)
+        notified = 0
 
         for sub_request in rejectable_requests:
-            _reject_subscription_request(sub_request)
+            if _reject_subscription_request(sub_request):
+                notified += 1
 
         skipped = queryset.count() - count
         if count:
-            self.message_user(request, f'❌ Rejected {count} subscription request(s).', messages.SUCCESS)
+            failed = count - notified
+            message = f'❌ Rejected {count} subscription request(s).'
+            if failed:
+                message += f' Telegram notification failed for {failed} request(s); check server logs.'
+                level = messages.WARNING
+            else:
+                message += ' Telegram notification sent.'
+                level = messages.SUCCESS
+            self.message_user(request, message, level)
         if skipped:
             self.message_user(
                 request,
@@ -312,12 +322,15 @@ class SubscriptionRequestAdmin(ModelAdmin):
             and obj.status == SubscriptionRequest.STATUS_REJECTED
             and previous_status != SubscriptionRequest.STATUS_REJECTED
         ):
-            _reject_subscription_request(obj)
-            self.message_user(
-                request,
-                f'❌ Subscription request rejected for {obj.student}. Telegram notification sent.',
-                messages.SUCCESS,
-            )
+            notified = _reject_subscription_request(obj)
+            message = f'❌ Subscription request rejected for {obj.student}.'
+            if notified:
+                message += ' Telegram notification sent.'
+                level = messages.SUCCESS
+            else:
+                message += ' Telegram notification failed; check server logs.'
+                level = messages.WARNING
+            self.message_user(request, message, level)
             return  # already saved inside helper
         super().save_model(request, obj, form, change)
 
@@ -421,4 +434,4 @@ def _reject_subscription_request(sub_request: SubscriptionRequest):
                 'subscription_status', 'subscription_expiry'
             ])
 
-    notify_subscription_rejected(sub_request)
+    return notify_subscription_rejected(sub_request)
