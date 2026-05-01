@@ -1,0 +1,4 @@
+[ZoneTransfer]
+ZoneId=3
+ReferrerUrl=https://claude.ai/chat/91a84df8-36d3-46db-bb00-52badb903524
+HostUrl=https://claude.ai/api/organizations/7652b7de-cf00-403e-b05b-9bfd1678dc0b/conversations/91a84df8-36d3-46db-bb00-52badb903524/wiggle/download-file?path=%2Fmnt%2Fuser-data%2Foutputs%2Fquiz_import_template.xlsx
