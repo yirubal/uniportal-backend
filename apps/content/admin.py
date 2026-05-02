@@ -175,8 +175,219 @@ class ResourceAdmin(ModelAdmin):
         queryset.update(access_level=Resource.ACCESS_PREMIUM)
         self.message_user(request, f'{queryset.count()} resource(s) marked as premium.')
 
+from django.contrib.admin import SimpleListFilter
+
+class AssignmentFilter(SimpleListFilter):
+    title = 'assignment status'
+    parameter_name = 'assigned'
+
+    def lookups(self, request, model_admin):
+        return [
+            ('unassigned', 'Unassigned (pending)'),
+            ('assigned', 'Assigned'),
+            ('all', 'All'),
+        ]
+
+    def queryset(self, request, queryset):
+        if self.value() == 'assigned':
+            return queryset.filter(assigned_resource__isnull=False)
+        if self.value() == 'all':
+            return queryset
+        # Default — show unassigned only
+        return queryset.filter(assigned_resource__isnull=True)
+
 
 @admin.register(FileInbox)
+class FileInboxAdmin(ModelAdmin):
+    list_display = [
+        'original_filename',
+        'telegram_caption_preview',
+        'posted_date',
+        'processing_status',
+        'is_assigned',
+    ]
+    list_filter = [
+        AssignmentFilter,
+        'processing_status',
+    ]
+    search_fields = [
+        'original_filename',
+        'telegram_caption',
+        'extracted_text',
+    ]
+    readonly_fields = [
+        'original_filename',
+        'telegram_message_id',
+        'telegram_caption',
+        'posted_date',
+        'processing_status',
+        'extracted_text',
+        'processing_error',
+        'created_at',
+    ]
+    actions = ['mark_as_processed', 'publish_as_resource', 'extract_questions']
+    fieldsets = (
+        ('File Info', {
+            'fields': (
+                'file',
+                'original_filename',
+                'telegram_message_id',
+                'telegram_caption',
+                'posted_date',
+            )
+        }),
+        ('Processing', {
+            'fields': (
+                'processing_status',
+                'processing_error',
+            )
+        }),
+        ('Extracted Text', {
+            'fields': (
+                'extracted_text',
+            ),
+            'classes': ('collapse',),
+        }),
+        ('Assignment', {
+            'fields': (
+                'assigned_resource',
+            )
+        }),
+    )
+
+    def get_queryset(self, request):
+        qs = super().get_queryset(request)
+        # If no assignment filter is set, default to unassigned only
+        if 'assigned' not in request.GET:
+            return qs.filter(assigned_resource__isnull=True)
+        return qs
+
+    @admin.display(description='Assigned', boolean=True)
+    def is_assigned(self, obj):
+        return obj.assigned_resource is not None
+
+    @admin.display(description='Caption')
+    def telegram_caption_preview(self, obj):
+        if obj.telegram_caption:
+            return (
+                obj.telegram_caption[:60] + '...'
+                if len(obj.telegram_caption) > 60
+                else obj.telegram_caption
+            )
+        return '—'
+
+    @admin.action(description='Mark selected as processed')
+    def mark_as_processed(self, request, queryset):
+        queryset.update(processing_status=FileInbox.STATUS_PROCESSED)
+        self.message_user(
+            request,
+            f'{queryset.count()} item(s) marked as processed.',
+        )
+
+    @admin.action(description='Publish selected as Resource — assign course after')
+    def publish_as_resource(self, request, queryset):
+        created = 0
+        failed = 0
+        for item in queryset.filter(
+                processing_status=FileInbox.STATUS_PROCESSED,
+                assigned_resource__isnull=True,
+        ):
+            resource = Resource(
+                title=item.original_filename,
+                file_type=Resource.TYPE_LECTURE_NOTE,
+                extracted_text=item.extracted_text,
+                access_level=Resource.ACCESS_PREMIUM,
+                status=Resource.STATUS_PENDING,
+                course_id=1,
+                telegram_message_id=item.telegram_message_id,
+                original_caption=item.telegram_caption,
+            )
+            try:
+                copy_inbox_file_to_resource(item, resource)
+                resource.save()
+            except Exception as exc:
+                failed += 1
+                self.message_user(
+                    request,
+                    f'Could not copy file for {item.original_filename}: {exc}',
+                    level=messages.ERROR,
+                )
+                continue
+            item.assigned_resource = resource
+            item.save(update_fields=['assigned_resource'])
+            clear_inbox_file(
+                item,
+                protected_file_name=resource.file.name,
+            )
+            created += 1
+        level = messages.WARNING if failed else messages.SUCCESS
+        self.message_user(
+            request,
+            (
+                f'{created} resource(s) created. '
+                f'{failed} failed. '
+                'Please update the course for each one.'
+            ),
+            level=level,
+        )
+
+    @admin.action(description='Extract questions from selected files using AI')
+    def extract_questions(self, request, queryset):
+        from apps.bot.extractor import extract_questions_from_text
+        from apps.quiz.models import Question
+
+        eligible = queryset.filter(
+            processing_status=FileInbox.STATUS_PROCESSED,
+        ).exclude(extracted_text='')
+
+        if not eligible.exists():
+            self.message_user(
+                request,
+                'No eligible files found. Files must be processed and have extracted text.',
+                level=messages.WARNING,
+            )
+            return
+
+        total_created = 0
+
+        for item in eligible:
+            questions_data = extract_questions_from_text(item.extracted_text)
+
+            if not questions_data:
+                self.message_user(
+                    request,
+                    f'No questions found in: {item.original_filename}',
+                    level=messages.WARNING,
+                )
+                continue
+
+            for q_data in questions_data:
+                Question.objects.create(
+                    text=q_data.get('question', ''),
+                    option_a=q_data.get('option_a', ''),
+                    option_b=q_data.get('option_b', ''),
+                    option_c=q_data.get('option_c', ''),
+                    option_d=q_data.get('option_d', ''),
+                    option_e=q_data.get('option_e', ''),
+                    correct_option=q_data.get('correct_option', ''),
+                    explanation=q_data.get('explanation', ''),
+                    is_active=False,
+                )
+                total_created += 1
+
+            self.message_user(
+                request,
+                f'Extracted {len(questions_data)} questions from {item.original_filename}. '
+                f'Please review and assign department/course in Questions admin.',
+                level=messages.SUCCESS,
+            )
+
+        self.message_user(
+            request,
+            f'Total questions created: {total_created}. Go to Quiz > Questions to review.',
+            level=messages.SUCCESS,
+        )
+        
 class FileInboxAdmin(ModelAdmin):
     list_display = [
         'original_filename',
