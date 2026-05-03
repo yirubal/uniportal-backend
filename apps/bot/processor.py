@@ -57,6 +57,32 @@ def extract_pdf(file_path: str) -> str:
 
 
 def extract_pdf_with_ocr(file_path: str) -> str:
+    try:
+        import pytesseract
+        from pdf2image import convert_from_path
+        import gc
+
+        text = ''
+        # Process one page at a time to avoid loading entire PDF into memory
+        images = convert_from_path(file_path, dpi=150)  # reduced from 200
+        for i, image in enumerate(images):
+            page_text = pytesseract.image_to_string(image, lang='eng')
+            text += page_text + '\n'
+            logger.info(f'OCR processed page {i + 1} of {file_path}')
+            # Explicitly delete image and force garbage collection
+            del image
+            gc.collect()
+
+        del images
+        gc.collect()
+        return text.strip()
+
+    except ImportError:
+        logger.error('pytesseract or pdf2image not installed')
+        return ''
+    except Exception as e:
+        logger.error(f'OCR extraction failed for {file_path}: {e}')
+        return ''
     """
     Converts each PDF page to an image then runs OCR on it.
     Used for scanned exam papers.
@@ -83,6 +109,24 @@ def extract_pdf_with_ocr(file_path: str) -> str:
 
 
 def extract_image(file_path: str) -> str:
+    try:
+        import pytesseract
+        from PIL import Image
+        import gc
+
+        with Image.open(file_path) as image:
+            text = pytesseract.image_to_string(image, lang='eng')
+
+        gc.collect()
+        logger.info(f'Extracted image text using OCR: {file_path}')
+        return text.strip()
+
+    except ImportError:
+        logger.error('pytesseract or Pillow not installed')
+        return ''
+    except Exception as e:
+        logger.error(f'Image extraction failed for {file_path}: {e}')
+        return ''
     """
     Extracts text from image files using pytesseract OCR.
     Used for photos of exam papers or handwritten notes.

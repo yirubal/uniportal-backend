@@ -48,7 +48,6 @@ class Command(BaseCommand):
         ))
 
         # ── Unknown messages from students ────────────────────────────────────
-        # Must be last — catches anything not handled above
         app.add_handler(MessageHandler(
             filters.ChatType.PRIVATE & filters.ALL,
             handle_unknown_message,
@@ -63,4 +62,9 @@ class Command(BaseCommand):
         app.run_polling(
             allowed_updates=['message', 'channel_post', 'callback_query'],
             drop_pending_updates=False,
+            poll_interval=2.0,
+            timeout=10,
+            read_timeout=10,
+            write_timeout=10,
+            connect_timeout=10,
         )
