@@ -30,6 +30,10 @@ class Command(BaseCommand):
         app = (
             Application.builder()
             .token(settings.TELEGRAM_BOT_TOKEN)
+            .read_timeout(10)
+            .write_timeout(10)
+            .connect_timeout(10)
+            .pool_timeout(10)
             .build()
         )
 
@@ -63,8 +67,4 @@ class Command(BaseCommand):
             allowed_updates=['message', 'channel_post', 'callback_query'],
             drop_pending_updates=False,
             poll_interval=2.0,
-            timeout=10,
-            read_timeout=10,
-            write_timeout=10,
-            connect_timeout=10,
         )
