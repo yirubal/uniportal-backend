@@ -242,6 +242,12 @@ UNFOLD = {
                         'icon':  'inbox',
                         'link':  '/admin/content/fileinbox/',
                     },
+
+                    {
+                        'title': "Resource Audit",
+                        'icon':  "fact_check",
+                        'link':  "/admin/content/course/course-resource-audit/",
+                    },
                 ],
             },
             {
@@ -265,6 +271,7 @@ UNFOLD = {
                     },
                 ],
             },
+
             {
                 'title': 'Settings',
                 'separator': True,
