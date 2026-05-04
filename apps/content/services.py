@@ -60,6 +60,36 @@ def save_local_file_to_inbox_item(
 
 
 def _r2_server_side_copy(source_field_file, dest_field_file, dest_filename):
+    try:
+        from django.utils import timezone
+
+        storage = source_field_file.storage
+        if not hasattr(storage, 'bucket_name'):
+            return None
+
+        bucket_name = storage.bucket_name
+        source_key  = source_field_file.name
+
+        now      = timezone.now()
+        dest_key = f'resources/{now.year}/{now.month:02d}/{dest_filename}'
+
+        # Reuse the storage's existing client — no new connection
+        client = storage.connection.meta.client
+        client.copy(
+            CopySource={'Bucket': bucket_name, 'Key': source_key},
+            Bucket=bucket_name,
+            Key=dest_key,
+        )
+
+        return dest_key
+
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).warning(
+            f'R2 server-side copy failed, falling back to stream copy: {e}'
+        )
+        return None
+        
     """
     Uses boto3 server-side copy to copy a file within R2 without
     downloading or re-uploading it. Near-instant for any file size.
