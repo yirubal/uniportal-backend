@@ -61,6 +61,17 @@ class Student(models.Model):
         verbose_name         = 'Student'
         verbose_name_plural  = 'Students'
         ordering             = ['-joined_at']
+        indexes = [
+            # Auth lookup on every API request
+            models.Index(fields=['telegram_id'], name='student_telegram_id_idx'),
+            # Subscription expiry check (check_subscriptions command)
+            models.Index(
+                fields=['subscription_status', 'subscription_expiry'],
+                name='student_sub_status_expiry_idx',
+            ),
+            # Admin filtering
+            models.Index(fields=['is_active'], name='student_active_idx'),
+        ]
 
     def __str__(self):
         if self.username:
@@ -175,7 +186,6 @@ class SubscriptionRequest(models.Model):
         choices=PAYMENT_CHOICES,
         default=PAYMENT_TELEBIRR,
     )
-    # Phone number or bank account the student says they paid from
     paid_from      = models.CharField(
         max_length=50,
         blank=True,
@@ -195,7 +205,6 @@ class SubscriptionRequest(models.Model):
         blank=True,
         help_text='Internal note from admin (reason for rejection, etc.)',
     )
-    # Set when approved
     activated_by   = models.ForeignKey(
         'auth.User',
         null=True,
@@ -212,7 +221,19 @@ class SubscriptionRequest(models.Model):
         verbose_name        = 'Subscription Request'
         verbose_name_plural = 'Subscription Requests'
         ordering            = ['-requested_at']
-        constraints         = [
+        indexes = [
+            # Admin pending requests view
+            models.Index(
+                fields=['status', 'requested_at'],
+                name='subreq_status_requested_idx',
+            ),
+            # Student's own request lookup
+            models.Index(
+                fields=['student', 'status'],
+                name='subreq_student_status_idx',
+            ),
+        ]
+        constraints = [
             models.UniqueConstraint(
                 fields=['student'],
                 condition=Q(status='pending'),
