@@ -98,7 +98,7 @@ class CoursePlacement(models.Model):
             # Primary lookup: "give me all courses for dept X, distance, year 2, term 1"
             models.Index(
                 fields=['department', 'program', 'year', 'period'],
-                name='placement_dept_prog_year_period_idx',
+                name='placement_dept_prog_yr_pd_idx',
             ),
             # Reverse lookup: "which departments/years is this course in?"
             models.Index(
@@ -182,7 +182,7 @@ class Resource(models.Model):
             # Primary student-facing lookup: published resources for a course
             models.Index(
                 fields=['course', 'status', 'access_level'],
-                name='resource_course_status_access_idx',
+                name='resource_course_status_acc_idx',
             ),
             # Admin filtering by status
             models.Index(
