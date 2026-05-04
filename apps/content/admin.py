@@ -1,8 +1,11 @@
 from django.contrib import admin
 from django.contrib.admin import SimpleListFilter
 from django.contrib import messages
+from django.urls import path, reverse
+from django.utils.html import format_html
 from unfold.admin import ModelAdmin, TabularInline
 
+from . import views_admin
 from .models import (
     Department,
     Course,
@@ -38,7 +41,7 @@ class CoursePlacementInline(TabularInline):
 
 @admin.register(Course)
 class CourseAdmin(ModelAdmin):
-    list_display  = ['name', 'code', 'display_departments', 'display_programs', 'display_years', 'is_active']
+    list_display  = ['name', 'code', 'display_departments', 'display_programs', 'display_years', 'resource_audit_link', 'is_active']
     search_fields = ['name', 'code']
     list_filter   = ['is_active', 'placements__department', 'placements__program', 'placements__year']
     list_editable = ['is_active']
@@ -49,6 +52,37 @@ class CourseAdmin(ModelAdmin):
         return super().get_queryset(request).prefetch_related(
             'placements__department'
         )
+
+    def get_urls(self):
+        urls = super().get_urls()
+        custom = [
+            path(
+                'course-resource-audit/',
+                self.admin_site.admin_view(views_admin.course_resource_audit),
+                name='course_resource_audit',
+            ),
+            path(
+                'course-resource-audit/<int:course_id>/',
+                self.admin_site.admin_view(views_admin.course_resource_detail),
+                name='course_resource_detail',
+            ),
+            path(
+                'course-resource-audit/<int:course_id>/delete-duplicates/',
+                self.admin_site.admin_view(views_admin.delete_duplicate_resources),
+                name='delete_duplicate_resources',
+            ),
+            path(
+                'resource/<int:resource_id>/delete/',
+                self.admin_site.admin_view(views_admin.delete_resource),
+                name='delete_resource',
+            ),
+        ]
+        return custom + urls
+
+    @admin.display(description='Audit')
+    def resource_audit_link(self, obj):
+        url = reverse('admin:course_resource_detail', kwargs={'course_id': obj.id})
+        return format_html('<a href="{}">📋 Resources</a>', url)
 
     @admin.display(description='Departments')
     def display_departments(self, obj):
@@ -117,7 +151,7 @@ class ResourceAdmin(ModelAdmin):
     )
 
     def get_queryset(self, request):
-     return super().get_queryset(request).select_related('course')
+        return super().get_queryset(request).select_related('course')
 
     def formfield_for_foreignkey(self, db_field, request, **kwargs):
         if db_field.name == 'course':
@@ -125,13 +159,6 @@ class ResourceAdmin(ModelAdmin):
                 is_active=True
             ).order_by('name')
         return super().formfield_for_foreignkey(db_field, request, **kwargs)
-
-        if db_field.name == 'course':
-            kwargs['queryset'] = Course.objects.select_related(
-                'placements__department'
-            ).filter(is_active=True).order_by('name')
-        return super().formfield_for_foreignkey(db_field, request, **kwargs)
-
 
     @admin.action(description='Publish selected resources')
     def publish_selected(self, request, queryset):
@@ -157,8 +184,8 @@ class ResourceAdmin(ModelAdmin):
 # ── File Inbox ────────────────────────────────────────────────────────────────
 
 class AssignmentFilter(SimpleListFilter):
-    title            = 'assignment status'
-    parameter_name   = 'assigned'
+    title          = 'assignment status'
+    parameter_name = 'assigned'
 
     def lookups(self, request, model_admin):
         return [
@@ -232,8 +259,10 @@ class FileInboxAdmin(ModelAdmin):
             processing_status=FileInbox.STATUS_PROCESSED,
             assigned_resource__isnull=True,
         ):
+            # Use caption as title if available, otherwise filename
+            title = item.telegram_caption.strip() if item.telegram_caption else item.original_filename
             resource = Resource(
-                title               = item.original_filename,
+                title               = title,
                 file_type           = Resource.TYPE_LECTURE_NOTE,
                 extracted_text      = item.extracted_text,
                 access_level        = Resource.ACCESS_PREMIUM,

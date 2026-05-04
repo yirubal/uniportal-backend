@@ -1,0 +1,204 @@
+{% extends "admin/base_site.html" %}
+{% block title %}Course Resource Audit{% endblock %}
+
+{% block content %}
+<style>
+    .audit-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 24px;
+    }
+
+    .audit-header h1 {
+        font-size: 1.6rem;
+        font-weight: 700;
+        margin: 0;
+    }
+
+    .stat-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 4px 12px;
+        border-radius: 20px;
+        font-size: 0.8rem;
+        font-weight: 600;
+    }
+
+    .badge-blue {
+        background: #dbeafe;
+        color: #1d4ed8;
+    }
+
+    .badge-green {
+        background: #dcfce7;
+        color: #15803d;
+    }
+
+    .badge-red {
+        background: #fee2e2;
+        color: #b91c1c;
+    }
+
+    .course-table {
+        width: 100%;
+        border-collapse: collapse;
+        background: #fff;
+        border-radius: 8px;
+        overflow: hidden;
+        box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
+    }
+
+    .course-table th {
+        background: #f8fafc;
+        padding: 12px 16px;
+        text-align: left;
+        font-size: 0.78rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        color: #64748b;
+        border-bottom: 1px solid #e2e8f0;
+    }
+
+    .course-table td {
+        padding: 12px 16px;
+        border-bottom: 1px solid #f1f5f9;
+        font-size: 0.9rem;
+        vertical-align: middle;
+    }
+
+    .course-table tr:last-child td {
+        border-bottom: none;
+    }
+
+    .course-table tr:hover td {
+        background: #f8fafc;
+    }
+
+    .course-name {
+        font-weight: 600;
+        color: #1e293b;
+    }
+
+    .course-code {
+        font-size: 0.78rem;
+        color: #94a3b8;
+        margin-top: 2px;
+    }
+
+    .dept-tag {
+        display: inline-block;
+        padding: 2px 8px;
+        background: #f1f5f9;
+        border-radius: 4px;
+        font-size: 0.75rem;
+        color: #475569;
+        margin: 2px;
+    }
+
+    .btn-audit {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 6px 14px;
+        background: #3b82f6;
+        color: #fff;
+        border-radius: 6px;
+        font-size: 0.82rem;
+        font-weight: 500;
+        text-decoration: none;
+        transition: background 0.15s;
+    }
+
+    .btn-audit:hover {
+        background: #2563eb;
+        color: #fff;
+    }
+
+    .empty-state {
+        text-align: center;
+        padding: 60px 20px;
+        color: #94a3b8;
+    }
+
+    .search-box {
+        padding: 8px 14px;
+        border: 1px solid #e2e8f0;
+        border-radius: 6px;
+        font-size: 0.9rem;
+        width: 260px;
+        outline: none;
+    }
+
+    .search-box:focus {
+        border-color: #3b82f6;
+        box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+    }
+</style>
+
+<div class="audit-header">
+    <h1>📋 Course Resource Audit</h1>
+    <input class="search-box" type="text" id="courseSearch" placeholder="Search courses..." onkeyup="filterCourses()">
+</div>
+
+<p style="color:#64748b; margin-bottom:20px;">
+    {{ courses|length }} course(s) have resources. Click a course to see its full resource list.
+</p>
+
+{% if courses %}
+<table class="course-table" id="courseTable">
+    <thead>
+        <tr>
+            <th>Course</th>
+            <th>Departments</th>
+            <th>Resources</th>
+            <th>Action</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for course in courses %}
+        <tr>
+            <td>
+                <div class="course-name">{{ course.name }}</div>
+                <div class="course-code">{{ course.code }}</div>
+            </td>
+            <td>
+                {% for placement in course.placements.all %}
+                <span class="dept-tag">{{ placement.department.name }} Y{{ placement.year }}T{{ placement.period
+                    }}</span>
+                {% empty %}
+                <span style="color:#cbd5e1">—</span>
+                {% endfor %}
+            </td>
+            <td>
+                <span class="stat-badge badge-blue">{{ course.resource_count }} resource{{
+                    course.resource_count|pluralize }}</span>
+            </td>
+            <td>
+                <a class="btn-audit" href="{% url 'admin:course_resource_detail' course_id=course.id %}">
+                    View & Manage →
+                </a>
+            </td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% else %}
+<div class="empty-state">
+    <p style="font-size:2rem">📂</p>
+    <p>No courses have resources yet.</p>
+</div>
+{% endif %}
+
+<script>
+    function filterCourses() {
+        const input = document.getElementById('courseSearch').value.toLowerCase();
+        const rows = document.querySelectorAll('#courseTable tbody tr');
+        rows.forEach(row => {
+            row.style.display = row.textContent.toLowerCase().includes(input) ? '' : 'none';
+        });
+    }
+</script>
+{% endblock %}
