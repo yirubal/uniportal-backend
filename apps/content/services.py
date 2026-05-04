@@ -59,8 +59,65 @@ def save_local_file_to_inbox_item(
     return inbox_item
 
 
+def _r2_server_side_copy(source_field_file, dest_field_file, dest_filename):
+    """
+    Uses boto3 server-side copy to copy a file within R2 without
+    downloading or re-uploading it. Near-instant for any file size.
+
+    Returns the new file name (key) on success, or None if not applicable.
+    """
+    try:
+        import boto3
+        from django.conf import settings
+
+        storage = source_field_file.storage
+
+        # Only works with S3/R2 storage backends
+        if not hasattr(storage, 'bucket_name'):
+            return None
+
+        bucket_name = storage.bucket_name
+        source_key  = source_field_file.name
+
+        # Build destination key under resources/
+        from django.utils import timezone
+        now = timezone.now()
+        dest_key = f'resources/{now.year}/{now.month:02d}/{dest_filename}'
+
+        # Use the storage's own connection
+        s3 = storage.connection
+        s3.meta.client.copy(
+            CopySource={'Bucket': bucket_name, 'Key': source_key},
+            Bucket=bucket_name,
+            Key=dest_key,
+        )
+
+        return dest_key
+
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).warning(
+            f'R2 server-side copy failed, falling back to stream copy: {e}'
+        )
+        return None
+
+
 def copy_inbox_file_to_resource(inbox_item, resource):
+    """
+    Copies the inbox file to the resource.
+    Tries R2 server-side copy first (fast, no download).
+    Falls back to stream copy if server-side copy is unavailable.
+    """
     filename = Path(inbox_item.original_filename or inbox_item.file.name).name
+
+    # Try fast server-side copy first
+    dest_key = _r2_server_side_copy(inbox_item.file, resource.file, filename)
+    if dest_key:
+        # Point resource.file at the new key without uploading
+        resource.file.name = dest_key
+        return resource
+
+    # Fallback: stream copy (download + re-upload)
     inbox_item.file.open('rb')
     try:
         resource.file.save(
@@ -70,6 +127,7 @@ def copy_inbox_file_to_resource(inbox_item, resource):
         )
     finally:
         inbox_item.file.close()
+
     return resource
 
 
