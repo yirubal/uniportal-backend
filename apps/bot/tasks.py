@@ -55,6 +55,46 @@ def recover_failed_inbox_items():
 def _extract_inbox_text(inbox_item):
     from django.conf import settings
     from .processor import extract_text
+    import os
+
+    # Skip OCR for files larger than limit to prevent memory crash
+    max_mb = int(os.environ.get('MAX_OCR_FILE_SIZE_MB', 5))
+    try:
+        file_size_mb = inbox_item.file.size / (1024 * 1024)
+        if file_size_mb > max_mb:
+            logger.warning(
+                f'File {inbox_item.original_filename} is {file_size_mb:.1f}MB '
+                f'— skipping OCR (limit {max_mb}MB), saving without text extraction.'
+            )
+            return f'[Text extraction skipped — file too large ({file_size_mb:.1f}MB)]'
+    except Exception:
+        pass
+
+    local_path = os.path.join(settings.MEDIA_ROOT, str(inbox_item.file))
+    if os.path.exists(local_path):
+        return extract_text(local_path)
+
+    if not inbox_item.file:
+        raise FileNotFoundError('Inbox item has no file.')
+
+    suffix = Path(inbox_item.file.name).suffix
+    inbox_item.file.open('rb')
+    try:
+        with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as temp_file:
+            temp_path = temp_file.name
+            for chunk in inbox_item.file.chunks():
+                temp_file.write(chunk)
+            temp_file.flush()
+        return extract_text(temp_path)
+    finally:
+        inbox_item.file.close()
+        try:
+            os.unlink(temp_path)
+        except Exception:
+            pass
+            
+    from django.conf import settings
+    from .processor import extract_text
 
     local_path = os.path.join(settings.MEDIA_ROOT, str(inbox_item.file))
     if os.path.exists(local_path):
