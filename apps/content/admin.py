@@ -121,10 +121,17 @@ class ResourceAdmin(ModelAdmin):
 
     def formfield_for_foreignkey(self, db_field, request, **kwargs):
         if db_field.name == 'course':
+            kwargs['queryset'] = Course.objects.filter(
+                is_active=True
+            ).order_by('name')
+        return super().formfield_for_foreignkey(db_field, request, **kwargs)
+
+        if db_field.name == 'course':
             kwargs['queryset'] = Course.objects.select_related(
                 'placements__department'
             ).filter(is_active=True).order_by('name')
         return super().formfield_for_foreignkey(db_field, request, **kwargs)
+
 
     @admin.action(description='Publish selected resources')
     def publish_selected(self, request, queryset):
