@@ -1,9 +1,6 @@
 from django.db import models
 
 
-
-
-
 class Department(models.Model):
     LEVEL_UNDERGRADUATE = 'undergraduate'
     LEVEL_POSTGRADUATE = 'postgraduate'
@@ -26,6 +23,10 @@ class Department(models.Model):
         verbose_name = 'Department'
         verbose_name_plural = 'Departments'
         ordering = ['level', 'name']
+        indexes = [
+            models.Index(fields=['is_active'], name='dept_active_idx'),
+            models.Index(fields=['level', 'is_active'], name='dept_level_active_idx'),
+        ]
 
     def __str__(self):
         return self.name
@@ -42,6 +43,10 @@ class Course(models.Model):
         verbose_name = 'Course'
         verbose_name_plural = 'Courses'
         ordering = ['name']
+        indexes = [
+            models.Index(fields=['is_active'], name='course_active_idx'),
+            models.Index(fields=['code'], name='course_code_idx'),
+        ]
 
     def __str__(self):
         return f'{self.name} ({self.code})'
@@ -88,6 +93,18 @@ class CoursePlacement(models.Model):
         ordering = ['year', 'period', 'course__name']
         unique_together = [
             'course', 'department', 'program', 'year', 'period'
+        ]
+        indexes = [
+            # Primary lookup: "give me all courses for dept X, distance, year 2, term 1"
+            models.Index(
+                fields=['department', 'program', 'year', 'period'],
+                name='placement_dept_prog_yr_pd_idx',
+            ),
+            # Reverse lookup: "which departments/years is this course in?"
+            models.Index(
+                fields=['course', 'program'],
+                name='placement_course_prog_idx',
+            ),
         ]
 
     def __str__(self):
@@ -161,6 +178,18 @@ class Resource(models.Model):
         verbose_name = 'Resource'
         verbose_name_plural = 'Resources'
         ordering = ['-created_at']
+        indexes = [
+            # Primary student-facing lookup: published resources for a course
+            models.Index(
+                fields=['course', 'status', 'access_level'],
+                name='resource_course_status_acc_idx',
+            ),
+            # Admin filtering by status
+            models.Index(
+                fields=['status', 'created_at'],
+                name='resource_status_created_idx',
+            ),
+        ]
 
     def __str__(self):
         return f'{self.title} — {self.get_file_type_display()}'
@@ -214,6 +243,18 @@ class FileInbox(models.Model):
         verbose_name = 'File Inbox'
         verbose_name_plural = 'File Inbox'
         ordering = ['-posted_date']
+        indexes = [
+            # Admin default view: unassigned + processing status filter
+            models.Index(
+                fields=['assigned_resource', 'processing_status'],
+                name='inbox_assigned_status_idx',
+            ),
+            # Duplicate check on harvest
+            models.Index(
+                fields=['telegram_message_id'],
+                name='inbox_telegram_msg_idx',
+            ),
+        ]
 
     def __str__(self):
         return f'{self.original_filename} ({self.get_processing_status_display()})'
