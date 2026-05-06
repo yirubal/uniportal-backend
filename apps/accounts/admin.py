@@ -5,8 +5,10 @@ from django.urls import path, reverse
 from django.http import HttpResponseRedirect
 from unfold.admin import ModelAdmin
 
-from .models import Student, SubscriptionPlan, SubscriptionRequest, SiteSettings
-from .notifications import notify_subscription_approved, notify_subscription_rejected
+from django.shortcuts import render, redirect
+
+from .models import Student, SubscriptionPlan, SubscriptionRequest, SiteSettings, BroadcastMessage
+from .notifications import notify_subscription_approved, notify_subscription_rejected, broadcast_to_all_students
 
 
 # ─── Student Admin ─────────────────────────────────────────────────────────────
@@ -90,6 +92,69 @@ class StudentAdmin(ModelAdmin):
         'activate_premium_365_days',
         'deactivate_premium',
     ]
+
+    def get_urls(self):
+        from django.urls import path
+        urls = super().get_urls()
+        custom = [
+            path(
+                'broadcast/',
+                self.admin_site.admin_view(self.broadcast_view),
+                name='accounts_broadcast',
+            ),
+        ]
+        return custom + urls
+
+    def broadcast_view(self, request):
+        """Custom admin page: compose and send a broadcast DM to all students."""
+        if request.method == 'POST':
+            message    = request.POST.get('message', '').strip()
+            parse_mode = request.POST.get('parse_mode', '')
+
+            if not message:
+                messages.error(request, 'Message cannot be empty.')
+                return redirect('admin:accounts_broadcast')
+
+            total, success, failed = broadcast_to_all_students(
+                message=message,
+                parse_mode=parse_mode or None,
+            )
+
+            # Save log
+            BroadcastMessage.objects.create(
+                message=message,
+                parse_mode=parse_mode,
+                sent_by=request.user,
+                total_users=total,
+                success_count=success,
+                failed_count=failed,
+            )
+
+            if failed == 0:
+                self.message_user(
+                    request,
+                    f'✅ Broadcast sent to {success} student(s) successfully.',
+                    messages.SUCCESS,
+                )
+            else:
+                self.message_user(
+                    request,
+                    f'⚠️ Sent to {success}/{total} student(s). {failed} delivery failure(s).',
+                    messages.WARNING,
+                )
+            return redirect('admin:accounts_broadcast')
+
+        # GET — show form + recent history
+        recent_broadcasts = BroadcastMessage.objects.select_related('sent_by')[:10]
+        context = {
+            **self.admin_site.each_context(request),
+            'title':             'Send Broadcast Message',
+            'opts':              Student._meta,
+            'recent_broadcasts': recent_broadcasts,
+            'parse_mode_choices': BroadcastMessage.PARSE_CHOICES,
+        }
+        return render(request, 'admin/accounts/broadcast.html', context)
+
 
     @admin.display(description='Student')
     def display_name(self, obj):
@@ -361,6 +426,23 @@ class SubscriptionPlanAdmin(ModelAdmin):
 
 
 # ─── Site Settings Admin ───────────────────────────────────────────────────────
+
+# ─── Broadcast Message Admin (read-only log) ──────────────────────────────────
+
+@admin.register(BroadcastMessage)
+class BroadcastMessageAdmin(ModelAdmin):
+    list_display  = ['truncated_message', 'sent_by', 'sent_at', 'total_users', 'success_count', 'failed_count']
+    readonly_fields = ['message', 'parse_mode', 'sent_by', 'sent_at', 'total_users', 'success_count', 'failed_count']
+    ordering      = ['-sent_at']
+
+    def has_add_permission(self, request):    return False
+    def has_change_permission(self, request, obj=None): return False
+    def has_delete_permission(self, request, obj=None): return False
+
+    @admin.display(description='Message')
+    def truncated_message(self, obj):
+        return obj.message[:80] + '…' if len(obj.message) > 80 else obj.message
+
 
 @admin.register(SiteSettings)
 class SiteSettingsAdmin(ModelAdmin):

@@ -1,0 +1,266 @@
+{% extends "admin/base_site.html" %}
+{% load i18n %}
+
+{% block title %}Send Broadcast | {{ site_title }}{% endblock %}
+
+{% block breadcrumbs %}
+<ul class="flex flex-row flex-wrap gap-x-3 gap-y-1 text-sm text-base-500 dark:text-base-400 mb-4">
+  <li><a href="{% url 'admin:index' %}" class="hover:text-primary-600 dark:hover:text-primary-400">Home</a></li>
+  <li><span class="mx-1">/</span><a href="{% url 'admin:accounts_student_changelist' %}"
+      class="hover:text-primary-600 dark:hover:text-primary-400">Students</a></li>
+  <li><span class="mx-1">/</span><span class="text-base-900 dark:text-base-100">Send Broadcast</span></li>
+</ul>
+{% endblock %}
+
+{% block content %}
+<div class="pb-12">
+
+  {# ── Page header ── #}
+  <div class="mb-8 flex items-start gap-4">
+    <div class="flex-shrink-0 w-12 h-12 rounded-full  dark:bg-primary-900/30 flex items-center justify-center">
+      <span class="material-symbols-outlined text-primary-600 dark:text-primary-400 text-2xl">campaign</span>
+    </div>
+    <div>
+      <h1 class="text-2xl font-bold text-base-900 dark:text-base-50">Send Broadcast Message</h1>
+      <p class="text-sm text-base-500 dark:text-base-400 mt-1">
+        The message will be sent as a private DM from the bot to every active student —
+        exactly like subscription approval notifications.
+      </p>
+    </div>
+  </div>
+
+  <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+
+    {# ── Compose form ── #}
+    <div class="lg:col-span-2">
+      <div
+        class="bg-white dark:bg-base-900 border border-base-200 dark:border-base-700 rounded-default overflow-hidden">
+        <div
+          class="flex items-center gap-3 px-6 py-4 border-b border-base-200 dark:border-base-700 bg-base-50 dark:bg-base-800">
+          <span class="material-symbols-outlined text-base-400 dark:text-base-500 text-lg">edit_note</span>
+          <span class="text-sm font-semibold text-base-700 dark:text-base-200">Compose Message</span>
+        </div>
+        <form method="post" id="broadcastForm" class="p-6 space-y-5">
+          {% csrf_token %}
+
+          {# Message textarea #}
+          <div>
+            <label for="message" class="block text-sm font-semibold text-base-700 dark:text-base-200 mb-2">
+              Message <span class="text-red-500">*</span>
+            </label>
+            <textarea id="message" name="message" rows="8" maxlength="4096" required
+              placeholder="Write your message here… Telegram supports plain text, Markdown (*bold*, _italic_, `code`), or HTML (<b>bold</b>)."
+              class="w-full px-4 py-3 text-sm border border-base-300 dark:border-base-600 rounded-default bg-white dark:bg-base-800 text-base-900 dark:text-base-100 placeholder-base-400 dark:placeholder-base-500 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent resize-y font-mono leading-relaxed"
+              oninput="updateCounter(this)"></textarea>
+            <div class="flex justify-between mt-1">
+              <p class="text-xs text-base-400 dark:text-base-500">Supports Telegram formatting (see parse mode below)
+              </p>
+              <p class="text-xs text-base-400 dark:text-base-500"><span id="charCount">0</span> / 4096</p>
+            </div>
+          </div>
+
+          {# Parse mode #}
+          <div>
+            <label class="block text-sm font-semibold text-base-700 dark:text-base-200 mb-2">Formatting</label>
+            <div class="flex flex-wrap gap-3">
+              {% for value, label in parse_mode_choices %}
+              <label class="flex items-center gap-2 cursor-pointer">
+                <input type="radio" name="parse_mode" value="{{ value }}" {% if forloop.first %}checked{% endif %}
+                  class="text-primary-600 focus:ring-primary-500 border-base-300 dark:border-base-600">
+                <span class="text-sm text-base-700 dark:text-base-300">{{ label }}</span>
+              </label>
+              {% endfor %}
+            </div>
+            <p class="text-xs text-base-400 dark:text-base-500 mt-1">
+              Plain text is safest. Use Markdown for *bold*, _italic_, `code`.
+            </p>
+          </div>
+
+          {# Preview box #}
+          <div id="previewSection" class="hidden">
+            <label class="block text-sm font-semibold text-base-700 dark:text-base-200 mb-2">Preview</label>
+            <div id="previewBox"
+              class="px-4 py-3 text-sm bg-base-50 dark:bg-base-800 border border-base-200 dark:border-base-700 rounded-default text-base-700 dark:text-base-200 whitespace-pre-wrap font-sans leading-relaxed min-h-16">
+            </div>
+          </div>
+
+          {# Action buttons #}
+          <div class="flex flex-wrap gap-3 pt-2 border-t border-base-200 dark:border-base-700">
+            <button type="button" onclick="togglePreview()"
+              class="px-4 py-2 text-sm font-medium text-base-600 dark:text-base-400 hover:text-base-900 dark:hover:text-base-100 bg-base-100 dark:bg-base-800 border border-base-200 dark:border-base-700 rounded-default transition-colors">
+              👁 Preview
+            </button>
+            <button type="button" onclick="confirmSend()"
+              class="px-6 py-2 text-sm font-semibold bg-primary-600 hover:bg-primary-700 text-white rounded-default transition-colors flex items-center gap-2">
+              <span class="material-symbols-outlined text-base">send</span>
+              Send to All Students
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    {# ── Tips sidebar ── #}
+    <div class="space-y-6">
+
+      {# Delivery info #}
+      <div class="bg-white dark:bg-base-900 border border-base-200 dark:border-base-700 rounded-default p-5">
+        <div class="flex items-center gap-2 mb-3">
+          <span class="material-symbols-outlined text-primary-600 dark:text-primary-400 text-lg">info</span>
+          <span class="text-sm font-semibold text-base-700 dark:text-base-200">How it works</span>
+        </div>
+        <ul class="space-y-2 text-xs text-base-500 dark:text-base-400">
+          <li class="flex items-start gap-2">
+            <span class="mt-0.5 text-green-500">●</span>
+            <span>Sends to every <strong class="text-base-700 dark:text-base-200">active</strong> student's private bot
+              chat</span>
+          </li>
+          <li class="flex items-start gap-2">
+            <span class="mt-0.5 text-primary-500">●</span>
+            <span>Appears exactly like subscription notifications</span>
+          </li>
+          <li class="flex items-start gap-2">
+            <span class="mt-0.5 text-yellow-500">●</span>
+            <span>Large broadcasts may take a moment (Telegram rate limit: ~30 msg/s)</span>
+          </li>
+          <li class="flex items-start gap-2">
+            <span class="mt-0.5 text-base-400">●</span>
+            <span>Failed deliveries are logged but do not stop the broadcast</span>
+          </li>
+        </ul>
+      </div>
+
+      {# Markdown tips #}
+      <div class="bg-white dark:bg-base-900 border border-base-200 dark:border-base-700 rounded-default p-5">
+        <div class="flex items-center gap-2 mb-3">
+          <span class="material-symbols-outlined text-base-400 dark:text-base-500 text-lg">format_bold</span>
+          <span class="text-sm font-semibold text-base-700 dark:text-base-200">Markdown tips</span>
+        </div>
+        <div class="space-y-1.5 text-xs font-mono">
+          <div class="flex gap-3">
+            <span class="text-base-400 dark:text-base-500 w-28">*bold text*</span>
+            <span class="text-base-700 dark:text-base-200 font-bold">bold text</span>
+          </div>
+          <div class="flex gap-3">
+            <span class="text-base-400 dark:text-base-500 w-28">_italic_</span>
+            <span class="text-base-700 dark:text-base-200 italic">italic</span>
+          </div>
+          <div class="flex gap-3">
+            <span class="text-base-400 dark:text-base-500 w-28">`code`</span>
+            <span class="text-base-700 dark:text-base-200 bg-base-100 dark:bg-base-700 px-1 rounded">code</span>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  {# ── Recent broadcast history ── #}
+  {% if recent_broadcasts %}
+  <div class="mt-10">
+    <h2 class="text-base font-semibold text-base-900 dark:text-base-100 mb-4 flex items-center gap-2">
+      <span class="material-symbols-outlined text-base-400 dark:text-base-500 text-lg">history</span>
+      Recent Broadcasts
+    </h2>
+    <div class="bg-white dark:bg-base-900 border border-base-200 dark:border-base-700 rounded-default overflow-hidden">
+      <table class="w-full text-sm">
+        <thead>
+          <tr class="bg-base-50 dark:bg-base-800">
+            <th
+              class="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wide text-base-500 dark:text-base-400">
+              Sent at</th>
+            <th
+              class="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wide text-base-500 dark:text-base-400">
+              By</th>
+            <th
+              class="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wide text-base-500 dark:text-base-400">
+              Message</th>
+            <th
+              class="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wide text-base-500 dark:text-base-400">
+              Delivered</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-base-100 dark:divide-base-800">
+          {% for b in recent_broadcasts %}
+          <tr class="hover:bg-base-50 dark:hover:bg-base-800/50 transition-colors">
+            <td class="px-5 py-3 text-base-500 dark:text-base-400 text-xs whitespace-nowrap">{{ b.sent_at|date:"M d, Y
+              H:i" }}</td>
+            <td class="px-5 py-3 text-base-700 dark:text-base-300 text-xs">{{ b.sent_by.username|default:"—" }}</td>
+            <td class="px-5 py-3 text-base-700 dark:text-base-200 max-w-xs truncate">{{ b.message|truncatechars:80 }}
+            </td>
+            <td class="px-5 py-3">
+              {% if b.failed_count == 0 %}
+              <span class="inline-flex items-center gap-1 text-xs font-medium text-green-600 dark:text-green-400">
+                <span class="material-symbols-outlined text-sm">check_circle</span>
+                {{ b.success_count }} / {{ b.total_users }}
+              </span>
+              {% else %}
+              <span class="inline-flex items-center gap-1 text-xs font-medium text-yellow-600 dark:text-yellow-400">
+                <span class="material-symbols-outlined text-sm">warning</span>
+                {{ b.success_count }} / {{ b.total_users }} ({{ b.failed_count }} failed)
+              </span>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  {% endif %}
+
+</div>
+
+{# ── Confirmation dialog ── #}
+<dialog id="confirmDialog"
+  class="rounded-default border border-base-200 dark:border-base-700 bg-white dark:bg-base-900 p-0 shadow-xl w-full max-w-md backdrop:bg-black/40">
+  <div class="p-6">
+    <div class="flex items-center gap-3 mb-4">
+      <div
+        class="w-10 h-10 rounded-full bg-yellow-100 dark:bg-yellow-900/30 flex items-center justify-center flex-shrink-0">
+        <span class="material-symbols-outlined text-yellow-600 dark:text-yellow-400">warning</span>
+      </div>
+      <h3 class="text-base font-semibold text-base-900 dark:text-base-50">Confirm Broadcast</h3>
+    </div>
+    <p class="text-sm text-base-500 dark:text-base-400 mb-6">
+      This will send the message to <strong class="text-base-900 dark:text-base-100">all active students</strong> as
+      a private Telegram message. This action cannot be undone.
+    </p>
+    <div class="flex gap-3 justify-end">
+      <button type="button" onclick="document.getElementById('confirmDialog').close()"
+        class="px-4 py-2 text-sm font-medium text-base-600 dark:text-base-400 bg-base-100 dark:bg-base-800 border border-base-200 dark:border-base-700 rounded-default hover:bg-base-200 dark:hover:bg-base-700 transition-colors">
+        Cancel
+      </button>
+      <button type="button" onclick="document.getElementById('broadcastForm').submit()"
+        class="px-5 py-2 text-sm font-semibold bg-primary-600 hover:bg-primary-700 text-white rounded-default transition-colors flex items-center gap-2">
+        <span class="material-symbols-outlined text-base">send</span>
+        Yes, Send Now
+      </button>
+    </div>
+  </div>
+</dialog>
+
+<script>
+  function updateCounter(el) {
+    document.getElementById('charCount').textContent = el.value.length;
+    const preview = document.getElementById('previewBox');
+    if (preview) preview.textContent = el.value;
+  }
+
+  function togglePreview() {
+    const section = document.getElementById('previewSection');
+    const msg = document.getElementById('message');
+    document.getElementById('previewBox').textContent = msg.value;
+    section.classList.toggle('hidden');
+  }
+
+  function confirmSend() {
+    const msg = document.getElementById('message').value.trim();
+    if (!msg) {
+      alert('Please enter a message before sending.');
+      return;
+    }
+    document.getElementById('confirmDialog').showModal();
+  }
+</script>
+{% endblock %}

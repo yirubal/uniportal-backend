@@ -158,10 +158,13 @@ SPECTACULAR_SETTINGS = {
 }
 
 # ── Telegram ──────────────────────────────────────────────────────────────────
-TELEGRAM_BOT_TOKEN  = env('TELEGRAM_BOT_TOKEN', default='')
-TELEGRAM_CHANNEL_ID = env('TELEGRAM_CHANNEL_ID', default='')
-GROQ_API_KEY        = env('GROQ_API_KEY', default='')
-GEMINI_API_KEY = env('GEMINI_API_KEY', default='')
+TELEGRAM_BOT_TOKEN          = env('TELEGRAM_BOT_TOKEN',          default='')
+TELEGRAM_CHANNEL_ID         = env('TELEGRAM_CHANNEL_ID',         default='')   # resource-upload channel
+TELEGRAM_OFFICIAL_CHANNEL_ID = env('TELEGRAM_OFFICIAL_CHANNEL_ID', default='') # public channel users must join
+# Public link shown to users who haven't joined yet
+TELEGRAM_CHANNEL_LINK = env('TELEGRAM_CHANNEL_LINK', default='https://t.me/unityuniversityportal')
+GROQ_API_KEY         = env('GROQ_API_KEY',         default='')
+GEMINI_API_KEY       = env('GEMINI_API_KEY',       default='')
 
 # ── File uploads ──────────────────────────────────────────────────────────────
 FILE_UPLOAD_MAX_MEMORY_SIZE = 20 * 1024 * 1024  # 20MB
@@ -214,6 +217,11 @@ UNFOLD = {
                         'title': 'Subscription Plans',
                         'icon':  'card_membership',
                         'link':  '/admin/accounts/subscriptionplan/',
+                    },
+                    {
+                        'title': 'Send Broadcast',
+                        'icon':  'campaign',
+                        'link':  '/admin/accounts/student/broadcast/',
                     },
                 ],
             },

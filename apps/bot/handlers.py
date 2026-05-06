@@ -11,6 +11,71 @@ from .downloader import download_file, get_file_info
 logger = logging.getLogger(__name__)
 
 
+# ─── Channel Membership Gate ──────────────────────────────────────────────────
+
+async def check_channel_membership(bot, user_id: int) -> bool:
+    """
+    Async version: returns True if user is member/admin/creator of the main
+    channel. Fails open on any API error so users are never incorrectly blocked.
+    """
+    from django.conf import settings
+    channel_id = getattr(settings, 'TELEGRAM_OFFICIAL_CHANNEL_ID', '')
+    if not channel_id:
+        return True
+    try:
+        member = await bot.get_chat_member(chat_id=channel_id, user_id=user_id)
+        return member.status in ('member', 'administrator', 'creator')
+    except Exception as exc:
+        logger.warning('Async channel membership check failed for %s: %s', user_id, exc)
+        return True  # Fail open — never block due to API error
+
+
+async def _send_join_channel_prompt(update, context, edit: bool = False):
+    """Show the 'join channel first' gate message with two action buttons."""
+    from django.conf import settings
+    channel_link = getattr(settings, 'TELEGRAM_CHANNEL_LINK', 'https://t.me/unityuniversityportal')
+
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton('📢 Join @unityuniversityportal', url=channel_link)],
+        [InlineKeyboardButton('✅ I\'ve Joined — Check Again', callback_data='check_membership')],
+    ])
+    text = (
+        '👋 Welcome to *UniPortal*!\n\n'
+        'Before you can access the student portal, you must join our '
+        'official Telegram channel:\n\n'
+        '📢 *@unityuniversityportal*\n\n'
+        '1\u20e3 Tap *"Join"* below\n'
+        '2\u20e3 Come back and tap *"I\'ve Joined"* ✅'
+    )
+    if edit:
+        await update.edit_message_text(text, parse_mode='Markdown', reply_markup=keyboard)
+    else:
+        await update.message.reply_text(text, parse_mode='Markdown', reply_markup=keyboard)
+
+
+async def _send_welcome_after_join(query, context):
+    """Replace the gate message with the normal welcome once user has joined."""
+    from django.conf import settings
+    mini_app_url = getattr(settings, 'MINI_APP_URL', '')
+
+    buttons = []
+    if mini_app_url:
+        buttons.append([InlineKeyboardButton(
+            text='📚 Open Student Portal',
+            web_app=WebAppInfo(url=mini_app_url),
+        )])
+
+    keyboard = InlineKeyboardMarkup(buttons) if buttons else None
+    user = query.from_user
+    await query.edit_message_text(
+        f'✅ *Welcome, {user.first_name}!*\n\n'
+        f'You\'re all set. Tap the button below to open the portal 👇',
+        parse_mode='Markdown',
+        reply_markup=keyboard,
+    )
+
+
+
 # ─── Channel File Harvesting ──────────────────────────────────────────────────
 
 async def handle_channel_post(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -70,11 +135,17 @@ async def handle_channel_post(update: Update, context: ContextTypes.DEFAULT_TYPE
 
 async def handle_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
-    /start — Welcome message with Mini App button.
+    /start — Check channel membership first, then show welcome + Mini App button.
     """
     from django.conf import settings
 
     user = update.effective_user
+
+    # ── Channel membership gate ───────────────────────────────────────────────
+    if not await check_channel_membership(context.bot, user.id):
+        await _send_join_channel_prompt(update, context)
+        return
+
     mini_app_url = getattr(settings, 'MINI_APP_URL', '')
 
     if mini_app_url:
@@ -249,6 +320,20 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
     query = update.callback_query
     await query.answer()
 
+    # ── Channel membership re-check ───────────────────────────────────────────
+    if query.data == 'check_membership':
+        is_member = await check_channel_membership(context.bot, query.from_user.id)
+        if is_member:
+            await _send_welcome_after_join(query, context)
+        else:
+            await query.answer(
+                '❌ You haven\'t joined yet.\n'
+                'Tap "Join" first, then try again.',
+                show_alert=True,
+            )
+        return
+
+    # ── Help callback ─────────────────────────────────────────────────────────
     if query.data == 'show_help':
         from django.conf import settings
         mini_app_url = getattr(settings, 'MINI_APP_URL', '')

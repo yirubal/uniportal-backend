@@ -284,3 +284,45 @@ class SiteSettings(models.Model):
     def get(cls):
         obj, _ = cls.objects.get_or_create(id=1)
         return obj
+
+
+class BroadcastMessage(models.Model):
+    """Log of admin-initiated broadcast messages sent to all students via the bot."""
+
+    PARSE_PLAIN    = ''
+    PARSE_MARKDOWN = 'Markdown'
+    PARSE_HTML     = 'HTML'
+    PARSE_CHOICES  = [
+        (PARSE_PLAIN,    'Plain text'),
+        (PARSE_MARKDOWN, 'Markdown'),
+        (PARSE_HTML,     'HTML'),
+    ]
+
+    message       = models.TextField(help_text='Message text sent to all students.')
+    parse_mode    = models.CharField(
+        max_length=20,
+        choices=PARSE_CHOICES,
+        blank=True,
+        default='',
+        help_text='Telegram formatting mode.',
+    )
+    sent_by       = models.ForeignKey(
+        'auth.User',
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name='broadcasts',
+    )
+    sent_at       = models.DateTimeField(auto_now_add=True)
+    total_users   = models.IntegerField(default=0)
+    success_count = models.IntegerField(default=0)
+    failed_count  = models.IntegerField(default=0)
+
+    class Meta:
+        verbose_name        = 'Broadcast Message'
+        verbose_name_plural = 'Broadcast Messages'
+        ordering            = ['-sent_at']
+
+    def __str__(self):
+        preview = self.message[:60] + '…' if len(self.message) > 60 else self.message
+        return f'Broadcast [{self.sent_at.strftime("%Y-%m-%d %H:%M")}]: {preview}'

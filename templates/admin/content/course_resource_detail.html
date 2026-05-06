@@ -1,328 +1,200 @@
 {% extends "admin/base_site.html" %}
-{% block title %}{{ title }}{% endblock %}
+{% load i18n %}
+
+{% block title %}{{ course.name }} Resources | {{ site_title }}{% endblock %}
+
+{% block breadcrumbs %}
+<div class="container mb-6 mx-auto -mt-3 px-4 lg:px-0">
+    <ul class="flex flex-row flex-wrap gap-x-4 gap-y-1">
+        <li class="text-sm text-gray-500 dark:text-gray-400">
+            <a href="{% url 'admin:index' %}" class="hover:text-primary-500">Home</a>
+        </li>
+        <li class="text-sm text-gray-500 dark:text-gray-400">
+            <span class="mx-1">/</span>
+            <a href="{% url 'admin:course_resource_audit' %}" class="hover:text-primary-500">Resource Audit</a>
+        </li>
+        <li class="text-sm text-gray-500 dark:text-gray-400">
+            <span class="mx-1">/</span>
+            <span>{{ course.name }}</span>
+        </li>
+    </ul>
+</div>
+{% endblock %}
 
 {% block content %}
-<style>
-    .detail-header {
-        display: flex;
-        align-items: flex-start;
-        justify-content: space-between;
-        margin-bottom: 24px;
-        gap: 16px;
-    }
+<div class="container mx-auto px-4 lg:px-0">
 
-    .back-link {
-        display: inline-flex;
-        align-items: center;
-        gap: 6px;
-        color: #3b82f6;
-        font-size: 0.85rem;
-        text-decoration: none;
-        margin-bottom: 12px;
-    }
-
-    .back-link:hover {
-        color: #2563eb;
-    }
-
-    .course-title {
-        font-size: 1.5rem;
-        font-weight: 700;
-        color: #1e293b;
-        margin: 0;
-    }
-
-    .course-meta {
-        font-size: 0.85rem;
-        color: #94a3b8;
-        margin-top: 4px;
-    }
-
-    .placement-tags {
-        margin-top: 8px;
-    }
-
-    .dept-tag {
-        display: inline-block;
-        padding: 3px 10px;
-        background: #eff6ff;
-        border: 1px solid #bfdbfe;
-        border-radius: 20px;
-        font-size: 0.75rem;
-        color: #1d4ed8;
-        margin: 2px;
-    }
-
-    .actions-bar {
-        display: flex;
-        gap: 10px;
-        align-items: center;
-        margin-bottom: 20px;
-        flex-wrap: wrap;
-    }
-
-    .stat-badge {
-        display: inline-flex;
-        align-items: center;
-        gap: 6px;
-        padding: 5px 14px;
-        border-radius: 20px;
-        font-size: 0.82rem;
-        font-weight: 600;
-    }
-
-    .badge-blue {
-        background: #dbeafe;
-        color: #1d4ed8;
-    }
-
-    .badge-red {
-        background: #fee2e2;
-        color: #b91c1c;
-    }
-
-    .btn {
-        display: inline-flex;
-        align-items: center;
-        gap: 6px;
-        padding: 8px 16px;
-        border-radius: 6px;
-        font-size: 0.85rem;
-        font-weight: 500;
-        cursor: pointer;
-        border: none;
-        text-decoration: none;
-        transition: all 0.15s;
-    }
-
-    .btn-danger {
-        background: #ef4444;
-        color: #fff;
-    }
-
-    .btn-danger:hover {
-        background: #dc2626;
-        color: #fff;
-    }
-
-    .btn-outline {
-        background: #fff;
-        color: #475569;
-        border: 1px solid #e2e8f0;
-    }
-
-    .btn-outline:hover {
-        background: #f8fafc;
-    }
-
-    .resource-table {
-        width: 100%;
-        border-collapse: collapse;
-        background: #fff;
-        border-radius: 8px;
-        overflow: hidden;
-        box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
-    }
-
-    .resource-table th {
-        background: #f8fafc;
-        padding: 12px 16px;
-        text-align: left;
-        font-size: 0.78rem;
-        font-weight: 600;
-        text-transform: uppercase;
-        letter-spacing: 0.05em;
-        color: #64748b;
-        border-bottom: 1px solid #e2e8f0;
-    }
-
-    .resource-table td {
-        padding: 12px 16px;
-        border-bottom: 1px solid #f1f5f9;
-        font-size: 0.88rem;
-        vertical-align: middle;
-    }
-
-    .resource-table tr:last-child td {
-        border-bottom: none;
-    }
-
-    .resource-table tr:hover td {
-        background: #fafafa;
-    }
-
-    .duplicate-row td {
-        background: #fff7ed !important;
-    }
-
-    .duplicate-row:hover td {
-        background: #ffedd5 !important;
-    }
-
-    .duplicate-badge {
-        display: inline-block;
-        padding: 2px 8px;
-        background: #fed7aa;
-        color: #c2410c;
-        border-radius: 4px;
-        font-size: 0.72rem;
-        font-weight: 600;
-    }
-
-    .status-badge {
-        padding: 3px 10px;
-        border-radius: 20px;
-        font-size: 0.75rem;
-        font-weight: 600;
-    }
-
-    .status-published {
-        background: #dcfce7;
-        color: #15803d;
-    }
-
-    .status-pending {
-        background: #fef9c3;
-        color: #854d0e;
-    }
-
-    .status-rejected {
-        background: #fee2e2;
-        color: #b91c1c;
-    }
-
-    .access-free {
-        background: #f0fdf4;
-        color: #166534;
-        border: 1px solid #bbf7d0;
-    }
-
-    .access-premium {
-        background: #faf5ff;
-        color: #6b21a8;
-        border: 1px solid #e9d5ff;
-    }
-
-    .resource-title {
-        font-weight: 500;
-        color: #1e293b;
-    }
-
-    .resource-size {
-        font-size: 0.75rem;
-        color: #94a3b8;
-    }
-
-    .empty-state {
-        text-align: center;
-        padding: 60px 20px;
-        color: #94a3b8;
-    }
-
-    .confirm-delete {
-        background: #fff;
-        border: 1px solid #fca5a5;
-        border-radius: 8px;
-        padding: 16px 20px;
-        margin-bottom: 20px;
-        display: none;
-    }
-
-    .confirm-delete.visible {
-        display: block;
-    }
-</style>
-
-<a class="back-link" href="{% url 'admin:course_resource_audit' %}">← Back to Audit</a>
-
-<div class="detail-header">
-    <div>
-        <h1 class="course-title">{{ course.name }}</h1>
-        <div class="course-meta">{{ course.code }}</div>
-        <div class="placement-tags">
+    {# ── Header ── #}
+    <div class="mb-6">
+        <h1 class="text-2xl font-bold text-gray-900 dark:text-white">{{ course.name }}</h1>
+        <div class="text-sm font-mono text-gray-400 mt-0.5">{{ course.code }}</div>
+        <div class="flex flex-wrap gap-2 mt-3">
             {% for p in placements %}
-            <span class="dept-tag">{{ p.department.name }} · Y{{ p.year }}T{{ p.period }} · {{ p.get_program_display
-                }}</span>
+            <span
+                class="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold bg-primary-50 dark:bg-primary-900/30 text-primary-700 dark:text-primary-300 border border-primary-200 dark:border-primary-700">
+                {{ p.department.name }} · Y{{ p.year }}T{{ p.period }} · {{ p.get_program_display }}
+            </span>
             {% empty %}
-            <span style="color:#cbd5e1">No department placements</span>
+            <span class="text-xs text-gray-400">No placements</span>
             {% endfor %}
         </div>
     </div>
-</div>
 
-<div class="actions-bar">
-    <span class="stat-badge badge-blue">{{ total }} total resource{{ total|pluralize }}</span>
-    {% if duplicate_count > 0 %}
-    <span class="stat-badge badge-red">{{ duplicate_count }} possible duplicate{{ duplicate_count|pluralize }}</span>
-    <form method="post" action="{% url 'admin:delete_duplicate_resources' course_id=course.id %}"
-        onsubmit="return confirm('Delete {{ duplicate_count }} duplicate resource(s)? This cannot be undone.')">
-        {% csrf_token %}
-        <button type="submit" class="btn btn-danger">🗑 Delete All Duplicates</button>
-    </form>
+    {# ── Stat row ── #}
+    <div class="flex flex-wrap gap-3 mb-6">
+        <div
+            class="flex items-center gap-2 px-4 py-2 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg">
+            <span class="text-2xl font-black text-gray-900 dark:text-white">{{ total }}</span>
+            <span class="text-xs font-semibold uppercase tracking-wide text-gray-400">Total</span>
+        </div>
+        <div
+            class="flex items-center gap-2 px-4 py-2 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg">
+            <span class="text-2xl font-black text-green-600 dark:text-green-400">{{ published_count }}</span>
+            <span class="text-xs font-semibold uppercase tracking-wide text-gray-400">Published</span>
+        </div>
+        <div
+            class="flex items-center gap-2 px-4 py-2 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg">
+            <span class="text-2xl font-black text-yellow-600 dark:text-yellow-400">{{ pending_count }}</span>
+            <span class="text-xs font-semibold uppercase tracking-wide text-gray-400">Pending</span>
+        </div>
+        {% if duplicate_count > 0 %}
+        <div
+            class="flex items-center gap-2 px-4 py-2 bg-white dark:bg-gray-900 border border-orange-300 dark:border-orange-700 rounded-lg">
+            <span class="text-2xl font-black text-orange-600 dark:text-orange-400">{{ duplicate_count }}</span>
+            <span class="text-xs font-semibold uppercase tracking-wide text-orange-400">Duplicates</span>
+        </div>
+        {% endif %}
+    </div>
+
+    {# ── Action bar ── #}
+    <div class="flex flex-wrap gap-3 mb-6">
+        {% if duplicate_count > 0 %}
+        <form method="post" action="{% url 'admin:delete_duplicate_resources' course_id=course.id %}"
+            onsubmit="return confirm('Delete {{ duplicate_count }} duplicate resource(s)? This cannot be undone.')">
+            {% csrf_token %}
+            <button type="submit"
+                class="inline-flex items-center gap-2 px-4 py-2 text-sm font-semibold bg-red-600 hover:bg-red-700 text-white rounded-lg transition-colors">
+                🗑 Delete All Duplicates
+            </button>
+        </form>
+        {% endif %}
+        <a href="{% url 'admin:content_resource_add' %}?course={{ course.id }}"
+            class="inline-flex items-center gap-2 px-4 py-2 text-sm font-semibold bg-primary-600 hover:bg-primary-700 text-white rounded-lg transition-colors">
+            + Add Resource
+        </a>
+        <a href="{% url 'admin:content_resource_changelist' %}?course__id__exact={{ course.id }}"
+            class="inline-flex items-center gap-2 px-4 py-2 text-sm font-semibold bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg transition-colors">
+            Edit in Admin →
+        </a>
+    </div>
+
+    {# ── Resource table ── #}
+    {% if resources_with_flags %}
+    <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
+        <table class="w-full text-sm">
+            <thead>
+                <tr class="bg-gray-50 dark:bg-gray-800">
+                    <th
+                        class="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
+                        #</th>
+                    <th
+                        class="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
+                        Title</th>
+                    <th
+                        class="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
+                        Type</th>
+                    <th
+                        class="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
+                        Access</th>
+                    <th
+                        class="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
+                        Status</th>
+                    <th
+                        class="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
+                        Added</th>
+                    <th
+                        class="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
+                        Action</th>
+                </tr>
+            </thead>
+            <tbody class="divide-y divide-gray-100 dark:divide-gray-800">
+                {% for item in resources_with_flags %}
+                <tr class="transition-colors
+          {% if item.is_duplicate %}bg-orange-50 dark:bg-orange-900/10 hover:bg-orange-100 dark:hover:bg-orange-900/20
+          {% else %}hover:bg-gray-50 dark:hover:bg-gray-800{% endif %}">
+
+                    <td class="px-5 py-3 text-gray-400 text-xs">{{ forloop.counter }}</td>
+
+                    <td class="px-5 py-3">
+                        <div class="font-semibold text-gray-900 dark:text-white">
+                            {{ item.resource.title }}
+                        </div>
+                        {% if item.is_duplicate %}
+                        <span
+                            class="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-orange-100 dark:bg-orange-900/40 text-orange-700 dark:text-orange-400 mt-1">
+                            possible duplicate
+                        </span>
+                        {% endif %}
+                    </td>
+
+                    <td class="px-5 py-3 text-gray-500 dark:text-gray-400 text-xs">
+                        {{ item.resource.get_file_type_display }}
+                    </td>
+
+                    <td class="px-5 py-3">
+                        {% if item.resource.access_level == 'free' %}
+                        <span
+                            class="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400">Free</span>
+                        {% else %}
+                        <span
+                            class="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-400">Premium</span>
+                        {% endif %}
+                    </td>
+
+                    <td class="px-5 py-3">
+                        {% if item.resource.status == 'published' %}
+                        <span
+                            class="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400">Published</span>
+                        {% elif item.resource.status == 'pending' %}
+                        <span
+                            class="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-400">Pending</span>
+                        {% else %}
+                        <span
+                            class="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400">Rejected</span>
+                        {% endif %}
+                    </td>
+
+                    <td class="px-5 py-3 text-gray-400 text-xs">
+                        {{ item.resource.created_at|date:"M d, Y" }}
+                    </td>
+
+                    <td class="px-5 py-3">
+                        <form method="post" action="{% url 'admin:delete_resource' resource_id=item.resource.id %}"
+                            onsubmit="return confirm('Delete \'{{ item.resource.title|escapejs }}\'?')">
+                            {% csrf_token %}
+                            <button type="submit"
+                                class="inline-flex items-center px-3 py-1.5 text-xs font-semibold bg-red-100 dark:bg-red-900/30 hover:bg-red-200 dark:hover:bg-red-900/50 text-red-700 dark:text-red-400 rounded-lg transition-colors">
+                                Delete
+                            </button>
+                        </form>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    {% else %}
+    <div
+        class="text-center py-16 text-gray-400 dark:text-gray-500 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg">
+        <p class="text-5xl mb-3">📂</p>
+        <p class="font-semibold">No resources for this course yet.</p>
+        <a href="{% url 'admin:content_resource_add' %}?course={{ course.id }}"
+            class="inline-flex items-center gap-2 mt-4 px-4 py-2 text-sm font-semibold bg-primary-600 hover:bg-primary-700 text-white rounded-lg transition-colors">
+            + Add First Resource
+        </a>
+    </div>
     {% endif %}
-    <a class="btn btn-outline" href="{% url 'admin:content_resource_changelist' %}?course__id__exact={{ course.id }}">
-        Edit in Admin →
-    </a>
-</div>
 
-{% if resources_with_flags %}
-<table class="resource-table">
-    <thead>
-        <tr>
-            <th>#</th>
-            <th>Title</th>
-            <th>Type</th>
-            <th>Access</th>
-            <th>Status</th>
-            <th>Added</th>
-            <th>Action</th>
-        </tr>
-    </thead>
-    <tbody>
-        {% for item in resources_with_flags %}
-        <tr class="{% if item.is_duplicate %}duplicate-row{% endif %}">
-            <td style="color:#94a3b8; font-size:0.8rem">{{ forloop.counter }}</td>
-            <td>
-                <div class="resource-title">
-                    {{ item.resource.title }}
-                    {% if item.is_duplicate %}
-                    <span class="duplicate-badge">possible duplicate</span>
-                    {% endif %}
-                </div>
-            </td>
-            <td style="color:#64748b; font-size:0.82rem">{{ item.resource.get_file_type_display }}</td>
-            <td>
-                <span
-                    class="status-badge {% if item.resource.access_level == 'free' %}access-free{% else %}access-premium{% endif %}">
-                    {{ item.resource.get_access_level_display }}
-                </span>
-            </td>
-            <td>
-                <span class="status-badge
-          {% if item.resource.status == 'published' %}status-published
-          {% elif item.resource.status == 'pending' %}status-pending
-          {% else %}status-rejected{% endif %}">
-                    {{ item.resource.get_status_display|truncatechars:12 }}
-                </span>
-            </td>
-            <td style="color:#94a3b8; font-size:0.8rem">{{ item.resource.created_at|date:"M d, Y" }}</td>
-            <td>
-                <form method="post" action="{% url 'admin:delete_resource' resource_id=item.resource.id %}"
-                    onsubmit="return confirm('Delete \'{{ item.resource.title|escapejs }}\'? This cannot be undone.')">
-                    {% csrf_token %}
-                    <button type="submit" class="btn btn-danger" style="padding:4px 10px; font-size:0.78rem">
-                        Delete
-                    </button>
-                </form>
-            </td>
-        </tr>
-        {% endfor %}
-    </tbody>
-</table>
-{% else %}
-<div class="empty-state">
-    <p style="font-size:2rem">📂</p>
-    <p>No resources found for this course.</p>
 </div>
-{% endif %}
 {% endblock %}

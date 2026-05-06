@@ -7,6 +7,33 @@ from .models import SubscriptionRequest
 logger = logging.getLogger(__name__)
 
 
+def check_channel_membership_sync(user_id: int) -> bool:
+    """
+    Synchronous check: returns True if user_id is a member/admin/creator of
+    the configured Telegram channel. Fails open (returns True) on any error so
+    users are never accidentally blocked by an API hiccup.
+    """
+    channel_id = getattr(settings, 'TELEGRAM_OFFICIAL_CHANNEL_ID', '')
+    if not channel_id:
+        return True  # Gate not configured — let everyone through
+
+    try:
+        import httpx
+        response = httpx.get(
+            f'https://api.telegram.org/bot{settings.TELEGRAM_BOT_TOKEN}/getChatMember',
+            params={'chat_id': channel_id, 'user_id': user_id},
+            timeout=5,
+        )
+        data = response.json()
+        member_status = data.get('result', {}).get('status', 'left')
+        return member_status in ('member', 'administrator', 'creator')
+    except Exception as exc:
+        logger.warning('Channel membership check failed for user %s: %s — failing open', user_id, exc)
+        return True  # Never block users due to API errors
+
+
+
+
 def send_telegram_message(chat_id, text: str, parse_mode: str | None = None) -> bool:
     if not settings.TELEGRAM_BOT_TOKEN:
         logger.warning('Telegram notify skipped: TELEGRAM_BOT_TOKEN is not configured.')
@@ -77,3 +104,35 @@ def notify_subscription_rejected(sub_request: SubscriptionRequest) -> bool:
         f"Contact support if you believe this is a mistake."
     )
     return send_telegram_message(student.telegram_id, text)
+
+
+def broadcast_to_all_students(
+    message: str,
+    parse_mode: str | None = None,
+    only_active: bool = True,
+) -> tuple[int, int, int]:
+    """
+    Send `message` as a private Telegram DM to every student — exactly the
+    same channel as subscription approval / rejection notifications.
+
+    Returns (total, success_count, failed_count).
+    """
+    from .models import Student
+
+    qs = Student.objects.all()
+    if only_active:
+        qs = qs.filter(is_active=True)
+
+    telegram_ids = list(qs.values_list('telegram_id', flat=True))
+    total   = len(telegram_ids)
+    success = 0
+    failed  = 0
+
+    for tid in telegram_ids:
+        if send_telegram_message(tid, message, parse_mode or None):
+            success += 1
+        else:
+            failed += 1
+
+    return total, success, failed
+
