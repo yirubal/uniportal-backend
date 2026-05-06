@@ -68,6 +68,26 @@ class TelegramAuthView(APIView):
                 status=status.HTTP_401_UNAUTHORIZED,
             )
 
+        # ── Channel membership gate ───────────────────────────────────────────
+        # This runs for BOTH /start and the "Open App" menu button (which opens
+        # the mini app directly, bypassing all bot handlers).
+        channel_id = getattr(settings, 'TELEGRAM_OFFICIAL_CHANNEL_ID', '')
+        if channel_id:
+            from apps.accounts.notifications import check_channel_membership_sync
+            if not check_channel_membership_sync(user_data['id']):
+                return Response(
+                    {
+                        'error':       'CHANNEL_REQUIRED',
+                        'message':     'You must join our official channel before using the app.',
+                        'channel_url': getattr(
+                            settings,
+                            'TELEGRAM_CHANNEL_LINK',
+                            'https://t.me/unityuniversityportal',
+                        ),
+                    },
+                    status=status.HTTP_403_FORBIDDEN,
+                )
+
         student, created = Student.objects.update_or_create(
             telegram_id=user_data['id'],
             defaults={
@@ -82,6 +102,7 @@ class TelegramAuthView(APIView):
             'token': token,
             'student': StudentSerializer(student).data,
         })
+
 
 
 def _generate_jwt(student: Student) -> str:

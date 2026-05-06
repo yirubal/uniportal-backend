@@ -7,6 +7,33 @@ from .models import SubscriptionRequest
 logger = logging.getLogger(__name__)
 
 
+def check_channel_membership_sync(user_id: int) -> bool:
+    """
+    Synchronous check: returns True if user_id is a member/admin/creator of
+    the configured Telegram channel. Fails open (returns True) on any error so
+    users are never accidentally blocked by an API hiccup.
+    """
+    channel_id = getattr(settings, 'TELEGRAM_OFFICIAL_CHANNEL_ID', '')
+    if not channel_id:
+        return True  # Gate not configured — let everyone through
+
+    try:
+        import httpx
+        response = httpx.get(
+            f'https://api.telegram.org/bot{settings.TELEGRAM_BOT_TOKEN}/getChatMember',
+            params={'chat_id': channel_id, 'user_id': user_id},
+            timeout=5,
+        )
+        data = response.json()
+        member_status = data.get('result', {}).get('status', 'left')
+        return member_status in ('member', 'administrator', 'creator')
+    except Exception as exc:
+        logger.warning('Channel membership check failed for user %s: %s — failing open', user_id, exc)
+        return True  # Never block users due to API errors
+
+
+
+
 def send_telegram_message(chat_id, text: str, parse_mode: str | None = None) -> bool:
     if not settings.TELEGRAM_BOT_TOKEN:
         logger.warning('Telegram notify skipped: TELEGRAM_BOT_TOKEN is not configured.')
