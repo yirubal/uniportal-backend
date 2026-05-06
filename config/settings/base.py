@@ -215,6 +215,11 @@ UNFOLD = {
                         'icon':  'card_membership',
                         'link':  '/admin/accounts/subscriptionplan/',
                     },
+                    {
+                        'title': 'Send Broadcast',
+                        'icon':  'campaign',
+                        'link':  '/admin/accounts/student/broadcast/',
+                    },
                 ],
             },
             {

@@ -77,3 +77,35 @@ def notify_subscription_rejected(sub_request: SubscriptionRequest) -> bool:
         f"Contact support if you believe this is a mistake."
     )
     return send_telegram_message(student.telegram_id, text)
+
+
+def broadcast_to_all_students(
+    message: str,
+    parse_mode: str | None = None,
+    only_active: bool = True,
+) -> tuple[int, int, int]:
+    """
+    Send `message` as a private Telegram DM to every student — exactly the
+    same channel as subscription approval / rejection notifications.
+
+    Returns (total, success_count, failed_count).
+    """
+    from .models import Student
+
+    qs = Student.objects.all()
+    if only_active:
+        qs = qs.filter(is_active=True)
+
+    telegram_ids = list(qs.values_list('telegram_id', flat=True))
+    total   = len(telegram_ids)
+    success = 0
+    failed  = 0
+
+    for tid in telegram_ids:
+        if send_telegram_message(tid, message, parse_mode or None):
+            success += 1
+        else:
+            failed += 1
+
+    return total, success, failed
+

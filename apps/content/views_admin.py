@@ -1,55 +1,169 @@
 """
 apps/content/views_admin.py
 
-Custom admin view: Course Resource Audit
-Shows all courses with resources, their resource list, and allows
-deleting duplicate/unwanted resources per course.
-
-URL: /admin/content/course-resource-audit/
+Custom admin views: Course Resource Audit Dashboard
 """
 
 from django.contrib.admin.views.decorators import staff_member_required
 from django.shortcuts import render, get_object_or_404, redirect
 from django.contrib import messages
-from django.db.models import Count, Prefetch
+from django.db.models import Count, Q, Prefetch
 from django.views.decorators.http import require_POST
 
-from .models import Course, Resource, CoursePlacement
+from .models import Course, Resource, CoursePlacement, Department
 
 
 @staff_member_required
 def course_resource_audit(request):
     """
-    Lists all courses that have at least one resource.
-    Shows resource count and department placements.
+    Full audit dashboard showing:
+    - Overall stats (total courses, covered, missing, resources)
+    - Per-department breakdown
+    - Courses with no resources
+    - Courses with resources (with counts)
     """
-    courses = (
-        Course.objects
-        .filter(resources__isnull=False)
-        .annotate(resource_count=Count('resources'))
+
+    # ── Overall stats ─────────────────────────────────────────────────────────
+    total_courses    = Course.objects.filter(is_active=True).count()
+    total_resources  = Resource.objects.count()
+    published_resources = Resource.objects.filter(status=Resource.STATUS_PUBLISHED).count()
+    pending_resources   = Resource.objects.filter(status=Resource.STATUS_PENDING).count()
+
+    courses_with_resources = (
+        Course.objects.filter(is_active=True, resources__isnull=False)
+        .distinct().count()
+    )
+    courses_without_resources = total_courses - courses_with_resources
+
+    # ── Per-department breakdown ───────────────────────────────────────────────
+    departments = Department.objects.filter(is_active=True).prefetch_related(
+        Prefetch(
+            'course_placements',
+            queryset=CoursePlacement.objects.select_related('course').filter(
+                program='distance'
+            ),
+        )
+    ).order_by('name')
+
+    dept_stats = []
+    for dept in departments:
+        placements = dept.course_placements.all()
+        dept_courses = [p.course for p in placements]
+        dept_total   = len(dept_courses)
+        if dept_total == 0:
+            continue
+
+        course_ids = [c.id for c in dept_courses]
+        dept_with_resources = (
+            Course.objects.filter(id__in=course_ids, resources__isnull=False)
+            .distinct().count()
+        )
+        dept_without = dept_total - dept_with_resources
+        dept_resource_count = Resource.objects.filter(course_id__in=course_ids).count()
+        coverage_pct = round((dept_with_resources / dept_total) * 100) if dept_total else 0
+
+        dept_stats.append({
+            'department':      dept,
+            'total_courses':   dept_total,
+            'with_resources':  dept_with_resources,
+            'without':         dept_without,
+            'resource_count':  dept_resource_count,
+            'coverage_pct':    coverage_pct,
+        })
+
+    # ── Courses WITHOUT resources ─────────────────────────────────────────────
+    courses_missing = (
+        Course.objects.filter(is_active=True, resources__isnull=True)
         .prefetch_related(
             Prefetch(
                 'placements',
-                queryset=CoursePlacement.objects.select_related('department').order_by('department__name'),
+                queryset=CoursePlacement.objects.select_related('department').filter(
+                    program='distance'
+                ).order_by('year', 'period'),
             )
         )
         .order_by('name')
         .distinct()
     )
 
+    # ── Courses WITH resources ────────────────────────────────────────────────
+    courses_covered = (
+        Course.objects.filter(is_active=True, resources__isnull=False)
+        .annotate(
+            resource_count=Count('resources'),
+            published_count=Count('resources', filter=Q(resources__status='published')),
+            pending_count=Count('resources', filter=Q(resources__status='pending')),
+        )
+        .prefetch_related(
+            Prefetch(
+                'placements',
+                queryset=CoursePlacement.objects.select_related('department').filter(
+                    program='distance'
+                ).order_by('year', 'period'),
+            )
+        )
+        .order_by('-resource_count')
+        .distinct()
+    )
+
+    # ── Filter by department (optional) ──────────────────────────────────────
+    dept_filter = request.GET.get('department')
+    try:
+        dept_filter = int(dept_filter) if dept_filter else None
+    except (ValueError, TypeError)  :
+        dept_filter = None
+    
+    if dept_filter:
+        courses_missing = courses_missing.filter(
+            placements__department_id=dept_filter,
+            placements__program='distance',
+        )
+        courses_covered = courses_covered.filter(
+            placements__department_id=dept_filter,
+            placements__program='distance',
+        )
+
+    # ── Search ────────────────────────────────────────────────────────────────
+    search = request.GET.get('q', '').strip()
+    if search:
+        courses_missing = courses_missing.filter(
+            Q(name__icontains=search) | Q(code__icontains=search)
+        )
+        courses_covered = courses_covered.filter(
+            Q(name__icontains=search) | Q(code__icontains=search)
+        )
+
     context = {
         'title': 'Course Resource Audit',
-        'courses': courses,
-        'opts': Course._meta,  # needed for admin breadcrumbs
+        'opts':  Course._meta,
+
+        # Overall stats
+        'total_courses':             total_courses,
+        'total_resources':           total_resources,
+        'published_resources':       published_resources,
+        'pending_resources':         pending_resources,
+        'courses_with_resources':    courses_with_resources,
+        'courses_without_resources': courses_without_resources,
+        'overall_coverage_pct':      round((courses_with_resources / total_courses) * 100) if total_courses else 0,
+
+        # Department breakdown
+        'dept_stats': dept_stats,
+
+        # Course lists
+        'courses_missing': courses_missing,
+        'courses_covered': courses_covered,
+
+        # Filter state
+        'departments':   Department.objects.filter(is_active=True).order_by('name'),
+        'dept_filter':   dept_filter,
+        'search':        search,
+        'active_tab':    request.GET.get('tab', 'overview'),
     }
     return render(request, 'admin/content/course_resource_audit.html', context)
 
 
 @staff_member_required
 def course_resource_detail(request, course_id):
-    """
-    Shows all resources for a specific course with delete option.
-    """
     course = get_object_or_404(Course, id=course_id)
     resources = (
         Resource.objects
@@ -57,7 +171,6 @@ def course_resource_detail(request, course_id):
         .order_by('file_type', 'title')
     )
 
-    # Group by file_type to spot duplicates easily
     seen_titles = {}
     resources_with_flags = []
     for r in resources:
@@ -65,8 +178,8 @@ def course_resource_detail(request, course_id):
         is_duplicate = normalized in seen_titles
         seen_titles[normalized] = True
         resources_with_flags.append({
-            'resource': r,
-            'is_duplicate': is_duplicate,
+            'resource':      r,
+            'is_duplicate':  is_duplicate,
         })
 
     placements = (
@@ -76,14 +189,21 @@ def course_resource_detail(request, course_id):
         .order_by('department__name', 'year', 'period')
     )
 
+    total           = resources.count()
+    duplicate_count = sum(1 for r in resources_with_flags if r['is_duplicate'])
+    published_count = resources.filter(status=Resource.STATUS_PUBLISHED).count()
+    pending_count   = resources.filter(status=Resource.STATUS_PENDING).count()
+
     context = {
-        'title': f'Resources — {course.name}',
-        'course': course,
+        'title':               f'Resources — {course.name}',
+        'course':              course,
         'resources_with_flags': resources_with_flags,
-        'placements': placements,
-        'opts': Course._meta,
-        'total': resources.count(),
-        'duplicate_count': sum(1 for r in resources_with_flags if r['is_duplicate']),
+        'placements':          placements,
+        'opts':                Course._meta,
+        'total':               total,
+        'duplicate_count':     duplicate_count,
+        'published_count':     published_count,
+        'pending_count':       pending_count,
     }
     return render(request, 'admin/content/course_resource_detail.html', context)
 
@@ -91,15 +211,10 @@ def course_resource_detail(request, course_id):
 @staff_member_required
 @require_POST
 def delete_resource(request, resource_id):
-    """
-    Deletes a single resource and its file from R2.
-    Redirects back to the course detail page.
-    """
-    resource = get_object_or_404(Resource, id=resource_id)
+    resource  = get_object_or_404(Resource, id=resource_id)
     course_id = resource.course_id
-    title = resource.title
+    title     = resource.title
 
-    # Delete file from R2
     if resource.file:
         try:
             resource.file.delete(save=False)
@@ -114,14 +229,10 @@ def delete_resource(request, resource_id):
 @staff_member_required
 @require_POST
 def delete_duplicate_resources(request, course_id):
-    """
-    Deletes all duplicate resources for a course
-    (keeps the first one by creation date, deletes the rest with same title).
-    """
-    course = get_object_or_404(Course, id=course_id)
+    course    = get_object_or_404(Course, id=course_id)
     resources = Resource.objects.filter(course=course).order_by('title', 'created_at')
 
-    seen = {}
+    seen      = {}
     to_delete = []
     for r in resources:
         key = r.title.lower().strip()

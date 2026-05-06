@@ -1,204 +1,303 @@
 {% extends "admin/base_site.html" %}
-{% block title %}Course Resource Audit{% endblock %}
+{% load i18n %}
+
+{% block title %}Course Resource Audit | {{ site_title }}{% endblock %}
+
+{% block breadcrumbs %}
+<ul class="flex flex-row flex-wrap gap-x-3 gap-y-1 text-sm text-base-500 dark:text-base-400 mb-4">
+  <li><a href="{% url 'admin:index' %}" class="hover:text-primary-600 dark:hover:text-primary-400">Home</a></li>
+  <li><span class="mx-1">/</span><a href="{% url 'admin:content_course_changelist' %}" class="hover:text-primary-600 dark:hover:text-primary-400">Courses</a></li>
+  <li><span class="mx-1">/</span><span class="text-base-900 dark:text-base-100">Resource Audit</span></li>
+</ul>
+{% endblock %}
 
 {% block content %}
-<style>
-    .audit-header {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        margin-bottom: 24px;
-    }
+<div class="pb-12">
 
-    .audit-header h1 {
-        font-size: 1.6rem;
-        font-weight: 700;
-        margin: 0;
-    }
+  {# ── Page header ── #}
+  <div class="mb-8">
+    <h1 class="text-2xl font-bold text-base-900 dark:text-base-50">Course Resource Audit</h1>
+    <p class="text-sm text-base-500 dark:text-base-400 mt-1">Distance Education · All Departments</p>
+  </div>
 
-    .stat-badge {
-        display: inline-flex;
-        align-items: center;
-        gap: 6px;
-        padding: 4px 12px;
-        border-radius: 20px;
-        font-size: 0.8rem;
-        font-weight: 600;
-    }
+  {# ── Stat cards ── #}
+  <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 mb-8">
 
-    .badge-blue {
-        background: #dbeafe;
-        color: #1d4ed8;
-    }
+    <div class="bg-white dark:bg-base-800 border border-base-200 dark:border-base-700 rounded-default p-4 border-l-4 border-l-primary-500">
+      <div class="text-3xl font-black text-base-900 dark:text-base-50">{{ total_courses }}</div>
+      <div class="text-xs font-semibold uppercase tracking-wide text-base-500 dark:text-base-400 mt-1">Total Courses</div>
+    </div>
 
-    .badge-green {
-        background: #dcfce7;
-        color: #15803d;
-    }
+    <div class="bg-white dark:bg-base-800 border border-base-200 dark:border-base-700 rounded-default p-4 border-l-4 border-l-green-500">
+      <div class="text-3xl font-black text-base-900 dark:text-base-50">{{ courses_with_resources }}</div>
+      <div class="text-xs font-semibold uppercase tracking-wide text-base-500 dark:text-base-400 mt-1">Have Resources</div>
+      <div class="mt-2 h-1.5 bg-base-200 dark:bg-base-700 rounded-full overflow-hidden">
+        <div class="h-full bg-green-500 rounded-full" style="width:{{ overall_coverage_pct }}%"></div>
+      </div>
+      <div class="text-xs text-base-400 mt-1">{{ overall_coverage_pct }}% coverage</div>
+    </div>
 
-    .badge-red {
-        background: #fee2e2;
-        color: #b91c1c;
-    }
+    <div class="bg-white dark:bg-base-800 border border-base-200 dark:border-base-700 rounded-default p-4 border-l-4 border-l-red-500">
+      <div class="text-3xl font-black text-base-900 dark:text-base-50">{{ courses_without_resources }}</div>
+      <div class="text-xs font-semibold uppercase tracking-wide text-base-500 dark:text-base-400 mt-1">Missing Resources</div>
+    </div>
 
-    .course-table {
-        width: 100%;
-        border-collapse: collapse;
-        background: #fff;
-        border-radius: 8px;
-        overflow: hidden;
-        box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
-    }
+    <div class="bg-white dark:bg-base-800 border border-base-200 dark:border-base-700 rounded-default p-4 border-l-4 border-l-purple-500">
+      <div class="text-3xl font-black text-base-900 dark:text-base-50">{{ total_resources }}</div>
+      <div class="text-xs font-semibold uppercase tracking-wide text-base-500 dark:text-base-400 mt-1">Total Resources</div>
+    </div>
 
-    .course-table th {
-        background: #f8fafc;
-        padding: 12px 16px;
-        text-align: left;
-        font-size: 0.78rem;
-        font-weight: 600;
-        text-transform: uppercase;
-        letter-spacing: 0.05em;
-        color: #64748b;
-        border-bottom: 1px solid #e2e8f0;
-    }
+    <div class="bg-white dark:bg-base-800 border border-base-200 dark:border-base-700 rounded-default p-4 border-l-4 border-l-teal-500">
+      <div class="text-3xl font-black text-base-900 dark:text-base-50">{{ published_resources }}</div>
+      <div class="text-xs font-semibold uppercase tracking-wide text-base-500 dark:text-base-400 mt-1">Published</div>
+    </div>
 
-    .course-table td {
-        padding: 12px 16px;
-        border-bottom: 1px solid #f1f5f9;
-        font-size: 0.9rem;
-        vertical-align: middle;
-    }
+    <div class="bg-white dark:bg-base-800 border border-base-200 dark:border-base-700 rounded-default p-4 border-l-4 border-l-yellow-500">
+      <div class="text-3xl font-black text-base-900 dark:text-base-50">{{ pending_resources }}</div>
+      <div class="text-xs font-semibold uppercase tracking-wide text-base-500 dark:text-base-400 mt-1">Pending Review</div>
+    </div>
 
-    .course-table tr:last-child td {
-        border-bottom: none;
-    }
+  </div>
 
-    .course-table tr:hover td {
-        background: #f8fafc;
-    }
+  {# ── Tabs ── #}
+  <div class="border-b border-base-200 dark:border-base-700 mb-6">
+    <div class="flex gap-1 -mb-px">
+      <button onclick="switchTab('overview')" id="btn-overview"
+        class="tab-btn px-5 py-2.5 text-sm font-semibold border-b-2 transition-colors">
+        Overview
+      </button>
+      <button onclick="switchTab('missing')" id="btn-missing"
+        class="tab-btn px-5 py-2.5 text-sm font-semibold border-b-2 transition-colors">
+        ❌ Missing ({{ courses_without_resources }})
+      </button>
+      <button onclick="switchTab('covered')" id="btn-covered"
+        class="tab-btn px-5 py-2.5 text-sm font-semibold border-b-2 transition-colors">
+        ✅ Has Resources ({{ courses_with_resources }})
+      </button>
+    </div>
+  </div>
 
-    .course-name {
-        font-weight: 600;
-        color: #1e293b;
-    }
+  {# ── Filter bar ── #}
+  <form method="get" class="flex flex-wrap gap-3 items-center mb-6 p-4 bg-base-50 dark:bg-base-800 border border-base-200 dark:border-base-700 rounded-default">
+    <input type="hidden" name="tab" id="activeTabInput" value="{{ active_tab }}">
+    <input type="text" name="q" value="{{ search }}" placeholder="Search course name or code…"
+      class="px-3 py-2 text-sm border border-base-300 dark:border-base-600 rounded-default bg-white dark:bg-base-800 text-base-900 dark:text-base-100 placeholder-base-400 dark:placeholder-base-500 focus:outline-none focus:ring-2 focus:ring-primary-500 w-56">
+    <select name="department"
+      class="px-3 py-2 text-sm border border-base-300 dark:border-base-600 rounded-default bg-white dark:bg-base-800 text-base-900 dark:text-base-100 focus:outline-none focus:ring-2 focus:ring-primary-500">
+      <option value="">All Departments</option>
+      {% for dept in departments %}
+      <option value="{{ dept.id }}" {% if dept_filter == dept.id %}selected{% endif %}>{{ dept.name }}</option>
+      {% endfor %}
+    </select>
+    <button type="submit"
+      class="px-4 py-2 text-sm font-semibold bg-primary-600 hover:bg-primary-700 text-white rounded-default transition-colors">
+      Filter
+    </button>
+    {% if search or dept_filter %}
+    <a href="?tab={{ active_tab }}"
+      class="px-4 py-2 text-sm font-medium text-base-600 dark:text-base-400 hover:text-base-900 dark:hover:text-base-100 bg-base-100 dark:bg-base-800 border border-base-200 dark:border-base-700 rounded-default transition-colors">
+      Clear
+    </a>
+    {% endif %}
+  </form>
 
-    .course-code {
-        font-size: 0.78rem;
-        color: #94a3b8;
-        margin-top: 2px;
-    }
+  {# ══════════════════════════════════════════════════════════════════ #}
+  {# TAB: Overview                                                      #}
+  {# ══════════════════════════════════════════════════════════════════ #}
+  <div class="tab-panel" id="tab-overview">
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+      {% for ds in dept_stats %}
+      <div class="bg-white dark:bg-base-800 border border-base-200 dark:border-base-700 rounded-default p-5">
+        <div class="font-bold text-base-900 dark:text-base-100 mb-3 text-sm">{{ ds.department.name }}</div>
+        <div class="space-y-2">
+          <div class="flex justify-between text-sm">
+            <span class="text-base-500 dark:text-base-400">Total courses</span>
+            <span class="font-semibold text-base-900 dark:text-base-100">{{ ds.total_courses }}</span>
+          </div>
+          <div class="flex justify-between text-sm">
+            <span class="text-base-500 dark:text-base-400">With resources</span>
+            <span class="font-semibold text-green-600 dark:text-green-400">{{ ds.with_resources }}</span>
+          </div>
+          <div class="flex justify-between text-sm">
+            <span class="text-base-500 dark:text-base-400">Missing resources</span>
+            <span class="font-semibold {% if ds.without > 0 %}text-red-600 dark:text-red-400{% else %}text-green-600 dark:text-green-400{% endif %}">{{ ds.without }}</span>
+          </div>
+          <div class="flex justify-between text-sm">
+            <span class="text-base-500 dark:text-base-400">Total resources</span>
+            <span class="font-semibold text-base-900 dark:text-base-100">{{ ds.resource_count }}</span>
+          </div>
+        </div>
+        <div class="mt-4">
+          <div class="h-1.5 bg-base-200 dark:bg-base-700 rounded-full overflow-hidden">
+            <div class="h-full rounded-full transition-all
+              {% if ds.coverage_pct >= 80 %}bg-green-500
+              {% elif ds.coverage_pct >= 50 %}bg-yellow-500
+              {% else %}bg-red-500{% endif %}" style="width:{{ ds.coverage_pct }}%"></div>
+          </div>
+          <div class="text-xs text-base-400 mt-1">{{ ds.coverage_pct }}% coverage</div>
+        </div>
+      </div>
+      {% empty %}
+      <div class="col-span-3 text-center py-12 text-base-400 dark:text-base-500">
+        <p class="text-4xl mb-2">📂</p>
+        <p>No department data found.</p>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
 
-    .dept-tag {
-        display: inline-block;
-        padding: 2px 8px;
-        background: #f1f5f9;
-        border-radius: 4px;
-        font-size: 0.75rem;
-        color: #475569;
-        margin: 2px;
-    }
-
-    .btn-audit {
-        display: inline-flex;
-        align-items: center;
-        gap: 6px;
-        padding: 6px 14px;
-        background: #3b82f6;
-        color: #fff;
-        border-radius: 6px;
-        font-size: 0.82rem;
-        font-weight: 500;
-        text-decoration: none;
-        transition: background 0.15s;
-    }
-
-    .btn-audit:hover {
-        background: #2563eb;
-        color: #fff;
-    }
-
-    .empty-state {
-        text-align: center;
-        padding: 60px 20px;
-        color: #94a3b8;
-    }
-
-    .search-box {
-        padding: 8px 14px;
-        border: 1px solid #e2e8f0;
-        border-radius: 6px;
-        font-size: 0.9rem;
-        width: 260px;
-        outline: none;
-    }
-
-    .search-box:focus {
-        border-color: #3b82f6;
-        box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
-    }
-</style>
-
-<div class="audit-header">
-    <h1>📋 Course Resource Audit</h1>
-    <input class="search-box" type="text" id="courseSearch" placeholder="Search courses..." onkeyup="filterCourses()">
-</div>
-
-<p style="color:#64748b; margin-bottom:20px;">
-    {{ courses|length }} course(s) have resources. Click a course to see its full resource list.
-</p>
-
-{% if courses %}
-<table class="course-table" id="courseTable">
-    <thead>
-        <tr>
-            <th>Course</th>
-            <th>Departments</th>
-            <th>Resources</th>
-            <th>Action</th>
-        </tr>
-    </thead>
-    <tbody>
-        {% for course in courses %}
-        <tr>
-            <td>
-                <div class="course-name">{{ course.name }}</div>
-                <div class="course-code">{{ course.code }}</div>
+  {# ══════════════════════════════════════════════════════════════════ #}
+  {# TAB: Missing Resources                                             #}
+  {# ══════════════════════════════════════════════════════════════════ #}
+  <div class="tab-panel hidden" id="tab-missing">
+    {% if courses_missing %}
+    <div class="bg-white dark:bg-base-800 border border-base-200 dark:border-base-700 rounded-default overflow-hidden">
+      <div class="flex items-center justify-between px-5 py-3 border-b border-base-200 dark:border-base-700 bg-base-50 dark:bg-base-700">
+        <span class="text-sm font-semibold text-base-700 dark:text-base-200">Courses with No Resources</span>
+        <span class="text-xs text-base-400">{{ courses_missing|length }} courses need attention</span>
+      </div>
+      <table class="w-full text-sm">
+        <thead>
+          <tr class="bg-base-50 dark:bg-base-700">
+            <th class="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wide text-base-500 dark:text-base-400">#</th>
+            <th class="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wide text-base-500 dark:text-base-400">Course</th>
+            <th class="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wide text-base-500 dark:text-base-400">Placement</th>
+            <th class="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wide text-base-500 dark:text-base-400">Action</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-base-100 dark:divide-base-800">
+          {% for course in courses_missing %}
+          <tr class="hover:bg-base-50 dark:hover:bg-base-800/50 transition-colors">
+            <td class="px-5 py-3 text-base-400 text-xs">{{ forloop.counter }}</td>
+            <td class="px-5 py-3">
+              <div class="font-semibold text-base-900 dark:text-base-100">{{ course.name }}</div>
+              <div class="text-xs text-base-400 font-mono">{{ course.code }}</div>
             </td>
-            <td>
-                {% for placement in course.placements.all %}
-                <span class="dept-tag">{{ placement.department.name }} Y{{ placement.year }}T{{ placement.period
-                    }}</span>
+            <td class="px-5 py-3">
+              <div class="flex flex-wrap gap-1">
+                {% for p in course.placements.all %}
+                <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-primary-50 dark:bg-primary-950 text-primary-700 dark:text-primary-300">{{ p.department.name }}</span>
+                <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-base-100 dark:bg-base-700 text-base-600 dark:text-base-300">Y{{ p.year }}T{{ p.period }}</span>
                 {% empty %}
-                <span style="color:#cbd5e1">—</span>
+                <span class="text-base-400 text-xs">No placement</span>
                 {% endfor %}
+              </div>
             </td>
-            <td>
-                <span class="stat-badge badge-blue">{{ course.resource_count }} resource{{
-                    course.resource_count|pluralize }}</span>
+            <td class="px-5 py-3">
+              <a href="{% url 'admin:content_resource_add' %}?course={{ course.id }}"
+                class="inline-flex items-center px-3 py-1.5 text-xs font-semibold bg-primary-600 hover:bg-primary-700 text-white rounded-default transition-colors">
+                + Add Resource
+              </a>
             </td>
-            <td>
-                <a class="btn-audit" href="{% url 'admin:course_resource_detail' course_id=course.id %}">
-                    View & Manage →
-                </a>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <div class="text-center py-16 text-base-400 dark:text-base-500">
+      <p class="text-5xl mb-3">🎉</p>
+      <p class="font-semibold text-base-700 dark:text-base-300">All courses have resources!</p>
+    </div>
+    {% endif %}
+  </div>
+
+  {# ══════════════════════════════════════════════════════════════════ #}
+  {# TAB: Courses with Resources                                        #}
+  {# ══════════════════════════════════════════════════════════════════ #}
+  <div class="tab-panel hidden" id="tab-covered">
+    {% if courses_covered %}
+    <div class="bg-white dark:bg-base-800 border border-base-200 dark:border-base-700 rounded-default overflow-hidden">
+      <div class="flex items-center justify-between px-5 py-3 border-b border-base-200 dark:border-base-700 bg-base-50 dark:bg-base-700">
+        <span class="text-sm font-semibold text-base-700 dark:text-base-200">Courses with Resources</span>
+        <span class="text-xs text-base-400">Sorted by most resources</span>
+      </div>
+      <table class="w-full text-sm">
+        <thead>
+          <tr class="bg-base-50 dark:bg-base-700">
+            <th class="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wide text-base-500 dark:text-base-400">#</th>
+            <th class="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wide text-base-500 dark:text-base-400">Course</th>
+            <th class="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wide text-base-500 dark:text-base-400">Placement</th>
+            <th class="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wide text-base-500 dark:text-base-400">Resources</th>
+            <th class="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wide text-base-500 dark:text-base-400">Status</th>
+            <th class="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wide text-base-500 dark:text-base-400">Action</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-base-100 dark:divide-base-800">
+          {% for course in courses_covered %}
+          <tr class="hover:bg-base-50 dark:hover:bg-base-800/50 transition-colors">
+            <td class="px-5 py-3 text-base-400 text-xs">{{ forloop.counter }}</td>
+            <td class="px-5 py-3">
+              <div class="font-semibold text-base-900 dark:text-base-100">{{ course.name }}</div>
+              <div class="text-xs text-base-400 font-mono">{{ course.code }}</div>
             </td>
-        </tr>
-        {% endfor %}
-    </tbody>
-</table>
-{% else %}
-<div class="empty-state">
-    <p style="font-size:2rem">📂</p>
-    <p>No courses have resources yet.</p>
+            <td class="px-5 py-3">
+              <div class="flex flex-wrap gap-1">
+                {% for p in course.placements.all %}
+                <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-primary-50 dark:bg-primary-950 text-primary-700 dark:text-primary-300">{{ p.department.name }}</span>
+                <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-base-100 dark:bg-base-700 text-base-600 dark:text-base-300">Y{{ p.year }}T{{ p.period }}</span>
+                {% empty %}
+                <span class="text-base-400 text-xs">—</span>
+                {% endfor %}
+              </div>
+            </td>
+            <td class="px-5 py-3">
+              <span class="font-bold text-base-900 dark:text-base-100 text-base">{{ course.resource_count }}</span>
+              <span class="text-xs text-base-400 ml-1">total</span>
+            </td>
+            <td class="px-5 py-3">
+              <div class="flex flex-wrap gap-1">
+                {% if course.published_count %}
+                <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400">{{ course.published_count }} published</span>
+                {% endif %}
+                {% if course.pending_count %}
+                <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-400">{{ course.pending_count }} pending</span>
+                {% endif %}
+              </div>
+            </td>
+            <td class="px-5 py-3">
+              <a href="{% url 'admin:course_resource_detail' course_id=course.id %}"
+                class="inline-flex items-center px-3 py-1.5 text-xs font-semibold bg-base-100 dark:bg-base-700 hover:bg-base-200 dark:hover:bg-base-600 text-base-700 dark:text-base-200 border border-base-200 dark:border-base-600 rounded-default transition-colors">
+                Manage →
+              </a>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <div class="text-center py-16 text-base-400 dark:text-base-500">
+      <p class="text-5xl mb-3">📂</p>
+      <p class="text-base-600 dark:text-base-400">No courses with resources found.</p>
+    </div>
+    {% endif %}
+  </div>
+
 </div>
-{% endif %}
 
 <script>
-    function filterCourses() {
-        const input = document.getElementById('courseSearch').value.toLowerCase();
-        const rows = document.querySelectorAll('#courseTable tbody tr');
-        rows.forEach(row => {
-            row.style.display = row.textContent.toLowerCase().includes(input) ? '' : 'none';
-        });
-    }
+  const ACTIVE   = 'border-primary-500 text-primary-600 dark:text-primary-400 dark:border-primary-400';
+  const INACTIVE = 'border-transparent text-base-500 dark:text-base-400 hover:text-base-700 dark:hover:text-base-200';
+
+  function switchTab(name) {
+    document.querySelectorAll('.tab-panel').forEach(p => {
+      p.classList.add('hidden');
+      p.classList.remove('block');
+    });
+    document.querySelectorAll('.tab-btn').forEach(b => {
+      ACTIVE.split(' ').forEach(c => b.classList.remove(c));
+      INACTIVE.split(' ').forEach(c => b.classList.add(c));
+    });
+    const panel = document.getElementById('tab-' + name);
+    panel.classList.remove('hidden');
+    panel.classList.add('block');
+    const btn = document.getElementById('btn-' + name);
+    INACTIVE.split(' ').forEach(c => btn.classList.remove(c));
+    ACTIVE.split(' ').forEach(c => btn.classList.add(c));
+    document.getElementById('activeTabInput').value = name;
+  }
+
+  switchTab('{{ active_tab }}');
 </script>
 {% endblock %}
