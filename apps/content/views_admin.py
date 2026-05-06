@@ -13,14 +13,11 @@ from django.views.decorators.http import require_POST
 from .models import Course, Resource, CoursePlacement, Department
 
 
-@staff_member_required
-def course_resource_audit(request):
+def course_resource_audit_context(request) -> dict:
     """
-    Full audit dashboard showing:
-    - Overall stats (total courses, covered, missing, resources)
-    - Per-department breakdown
-    - Courses with no resources
-    - Courses with resources (with counts)
+    Builds and returns the context dict for the Course Resource Audit dashboard.
+    Rendering is done by CourseAdmin.audit_view so that self.admin_site.each_context()
+    (which provides Unfold theme variables) can be merged in first.
     """
 
     # ── Overall stats ─────────────────────────────────────────────────────────
@@ -110,9 +107,9 @@ def course_resource_audit(request):
     dept_filter = request.GET.get('department')
     try:
         dept_filter = int(dept_filter) if dept_filter else None
-    except (ValueError, TypeError)  :
+    except (ValueError, TypeError):
         dept_filter = None
-    
+
     if dept_filter:
         courses_missing = courses_missing.filter(
             placements__department_id=dept_filter,
@@ -133,7 +130,7 @@ def course_resource_audit(request):
             Q(name__icontains=search) | Q(code__icontains=search)
         )
 
-    context = {
+    return {
         'title': 'Course Resource Audit',
         'opts':  Course._meta,
 
@@ -154,12 +151,12 @@ def course_resource_audit(request):
         'courses_covered': courses_covered,
 
         # Filter state
-        'departments':   Department.objects.filter(is_active=True).order_by('name'),
-        'dept_filter':   dept_filter,
-        'search':        search,
-        'active_tab':    request.GET.get('tab', 'overview'),
+        'departments': Department.objects.filter(is_active=True).order_by('name'),
+        'dept_filter': dept_filter,
+        'search':      search,
+        'active_tab':  request.GET.get('tab', 'overview'),
     }
-    return render(request, 'admin/content/course_resource_audit.html', context)
+
 
 
 @staff_member_required

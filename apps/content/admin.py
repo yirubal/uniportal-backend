@@ -58,7 +58,7 @@ class CourseAdmin(ModelAdmin):
         custom = [
             path(
                 'course-resource-audit/',
-                self.admin_site.admin_view(views_admin.course_resource_audit),
+                self.admin_site.admin_view(self.audit_view),
                 name='course_resource_audit',
             ),
             path(
@@ -78,6 +78,15 @@ class CourseAdmin(ModelAdmin):
             ),
         ]
         return custom + urls
+
+    def audit_view(self, request):
+        """Wraps the audit logic so it gets full Unfold admin context (theme, sidebar, colors)."""
+        from django.shortcuts import render
+        context = {
+            **self.admin_site.each_context(request),
+            **views_admin.course_resource_audit_context(request),
+        }
+        return render(request, 'admin/content/course_resource_audit.html', context)
 
     @admin.display(description='Audit')
     def resource_audit_link(self, obj):
