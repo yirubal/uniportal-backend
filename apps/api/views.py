@@ -1,5 +1,6 @@
 import mimetypes
 import logging
+import re
 from pathlib import Path
 from urllib.parse import quote, unquote
 
@@ -7,6 +8,7 @@ from botocore.exceptions import ClientError
 from django.core import signing
 from django.http import FileResponse
 from django.urls import reverse
+from django.utils.html import escape
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
@@ -35,6 +37,7 @@ logger = logging.getLogger(__name__)
 
 RESOURCE_DOWNLOAD_TOKEN_MAX_AGE = 900
 RESOURCE_DOWNLOAD_TOKEN_SALT = 'apps.api.resource-download'
+PAYMENT_REFERENCE_RE = re.compile(r'^[A-Z0-9]{6,50}$')
 
 
 # ─── AUTH ─────────────────────────────────────────────────────────────────────
@@ -591,18 +594,28 @@ class SubscriptionRequestView(APIView):
         import random
         import string
         from django.db import IntegrityError, transaction
-        from apps.accounts.models import SubscriptionPlan, SubscriptionRequest
-        from apps.accounts.notifications import notify_subscription_request_created
+        from apps.accounts.models import SiteSettings, SubscriptionPlan, SubscriptionRequest
 
-        plan_id        = request.data.get('plan')
-        payment_method = request.data.get('payment_method', 'telebirr')  # telebirr or cbe
-        paid_from      = request.data.get('paid_from', '')  # phone or account number student paid from
+        plan_id           = request.data.get('plan')
+        payment_method    = (request.data.get('payment_method') or 'telebirr').strip().lower()
+        payment_reference = _normalize_payment_reference(
+            request.data.get('payment_reference', request.data.get('paid_from', ''))
+        )
 
         try:
             plan = SubscriptionPlan.objects.get(plan_id=plan_id, is_active=True)
         except SubscriptionPlan.DoesNotExist:
             return Response(
                 {'error': 'INVALID_PLAN', 'message': 'Invalid plan selected.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if payment_method not in dict(SubscriptionRequest.PAYMENT_CHOICES):
+            return Response(
+                {
+                    'error': 'INVALID_PAYMENT_METHOD',
+                    'message': 'Choose either Telebirr or CBE as the payment method.',
+                },
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -613,6 +626,26 @@ class SubscriptionRequestView(APIView):
 
         if existing:
             return _build_payment_response(existing, existing.plan)
+
+        settings_obj = SiteSettings.get()
+        if payment_method == SubscriptionRequest.PAYMENT_CBE and not settings_obj.cbe_account:
+            return Response(
+                {
+                    'error': 'PAYMENT_METHOD_UNAVAILABLE',
+                    'message': 'CBE payment is not available right now. Please use Telebirr.',
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        reference_error = _validate_payment_reference(payment_reference, payment_method)
+        if reference_error:
+            return Response(
+                {
+                    'error': 'INVALID_PAYMENT_REFERENCE',
+                    'message': reference_error,
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         created = False
         try:
@@ -636,7 +669,8 @@ class SubscriptionRequestView(APIView):
                         plan=plan,
                         reference=reference,
                         payment_method=payment_method,
-                        paid_from=paid_from,
+                        paid_from=payment_reference,
+                        payment_reference=payment_reference,
                         amount=plan.price,
                         status=SubscriptionRequest.STATUS_PENDING,
                     )
@@ -650,7 +684,7 @@ class SubscriptionRequestView(APIView):
                 raise
 
         if created:
-            transaction.on_commit(lambda: notify_subscription_request_created(sub_request))
+            transaction.on_commit(lambda: _notify_subscription_request_created(sub_request))
 
         return _build_payment_response(sub_request, sub_request.plan)
 
@@ -678,16 +712,8 @@ class SubscriptionRequestView(APIView):
             else None,
             'current_request': _serialize_subscription_request(active_request),
             'active_request': _serialize_subscription_request(active_request),
-            'payment_options': {
-                'telebirr': {
-                    'number': settings_obj.telebirr_number,
-                    'name': settings_obj.telebirr_name,
-                },
-                'cbe': {
-                    'account': settings_obj.cbe_account,
-                    'name': settings_obj.cbe_name,
-                } if settings_obj.cbe_account else None,
-            },
+            'payment_options': _build_payment_options(settings_obj),
+            'additional_instructions': settings_obj.payment_instructions or '',
         })
 
 
@@ -700,9 +726,44 @@ def _serialize_subscription_request(sub_request):
         'plan': sub_request.plan.name,
         'amount': float(sub_request.amount),
         'status': sub_request.status,
+        'payment_method': sub_request.payment_method,
+        'payment_reference': sub_request.payment_reference or sub_request.paid_from,
         'requested_at': sub_request.requested_at,
         'updated_at': sub_request.updated_at,
     }
+
+
+def _notify_subscription_request_created(sub_request):
+    from apps.accounts.notifications import notify_subscription_request_created
+    from apps.bot.notifications import send_admin_notification
+
+    notify_subscription_request_created(sub_request)
+
+    try:
+        send_admin_notification(_build_admin_subscription_request_message(sub_request))
+    except Exception as exc:
+        logger.warning(
+            'Admin subscription notification failed for request %s: %s',
+            sub_request.reference,
+            exc,
+        )
+
+
+def _build_admin_subscription_request_message(sub_request):
+    student = sub_request.student
+    full_name = f'{student.first_name} {student.last_name}'.strip() or 'Student'
+    username = f'@{student.username}' if student.username else 'No username'
+    payment_reference = sub_request.payment_reference or sub_request.paid_from or 'Not provided'
+
+    return (
+        '💰 New Subscription Request\n\n'
+        f'Student: {escape(full_name)} ({escape(username)})\n'
+        f'Plan: {escape(sub_request.plan.name)} — ETB {sub_request.plan.price}\n'
+        f'Payment: {escape(sub_request.payment_method)} from {escape(payment_reference)}\n'
+        f'Reference: {escape(sub_request.reference)}\n'
+        f'Amount: ETB {sub_request.amount}\n\n'
+        '👉 Review: https://web-production-312b.up.railway.app/admin/accounts/subscriptionrequest/'
+    )
 
 
 def _build_payment_response(sub_request, plan):
@@ -711,17 +772,7 @@ def _build_payment_response(sub_request, plan):
 
     settings_obj = SiteSettings.get()
 
-    payment_options = {
-        'telebirr': {
-            'number': settings_obj.telebirr_number,
-            'name':   settings_obj.telebirr_name,
-        },
-    }
-    if settings_obj.cbe_account:
-        payment_options['cbe'] = {
-            'account': settings_obj.cbe_account,
-            'name':    settings_obj.cbe_name,
-        }
+    payment_options = _build_payment_options(settings_obj)
 
     return Response({
         'reference':               sub_request.reference,
@@ -729,7 +780,66 @@ def _build_payment_response(sub_request, plan):
         'amount':                  float(plan.price),
         'days':                    plan.days,
         'status':                  sub_request.status,
+        'payment_method':          sub_request.payment_method,
+        'payment_reference':       sub_request.payment_reference or sub_request.paid_from,
+        'payment_destination':     _build_payment_destination(sub_request.payment_method, payment_options),
         'note':                    f'Include reference {sub_request.reference} in your payment note.',
         'additional_instructions': settings_obj.payment_instructions or '',
         'payment_options':         payment_options,
     })
+
+
+def _normalize_payment_reference(raw_reference):
+    return str(raw_reference or '').strip().upper()
+
+
+def _build_payment_options(settings_obj):
+    return {
+        'telebirr': {
+            'number': settings_obj.telebirr_number,
+            'name': settings_obj.telebirr_name,
+        },
+        'cbe': {
+            'account': settings_obj.cbe_account,
+            'name': settings_obj.cbe_name,
+        } if settings_obj.cbe_account else None,
+    }
+
+
+def _validate_payment_reference(payment_reference, payment_method):
+    if not payment_reference:
+        if payment_method == 'cbe':
+            return 'Enter the CBE transaction ID from your receipt.'
+        return 'Enter the Telebirr transaction number from your receipt.'
+
+    if not PAYMENT_REFERENCE_RE.fullmatch(payment_reference):
+        return 'Use 6-50 characters with capital letters and numbers only.'
+
+    if not any(char.isalpha() for char in payment_reference):
+        return 'The transaction reference must include at least one capital letter.'
+
+    if not any(char.isdigit() for char in payment_reference):
+        return 'The transaction reference must include at least one number.'
+
+    return None
+
+
+def _build_payment_destination(payment_method, payment_options):
+    destination = payment_options.get(payment_method)
+    if not destination:
+        return None
+
+    if payment_method == 'cbe':
+        return {
+            'method': 'cbe',
+            'label': 'CBE account number',
+            'value': destination['account'],
+            'name': destination['name'],
+        }
+
+    return {
+        'method': 'telebirr',
+        'label': 'Telebirr number',
+        'value': destination['number'],
+        'name': destination['name'],
+    }

@@ -1,5 +1,10 @@
+import logging
+import traceback
+
 from django.db import models
 from django.db.models import Q
+
+logger = logging.getLogger(__name__)
 
 
 class Student(models.Model):
@@ -115,6 +120,20 @@ class Student(models.Model):
         """Activate premium for N days. Extends existing expiry if still active."""
         from django.utils import timezone
         from datetime import timedelta
+        caller = traceback.format_stack()[-2].strip()
+        logger.info(
+            'activate_premium called for student %s for %s days. Caller: %s',
+            self.telegram_id,
+            days,
+            caller,
+        )
+        if 'approve_requests' not in caller:
+            logger.warning(
+                'activate_premium called outside SubscriptionRequestAdmin approve action '
+                'for student %s. Caller: %s',
+                self.telegram_id,
+                caller,
+            )
         base = self.subscription_expiry if self.is_premium else timezone.now()
         self.subscription_status = self.SUBSCRIPTION_PREMIUM
         self.subscription_expiry = base + timedelta(days=days)
@@ -190,6 +209,11 @@ class SubscriptionRequest(models.Model):
         max_length=50,
         blank=True,
         help_text='Phone number or bank account the student paid from.',
+    )
+    payment_reference = models.CharField(
+        max_length=50,
+        blank=True,
+        help_text='Telebirr transaction number or CBE transaction ID provided by the student.',
     )
     amount         = models.DecimalField(
         max_digits=10,

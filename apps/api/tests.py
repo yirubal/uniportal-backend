@@ -12,12 +12,12 @@ from django.test import override_settings
 from django.utils import timezone
 from rest_framework.test import APITestCase
 
-from apps.accounts.admin import SubscriptionRequestAdmin, _approve_subscription_request
+from apps.accounts.admin import SubscriptionRequestAdmin
 from apps.accounts.notifications import (
     notify_subscription_rejected,
     notify_subscription_request_created,
 )
-from apps.accounts.models import Student, SubscriptionPlan, SubscriptionRequest
+from apps.accounts.models import SiteSettings, Student, SubscriptionPlan, SubscriptionRequest
 from apps.api.views import RESOURCE_DOWNLOAD_TOKEN_MAX_AGE, _generate_jwt
 from apps.content.models import Course, Resource
 
@@ -44,6 +44,12 @@ class SubscriptionRequestTests(APITestCase):
             days=365,
             is_active=True,
         )
+        self.site_settings = SiteSettings.get()
+        self.site_settings.telebirr_number = '0911223344'
+        self.site_settings.telebirr_name = 'Unity Telebirr'
+        self.site_settings.cbe_account = '1000123456789'
+        self.site_settings.cbe_name = 'Unity CBE'
+        self.site_settings.save()
         self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {_generate_jwt(self.student)}')
 
     @patch('apps.accounts.notifications.notify_subscription_request_created')
@@ -54,7 +60,7 @@ class SubscriptionRequestTests(APITestCase):
                 {
                     'plan': self.semester_plan.plan_id,
                     'payment_method': SubscriptionRequest.PAYMENT_TELEBIRR,
-                    'paid_from': '0911000000',
+                    'payment_reference': 'TB123ABC',
                 },
                 format='json',
             )
@@ -64,20 +70,99 @@ class SubscriptionRequestTests(APITestCase):
         sub_request = SubscriptionRequest.objects.get()
         self.assertEqual(response.data['reference'], sub_request.reference)
         self.assertEqual(response.data['status'], SubscriptionRequest.STATUS_PENDING)
+        self.assertEqual(sub_request.payment_reference, 'TB123ABC')
+        self.assertEqual(response.data['payment_reference'], 'TB123ABC')
+        self.assertEqual(response.data['payment_destination']['label'], 'Telebirr number')
+        self.assertEqual(response.data['payment_destination']['value'], '0911223344')
+        self.assertEqual(response.data['payment_destination']['name'], 'Unity Telebirr')
+        self.assertEqual(response.data['payment_options']['telebirr']['number'], '0911223344')
+        self.assertEqual(response.data['payment_options']['telebirr']['name'], 'Unity Telebirr')
+        self.assertEqual(response.data['payment_options']['cbe']['account'], '1000123456789')
+        self.assertEqual(response.data['payment_options']['cbe']['name'], 'Unity CBE')
         notify_created.assert_called_once_with(sub_request)
+
+    @patch('apps.bot.notifications.send_admin_notification')
+    @patch('apps.accounts.notifications.notify_subscription_request_created')
+    def test_post_notifies_admin_after_subscription_request_is_created(
+        self,
+        notify_created,
+        send_admin_notification,
+    ):
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.client.post(
+                '/api/subscription/request/',
+                {
+                    'plan': self.semester_plan.plan_id,
+                    'payment_method': SubscriptionRequest.PAYMENT_TELEBIRR,
+                    'payment_reference': 'TB77ADMIN',
+                },
+                format='json',
+            )
+
+        self.assertEqual(response.status_code, 200)
+        sub_request = SubscriptionRequest.objects.get()
+        notify_created.assert_called_once_with(sub_request)
+        send_admin_notification.assert_called_once()
+        message = send_admin_notification.call_args.args[0]
+        self.assertIn('New Subscription Request', message)
+        self.assertIn('Test', message)
+        self.assertIn(self.semester_plan.name, message)
+        self.assertIn('TB77ADMIN', message)
+        self.assertIn(sub_request.reference, message)
+
+    @patch('apps.accounts.notifications.notify_subscription_request_created')
+    def test_post_accepts_cbe_transaction_id_and_returns_cbe_destination(self, notify_created):
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.client.post(
+                '/api/subscription/request/',
+                {
+                    'plan': self.semester_plan.plan_id,
+                    'payment_method': SubscriptionRequest.PAYMENT_CBE,
+                    'payment_reference': 'CBE42FT9A',
+                },
+                format='json',
+            )
+
+        self.assertEqual(response.status_code, 200)
+        sub_request = SubscriptionRequest.objects.get()
+        self.assertEqual(sub_request.payment_method, SubscriptionRequest.PAYMENT_CBE)
+        self.assertEqual(sub_request.payment_reference, 'CBE42FT9A')
+        self.assertEqual(response.data['payment_destination']['label'], 'CBE account number')
+        self.assertEqual(response.data['payment_destination']['value'], '1000123456789')
+        self.assertEqual(response.data['payment_destination']['name'], 'Unity CBE')
+        self.assertEqual(response.data['payment_options']['telebirr']['number'], '0911223344')
+        self.assertEqual(response.data['payment_options']['telebirr']['name'], 'Unity Telebirr')
+        self.assertEqual(response.data['payment_options']['cbe']['account'], '1000123456789')
+        self.assertEqual(response.data['payment_options']['cbe']['name'], 'Unity CBE')
+        notify_created.assert_called_once_with(sub_request)
+
+    def test_post_rejects_invalid_transaction_reference(self):
+        response = self.client.post(
+            '/api/subscription/request/',
+            {
+                'plan': self.semester_plan.plan_id,
+                'payment_method': SubscriptionRequest.PAYMENT_TELEBIRR,
+                'payment_reference': '0911000000',
+            },
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.data['error'], 'INVALID_PAYMENT_REFERENCE')
+        self.assertEqual(SubscriptionRequest.objects.count(), 0)
 
     @patch('apps.accounts.notifications.notify_subscription_request_created')
     def test_post_returns_existing_pending_request_instead_of_duplicate(self, notify_created):
         with self.captureOnCommitCallbacks(execute=True):
             first = self.client.post(
                 '/api/subscription/request/',
-                {'plan': self.semester_plan.plan_id, 'paid_from': '0911000000'},
+                {'plan': self.semester_plan.plan_id, 'payment_reference': 'TB123ABC'},
                 format='json',
             )
         with self.captureOnCommitCallbacks(execute=True):
             second = self.client.post(
                 '/api/subscription/request/',
-                {'plan': self.annual_plan.plan_id, 'paid_from': '0911000000'},
+                {'plan': self.annual_plan.plan_id, 'payment_reference': 'TB999XYZ'},
                 format='json',
             )
 
@@ -105,9 +190,14 @@ class SubscriptionRequestTests(APITestCase):
         self.assertEqual(response.data['active_request']['status'], SubscriptionRequest.STATUS_REJECTED)
         self.assertEqual(response.data['current_request']['status'], SubscriptionRequest.STATUS_REJECTED)
         self.assertIsNone(response.data['pending_request'])
+        self.assertEqual(response.data['payment_options']['telebirr']['number'], '0911223344')
+        self.assertEqual(response.data['payment_options']['telebirr']['name'], 'Unity Telebirr')
+        self.assertEqual(response.data['payment_options']['cbe']['account'], '1000123456789')
+        self.assertEqual(response.data['payment_options']['cbe']['name'], 'Unity CBE')
 
     @patch('apps.accounts.admin.notify_subscription_approved')
-    def test_admin_approval_updates_student_premium_status_for_profile(self, notify_approved):
+    @patch('apps.accounts.admin.SubscriptionRequestAdmin.message_user')
+    def test_admin_approval_updates_student_premium_status_for_profile(self, message_user, notify_approved):
         admin_user = get_user_model().objects.create_user(
             username='admin',
             password='password',
@@ -120,7 +210,13 @@ class SubscriptionRequestTests(APITestCase):
             status=SubscriptionRequest.STATUS_PENDING,
         )
 
-        _approve_subscription_request(sub_request, admin_user)
+        request = RequestFactory().post('/admin/accounts/subscriptionrequest/')
+        request.user = admin_user
+        model_admin = SubscriptionRequestAdmin(SubscriptionRequest, django_admin.site)
+        model_admin.approve_requests(
+            request,
+            SubscriptionRequest.objects.filter(id=sub_request.id),
+        )
         response = self.client.get('/api/students/me/')
 
         self.student.refresh_from_db()
@@ -143,8 +239,9 @@ class SubscriptionRequestTests(APITestCase):
             telegram_id=111222,
             first_name='Approved',
             username='approveduser',
+            subscription_status=Student.SUBSCRIPTION_PREMIUM,
+            subscription_expiry=timezone.now() + timedelta(days=self.semester_plan.days),
         )
-        approved_student.activate_premium(self.semester_plan.days)
         first_pending = SubscriptionRequest.objects.create(
             student=self.student,
             plan=self.semester_plan,
