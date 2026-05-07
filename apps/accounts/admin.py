@@ -205,7 +205,7 @@ class SubscriptionRequestAdmin(ModelAdmin):
         'plan',
         'amount',
         'payment_method',
-        'paid_from',
+        'payment_reference',
         'status_badge',
         'requested_at',
         'activated_by',
@@ -220,7 +220,7 @@ class SubscriptionRequestAdmin(ModelAdmin):
         'student__username',
         'student__first_name',
         'student__telegram_id',
-        'paid_from',
+        'payment_reference',
     ]
     readonly_fields = [
         'reference',
@@ -228,7 +228,7 @@ class SubscriptionRequestAdmin(ModelAdmin):
         'plan',
         'amount',
         'payment_method',
-        'paid_from',
+        'payment_reference',
         'requested_at',
         'updated_at',
         'activated_by',
@@ -247,7 +247,7 @@ class SubscriptionRequestAdmin(ModelAdmin):
             'description': 'Verify these details against your Telebirr or CBE transaction history.',
             'fields': (
                 'payment_method',
-                'paid_from',
+                'payment_reference',
             )
         }),
         ('Decision', {

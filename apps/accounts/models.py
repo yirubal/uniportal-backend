@@ -191,6 +191,11 @@ class SubscriptionRequest(models.Model):
         blank=True,
         help_text='Phone number or bank account the student paid from.',
     )
+    payment_reference = models.CharField(
+        max_length=50,
+        blank=True,
+        help_text='Telebirr transaction number or CBE transaction ID provided by the student.',
+    )
     amount         = models.DecimalField(
         max_digits=10,
         decimal_places=2,
