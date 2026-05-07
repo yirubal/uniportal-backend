@@ -8,6 +8,7 @@ from botocore.exceptions import ClientError
 from django.core import signing
 from django.http import FileResponse
 from django.urls import reverse
+from django.utils.html import escape
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
@@ -594,7 +595,6 @@ class SubscriptionRequestView(APIView):
         import string
         from django.db import IntegrityError, transaction
         from apps.accounts.models import SiteSettings, SubscriptionPlan, SubscriptionRequest
-        from apps.accounts.notifications import notify_subscription_request_created
 
         plan_id           = request.data.get('plan')
         payment_method    = (request.data.get('payment_method') or 'telebirr').strip().lower()
@@ -684,7 +684,7 @@ class SubscriptionRequestView(APIView):
                 raise
 
         if created:
-            transaction.on_commit(lambda: notify_subscription_request_created(sub_request))
+            transaction.on_commit(lambda: _notify_subscription_request_created(sub_request))
 
         return _build_payment_response(sub_request, sub_request.plan)
 
@@ -731,6 +731,39 @@ def _serialize_subscription_request(sub_request):
         'requested_at': sub_request.requested_at,
         'updated_at': sub_request.updated_at,
     }
+
+
+def _notify_subscription_request_created(sub_request):
+    from apps.accounts.notifications import notify_subscription_request_created
+    from apps.bot.notifications import send_admin_notification
+
+    notify_subscription_request_created(sub_request)
+
+    try:
+        send_admin_notification(_build_admin_subscription_request_message(sub_request))
+    except Exception as exc:
+        logger.warning(
+            'Admin subscription notification failed for request %s: %s',
+            sub_request.reference,
+            exc,
+        )
+
+
+def _build_admin_subscription_request_message(sub_request):
+    student = sub_request.student
+    full_name = f'{student.first_name} {student.last_name}'.strip() or 'Student'
+    username = f'@{student.username}' if student.username else 'No username'
+    payment_reference = sub_request.payment_reference or sub_request.paid_from or 'Not provided'
+
+    return (
+        '💰 New Subscription Request\n\n'
+        f'Student: {escape(full_name)} ({escape(username)})\n'
+        f'Plan: {escape(sub_request.plan.name)} — ETB {sub_request.plan.price}\n'
+        f'Payment: {escape(sub_request.payment_method)} from {escape(payment_reference)}\n'
+        f'Reference: {escape(sub_request.reference)}\n'
+        f'Amount: ETB {sub_request.amount}\n\n'
+        '👉 Review: https://web-production-312b.up.railway.app/admin/accounts/subscriptionrequest/'
+    )
 
 
 def _build_payment_response(sub_request, plan):

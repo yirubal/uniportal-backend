@@ -32,7 +32,7 @@ INSTALLED_APPS = [
     'drf_spectacular',
 
     # Local
-    'apps.accounts',
+    'apps.accounts.apps.AccountsConfig',
     'apps.content',
     'apps.quiz',
     'apps.bot',
@@ -159,10 +159,12 @@ SPECTACULAR_SETTINGS = {
 
 # ── Telegram ──────────────────────────────────────────────────────────────────
 TELEGRAM_BOT_TOKEN          = env('TELEGRAM_BOT_TOKEN',          default='')
+TELEGRAM_ADMIN_CHAT_ID      = env('TELEGRAM_ADMIN_CHAT_ID',      default='')
 TELEGRAM_CHANNEL_ID         = env('TELEGRAM_CHANNEL_ID',         default='')   # resource-upload channel
 TELEGRAM_OFFICIAL_CHANNEL_ID = env('TELEGRAM_OFFICIAL_CHANNEL_ID', default='') # public channel users must join
 # Public link shown to users who haven't joined yet
 TELEGRAM_CHANNEL_LINK = env('TELEGRAM_CHANNEL_LINK', default='https://t.me/unityuniversityportal')
+MINI_APP_URL = env('MINI_APP_URL', default='')
 GROQ_API_KEY         = env('GROQ_API_KEY',         default='')
 GEMINI_API_KEY       = env('GEMINI_API_KEY',       default='')
 

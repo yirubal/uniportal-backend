@@ -87,9 +87,6 @@ class StudentAdmin(ModelAdmin):
         }),
     )
     actions = [
-        'activate_premium_120_days',
-        'activate_premium_90_days',
-        'activate_premium_365_days',
         'deactivate_premium',
     ]
 
@@ -167,24 +164,6 @@ class StudentAdmin(ModelAdmin):
         if obj.is_premium:
             return f'✅ Premium ({obj.days_remaining}d left)'
         return '⬜ Free'
-
-    @admin.action(description='Activate Premium — 120 days (Semester Pass)')
-    def activate_premium_120_days(self, request, queryset):
-        for student in queryset:
-            student.activate_premium(120)
-        self.message_user(request, f'Activated 120-day premium for {queryset.count()} student(s).')
-
-    @admin.action(description='Activate Premium — 90 days (Exit Exam Pass)')
-    def activate_premium_90_days(self, request, queryset):
-        for student in queryset:
-            student.activate_premium(90)
-        self.message_user(request, f'Activated 90-day premium for {queryset.count()} student(s).')
-
-    @admin.action(description='Activate Premium — 365 days (Full Year Pass)')
-    def activate_premium_365_days(self, request, queryset):
-        for student in queryset:
-            student.activate_premium(365)
-        self.message_user(request, f'Activated 365-day premium for {queryset.count()} student(s).')
 
     @admin.action(description='Deactivate Premium')
     def deactivate_premium(self, request, queryset):
@@ -308,6 +287,7 @@ class SubscriptionRequestAdmin(ModelAdmin):
         activated = 0
 
         for sub_request in pending:
+            sub_request.student.activate_premium(sub_request.plan.days)
             _approve_subscription_request(sub_request, request.user)
             activated += 1
 
@@ -361,7 +341,7 @@ class SubscriptionRequestAdmin(ModelAdmin):
                 messages.WARNING,
             )
 
-    # ── Override save to auto-approve when admin changes status to approved ───
+    # ── Keep admin detail saves from bypassing the approve action ─────────────
 
     def save_model(self, request, obj, form, change):
         previous_status = None
@@ -373,15 +353,18 @@ class SubscriptionRequestAdmin(ModelAdmin):
                 .first()
             )
 
-        if change and obj.status == SubscriptionRequest.STATUS_APPROVED:
-            if not obj.activated_at:
-                _approve_subscription_request(obj, request.user)
-                self.message_user(
-                    request,
-                    f'✅ Subscription activated for {obj.student}. Telegram notification sent.',
-                    messages.SUCCESS,
-                )
-                return  # already saved inside helper
+        if (
+            change
+            and obj.status == SubscriptionRequest.STATUS_APPROVED
+            and previous_status != SubscriptionRequest.STATUS_APPROVED
+        ):
+            obj.status = previous_status or SubscriptionRequest.STATUS_PENDING
+            self.message_user(
+                request,
+                'Use the "Approve & activate selected requests" action to activate premium. '
+                'Direct status edits do not grant access.',
+                messages.WARNING,
+            )
         if (
             change
             and obj.status == SubscriptionRequest.STATUS_REJECTED
@@ -479,9 +462,7 @@ class SiteSettingsAdmin(ModelAdmin):
 # ─── Helpers ───────────────────────────────────────────────────────────────────
 
 def _approve_subscription_request(sub_request: SubscriptionRequest, admin_user):
-    """Activate premium on the student and mark the request as approved."""
-    sub_request.student.activate_premium(sub_request.plan.days)
-
+    """Mark the request as approved after premium activation was authorized."""
     sub_request.status       = SubscriptionRequest.STATUS_APPROVED
     sub_request.activated_by = admin_user
     sub_request.activated_at = timezone.now()
