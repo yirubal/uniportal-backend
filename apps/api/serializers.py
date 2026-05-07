@@ -7,6 +7,12 @@ from apps.quiz.models import ExamPaper, Question, QuizAttempt
 class StudentSerializer(serializers.ModelSerializer):
     is_premium = serializers.BooleanField(read_only=True)
     days_remaining = serializers.IntegerField(read_only=True)
+    subscription_status = serializers.SerializerMethodField()
+
+    def get_subscription_status(self, obj):
+        if obj.is_premium:
+            return Student.SUBSCRIPTION_PREMIUM
+        return Student.SUBSCRIPTION_FREE
 
     class Meta:
         model = Student

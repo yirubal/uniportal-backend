@@ -195,6 +195,17 @@ class SubscriptionRequestTests(APITestCase):
         self.assertEqual(response.data['payment_options']['cbe']['account'], '1000123456789')
         self.assertEqual(response.data['payment_options']['cbe']['name'], 'Unity CBE')
 
+    def test_student_profile_reports_free_when_premium_status_has_no_valid_expiry(self):
+        self.student.subscription_status = Student.SUBSCRIPTION_PREMIUM
+        self.student.subscription_expiry = None
+        self.student.save(update_fields=['subscription_status', 'subscription_expiry'])
+
+        response = self.client.get('/api/students/me/')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(response.data['is_premium'])
+        self.assertEqual(response.data['subscription_status'], Student.SUBSCRIPTION_FREE)
+
     @patch('apps.accounts.admin.notify_subscription_approved')
     @patch('apps.accounts.admin.SubscriptionRequestAdmin.message_user')
     def test_admin_approval_updates_student_premium_status_for_profile(self, message_user, notify_approved):
