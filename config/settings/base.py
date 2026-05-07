@@ -167,8 +167,9 @@ GROQ_API_KEY         = env('GROQ_API_KEY',         default='')
 GEMINI_API_KEY       = env('GEMINI_API_KEY',       default='')
 
 # ── File uploads ──────────────────────────────────────────────────────────────
-FILE_UPLOAD_MAX_MEMORY_SIZE = 20 * 1024 * 1024  # 20MB
-DATA_UPLOAD_MAX_MEMORY_SIZE = 20 * 1024 * 1024
+# config/settings/base.py
+FILE_UPLOAD_MAX_MEMORY_SIZE = 100 * 1024 * 1024  # 100MB
+DATA_UPLOAD_MAX_MEMORY_SIZE = 100 * 1024 * 1024
 
 # ── Unfold Admin ──────────────────────────────────────────────────────────────
 UNFOLD = {
