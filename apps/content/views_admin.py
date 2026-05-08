@@ -56,7 +56,7 @@ def course_resource_audit_context(request) -> dict:
             .distinct().count()
         )
         dept_without = dept_total - dept_with_resources
-        dept_resource_count = Resource.objects.filter(course_id__in=course_ids).count()
+        dept_resource_count = Resource.objects.filter(courses__id__in=course_ids).distinct().count()
         coverage_pct = round((dept_with_resources / dept_total) * 100) if dept_total else 0
 
         dept_stats.append({
@@ -87,9 +87,17 @@ def course_resource_audit_context(request) -> dict:
     courses_covered = (
         Course.objects.filter(is_active=True, resources__isnull=False)
         .annotate(
-            resource_count=Count('resources'),
-            published_count=Count('resources', filter=Q(resources__status='published')),
-            pending_count=Count('resources', filter=Q(resources__status='pending')),
+            resource_count=Count('resources', distinct=True),
+            published_count=Count(
+                'resources',
+                filter=Q(resources__status='published'),
+                distinct=True,
+            ),
+            pending_count=Count(
+                'resources',
+                filter=Q(resources__status='pending'),
+                distinct=True,
+            ),
         )
         .prefetch_related(
             Prefetch(
@@ -163,7 +171,8 @@ def course_resource_detail_context(course_id) -> dict:
     course = get_object_or_404(Course, id=course_id)
     resources = (
         Resource.objects
-        .filter(course=course)
+        .filter(courses=course)
+        .prefetch_related('courses')
         .order_by('file_type', 'title')
     )
 
@@ -214,7 +223,8 @@ def course_resource_detail(request, course_id):
 @require_POST
 def delete_resource(request, resource_id):
     resource  = get_object_or_404(Resource, id=resource_id)
-    course_id = resource.course_id
+    first_course = resource.courses.first()
+    course_id = first_course.id if first_course else None
     title     = resource.title
 
     if resource.file:
@@ -225,14 +235,16 @@ def delete_resource(request, resource_id):
 
     resource.delete()
     messages.success(request, f'Deleted: {title}')
-    return redirect('admin:course_resource_detail', course_id=course_id)
+    if course_id:
+        return redirect('admin:course_resource_detail', course_id=course_id)
+    return redirect('admin:course_resource_audit')
 
 
 @staff_member_required
 @require_POST
 def delete_duplicate_resources(request, course_id):
     course    = get_object_or_404(Course, id=course_id)
-    resources = Resource.objects.filter(course=course).order_by('title', 'created_at')
+    resources = Resource.objects.filter(courses=course).order_by('title', 'created_at')
 
     seen      = {}
     to_delete = []

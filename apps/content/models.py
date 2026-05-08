@@ -176,10 +176,10 @@ class Resource(models.Model):
         choices=STATUS_CHOICES,
         default=STATUS_PENDING,
     )
-    course = models.ForeignKey(
+    courses = models.ManyToManyField(
         Course,
-        on_delete=models.CASCADE,
         related_name='resources',
+        blank=True,
     )
     telegram_message_id = models.BigIntegerField(
         null=True,
@@ -199,11 +199,6 @@ class Resource(models.Model):
         verbose_name_plural = 'Resources'
         ordering = ['-created_at']
         indexes = [
-            # Primary student-facing lookup: published resources for a course
-            models.Index(
-                fields=['course', 'status', 'access_level'],
-                name='resource_course_status_acc_idx',
-            ),
             # Admin filtering by status
             models.Index(
                 fields=['status', 'created_at'],

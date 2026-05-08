@@ -189,9 +189,9 @@ class ResourceListView(APIView):
         search    = request.query_params.get('search')
 
         resources = Resource.objects.filter(
-            course_id=course_id,
+            courses=course_id,
             status=Resource.STATUS_PUBLISHED,
-        )
+        ).prefetch_related('courses').distinct()
 
         if file_type:
             resources = resources.filter(file_type=file_type)
@@ -213,7 +213,7 @@ class ResourceDetailView(APIView):
 
     def get(self, request, resource_id):
         try:
-            resource = Resource.objects.get(
+            resource = Resource.objects.prefetch_related('courses').get(
                 id=resource_id,
                 status=Resource.STATUS_PUBLISHED,
             )

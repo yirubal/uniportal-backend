@@ -373,8 +373,8 @@ class ResourceDownloadTests(APITestCase):
             file_type=Resource.TYPE_LECTURE_NOTE,
             access_level=Resource.ACCESS_PREMIUM,
             status=Resource.STATUS_PUBLISHED,
-            course=self.course,
         )
+        self.resource.courses.add(self.course)
 
     def tearDown(self):
         self.settings_override.disable()

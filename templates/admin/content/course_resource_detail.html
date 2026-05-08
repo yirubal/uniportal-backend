@@ -82,7 +82,7 @@
             class="inline-flex items-center gap-2 px-4 py-2 text-sm font-semibold bg-primary-600 hover:bg-primary-700 text-white rounded-default shadow-sm transition-colors">
             + Add Resource
         </a>
-        <a href="{% url 'admin:content_resource_changelist' %}?course__id__exact={{ course.id }}"
+        <a href="{% url 'admin:content_resource_changelist' %}?courses__id__exact={{ course.id }}"
             class="inline-flex items-center gap-2 px-4 py-2 text-sm font-semibold bg-base-100 dark:bg-base-800 text-base-700 dark:text-base-200 hover:text-primary-600 dark:hover:text-primary-400 border border-base-200 dark:border-base-700 hover:border-primary-500 dark:hover:border-primary-500 rounded-default transition-colors">
             Edit in Admin →
         </a>

@@ -72,6 +72,8 @@ class CoursePlacementSerializer(serializers.ModelSerializer):
 class ResourceSerializer(serializers.ModelSerializer):
     is_locked = serializers.SerializerMethodField()
     file_url = serializers.SerializerMethodField()
+    course_codes = serializers.SerializerMethodField()
+    course_names = serializers.SerializerMethodField()
     file_type_display = serializers.CharField(
         source='get_file_type_display',
         read_only=True,
@@ -89,6 +91,8 @@ class ResourceSerializer(serializers.ModelSerializer):
             'title',
             'file_type',
             'file_type_display',
+            'course_codes',
+            'course_names',
             'source',
             'source_display',
             'access_level',
@@ -116,6 +120,12 @@ class ResourceSerializer(serializers.ModelSerializer):
         if obj.file:
             return request.build_absolute_uri(obj.file.url)
         return None
+
+    def get_course_codes(self, obj) -> list[str]:
+        return list(obj.courses.values_list('code', flat=True))
+
+    def get_course_names(self, obj) -> list[str]:
+        return list(obj.courses.values_list('name', flat=True))
 
 
 class QuestionSerializer(serializers.ModelSerializer):
