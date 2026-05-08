@@ -87,7 +87,7 @@
           {# Action buttons #}
           <div class="flex flex-wrap gap-3 pt-2 border-t border-base-200 dark:border-base-700">
             <button type="button" onclick="togglePreview()"
-              class="px-4 py-2 text-sm font-medium text-base-600 dark:text-base-400 hover:text-base-900 dark:hover:text-base-100 bg-base-100 dark:bg-base-800 border border-base-200 dark:border-base-700 rounded-default transition-colors">
+              class="px-4 py-2 text-sm font-medium text-base-600 dark:text-base-400 hover:text-primary-600 dark:hover:text-primary-400 bg-base-100 dark:bg-base-800 border border-base-200 dark:border-base-700 hover:border-primary-500 dark:hover:border-primary-500 rounded-default transition-colors">
               👁 Preview
             </button>
             <button type="button" onclick="confirmSend()"
@@ -180,13 +180,13 @@
               Delivered</th>
           </tr>
         </thead>
-        <tbody class="divide-y divide-base-100 dark:divide-base-800">
+        <tbody class="divide-y divide-base-100 dark:divide-base-800 bg-white dark:bg-base-900">
           {% for b in recent_broadcasts %}
-          <tr class="hover:bg-base-50 dark:hover:bg-base-800/50 transition-colors">
-            <td class="px-5 py-3 text-base-500 dark:text-base-400 text-xs whitespace-nowrap">{{ b.sent_at|date:"M d, Y
+          <tr class="group bg-white dark:bg-base-900 transition-colors">
+            <td class="px-5 py-3 text-base-500 dark:text-base-400 group-hover:text-primary-600 dark:group-hover:text-primary-400 text-xs whitespace-nowrap transition-colors">{{ b.sent_at|date:"M d, Y
               H:i" }}</td>
-            <td class="px-5 py-3 text-base-700 dark:text-base-300 text-xs">{{ b.sent_by.username|default:"—" }}</td>
-            <td class="px-5 py-3 text-base-700 dark:text-base-200 max-w-xs truncate">{{ b.message|truncatechars:80 }}
+            <td class="px-5 py-3 text-base-700 dark:text-base-300 group-hover:text-primary-600 dark:group-hover:text-primary-400 text-xs transition-colors">{{ b.sent_by.username|default:"—" }}</td>
+            <td class="px-5 py-3 text-base-700 dark:text-base-200 group-hover:text-primary-600 dark:group-hover:text-primary-400 max-w-xs truncate transition-colors">{{ b.message|truncatechars:80 }}
             </td>
             <td class="px-5 py-3">
               {% if b.failed_count == 0 %}
@@ -228,7 +228,7 @@
     </p>
     <div class="flex gap-3 justify-end">
       <button type="button" onclick="document.getElementById('confirmDialog').close()"
-        class="px-4 py-2 text-sm font-medium text-base-600 dark:text-base-400 bg-base-100 dark:bg-base-800 border border-base-200 dark:border-base-700 rounded-default hover:bg-base-200 dark:hover:bg-base-700 transition-colors">
+        class="px-4 py-2 text-sm font-medium text-base-600 dark:text-base-400 hover:text-primary-600 dark:hover:text-primary-400 bg-base-100 dark:bg-base-800 border border-base-200 dark:border-base-700 hover:border-primary-500 dark:hover:border-primary-500 rounded-default transition-colors">
         Cancel
       </button>
       <button type="button" onclick="document.getElementById('broadcastForm').submit()"

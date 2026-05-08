@@ -165,13 +165,13 @@
             <th class="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wide text-base-500 dark:text-base-400">Action</th>
           </tr>
         </thead>
-        <tbody class="divide-y divide-base-100 dark:divide-base-800">
+        <tbody class="divide-y divide-base-100 dark:divide-base-700 bg-white dark:bg-base-800">
           {% for course in courses_missing %}
-          <tr class="hover:bg-base-50 dark:hover:bg-base-800/50 transition-colors">
+          <tr class="group bg-white dark:bg-base-800 transition-colors">
             <td class="px-5 py-3 text-base-400 text-xs">{{ forloop.counter }}</td>
             <td class="px-5 py-3">
-              <div class="font-semibold text-base-900 dark:text-base-100">{{ course.name }}</div>
-              <div class="text-xs text-base-400 font-mono">{{ course.code }}</div>
+              <div class="font-semibold text-base-900 dark:text-base-100 group-hover:text-primary-600 dark:group-hover:text-primary-400 transition-colors">{{ course.name }}</div>
+              <div class="text-xs text-base-400 group-hover:text-primary-500 dark:group-hover:text-primary-400 font-mono transition-colors">{{ course.code }}</div>
             </td>
             <td class="px-5 py-3">
               <div class="flex flex-wrap gap-1">
@@ -185,7 +185,7 @@
             </td>
             <td class="px-5 py-3">
               <a href="{% url 'admin:content_resource_add' %}?course={{ course.id }}"
-                class="inline-flex items-center px-3 py-1.5 text-xs font-semibold bg-primary-600 hover:bg-primary-700 text-white rounded-default transition-colors">
+                class="inline-flex items-center px-3 py-1.5 text-xs font-semibold bg-primary-600 hover:bg-primary-700 text-white rounded-default shadow-sm transition-colors">
                 + Add Resource
               </a>
             </td>
@@ -223,13 +223,13 @@
             <th class="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wide text-base-500 dark:text-base-400">Action</th>
           </tr>
         </thead>
-        <tbody class="divide-y divide-base-100 dark:divide-base-800">
+        <tbody class="divide-y divide-base-100 dark:divide-base-700 bg-white dark:bg-base-800">
           {% for course in courses_covered %}
-          <tr class="hover:bg-base-50 dark:hover:bg-base-800/50 transition-colors">
+          <tr class="group bg-white dark:bg-base-800 transition-colors">
             <td class="px-5 py-3 text-base-400 text-xs">{{ forloop.counter }}</td>
             <td class="px-5 py-3">
-              <div class="font-semibold text-base-900 dark:text-base-100">{{ course.name }}</div>
-              <div class="text-xs text-base-400 font-mono">{{ course.code }}</div>
+              <div class="font-semibold text-base-900 dark:text-base-100 group-hover:text-primary-600 dark:group-hover:text-primary-400 transition-colors">{{ course.name }}</div>
+              <div class="text-xs text-base-400 group-hover:text-primary-500 dark:group-hover:text-primary-400 font-mono transition-colors">{{ course.code }}</div>
             </td>
             <td class="px-5 py-3">
               <div class="flex flex-wrap gap-1">
@@ -257,7 +257,7 @@
             </td>
             <td class="px-5 py-3">
               <a href="{% url 'admin:course_resource_detail' course_id=course.id %}"
-                class="inline-flex items-center px-3 py-1.5 text-xs font-semibold bg-base-100 dark:bg-base-700 hover:bg-base-200 dark:hover:bg-base-600 text-base-700 dark:text-base-200 border border-base-200 dark:border-base-600 rounded-default transition-colors">
+                class="inline-flex items-center px-3 py-1.5 text-xs font-semibold bg-primary-600 hover:bg-primary-700 text-white border border-primary-500 dark:border-primary-400 rounded-default shadow-sm transition-colors">
                 Manage →
               </a>
             </td>

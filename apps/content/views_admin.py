@@ -159,8 +159,7 @@ def course_resource_audit_context(request) -> dict:
 
 
 
-@staff_member_required
-def course_resource_detail(request, course_id):
+def course_resource_detail_context(course_id) -> dict:
     course = get_object_or_404(Course, id=course_id)
     resources = (
         Resource.objects
@@ -202,6 +201,12 @@ def course_resource_detail(request, course_id):
         'published_count':     published_count,
         'pending_count':       pending_count,
     }
+    return context
+
+
+@staff_member_required
+def course_resource_detail(request, course_id):
+    context = course_resource_detail_context(course_id)
     return render(request, 'admin/content/course_resource_detail.html', context)
 
 
