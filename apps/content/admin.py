@@ -63,7 +63,7 @@ class CourseAdmin(ModelAdmin):
             ),
             path(
                 'course-resource-audit/<int:course_id>/',
-                self.admin_site.admin_view(views_admin.course_resource_detail),
+                self.admin_site.admin_view(self.resource_detail_view),
                 name='course_resource_detail',
             ),
             path(
@@ -87,6 +87,15 @@ class CourseAdmin(ModelAdmin):
             **views_admin.course_resource_audit_context(request),
         }
         return render(request, 'admin/content/course_resource_audit.html', context)
+
+    def resource_detail_view(self, request, course_id):
+        """Wraps the course resource detail page in the same Unfold admin context."""
+        from django.shortcuts import render
+        context = {
+            **self.admin_site.each_context(request),
+            **views_admin.course_resource_detail_context(course_id),
+        }
+        return render(request, 'admin/content/course_resource_detail.html', context)
 
     @admin.display(description='Audit')
     def resource_audit_link(self, obj):
