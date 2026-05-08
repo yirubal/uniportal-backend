@@ -92,6 +92,13 @@ def import_questions_from_excel(file, exam_paper) -> ImportResult:
     created = 0
     skipped = 0
     errors = []
+    year_source_max = Question._meta.get_field("year_source").max_length
+
+    def normalize_year_source(value):
+        value = (value or "").strip()
+        if not value or len(value) > year_source_max:
+            return ""
+        return value
 
     data_rows = rows[2:]  # skip header + notes
 
@@ -158,13 +165,12 @@ def import_questions_from_excel(file, exam_paper) -> ImportResult:
         else:
             topic_tags = []
 
-        # Year source
-        year_source = get(row, "year_source")
-
         # Explanation
         explanation = get(row, "explanation")
 
         try:
+            year_source = normalize_year_source(get(row, "year_source"))
+
             Question.objects.create(
                 exam_paper=exam_paper,
                 question_type=q_type,
