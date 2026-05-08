@@ -145,6 +145,26 @@ class Resource(models.Model):
     title = models.CharField(max_length=500)
     file = models.FileField(upload_to='resources/%Y/%m/')
     file_type = models.CharField(max_length=20, choices=TYPE_CHOICES)
+    SOURCE_OFFICIAL = 'official'
+    SOURCE_TEXTBOOK = 'textbook'
+    SOURCE_REFERENCE = 'reference'
+    SOURCE_NOTES = 'notes'
+    SOURCE_OTHER = 'other'
+
+    SOURCE_CHOICES = [
+        (SOURCE_OFFICIAL, 'Official University Material'),
+        (SOURCE_TEXTBOOK, 'Recommended Textbook'),
+        (SOURCE_REFERENCE, 'Reference / Internet Resource'),
+        (SOURCE_NOTES, 'Lecture Notes / Student Notes'),
+        (SOURCE_OTHER, 'Other Resource'),
+    ]
+
+    source = models.CharField(
+        max_length=15,
+        choices=SOURCE_CHOICES,
+        default=SOURCE_OTHER,
+        help_text='Where this resource came from. Shown to students as a badge.',
+    )
     extracted_text = models.TextField(blank=True)
     access_level = models.CharField(
         max_length=10,

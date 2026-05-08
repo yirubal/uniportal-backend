@@ -72,6 +72,15 @@ class CoursePlacementSerializer(serializers.ModelSerializer):
 class ResourceSerializer(serializers.ModelSerializer):
     is_locked = serializers.SerializerMethodField()
     file_url = serializers.SerializerMethodField()
+    file_type_display = serializers.CharField(
+        source='get_file_type_display',
+        read_only=True,
+    )
+    source = serializers.CharField()
+    source_display = serializers.CharField(
+        source='get_source_display',
+        read_only=True,
+    )
 
     class Meta:
         model = Resource
@@ -79,7 +88,11 @@ class ResourceSerializer(serializers.ModelSerializer):
             'id',
             'title',
             'file_type',
+            'file_type_display',
+            'source',
+            'source_display',
             'access_level',
+            'status',
             'downloads_count',
             'created_at',
             'is_locked',

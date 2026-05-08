@@ -129,19 +129,19 @@ class CoursePlacementAdmin(ModelAdmin):
 
 @admin.register(Resource)
 class ResourceAdmin(ModelAdmin):
-    list_display  = ['title', 'course', 'file_type', 'access_level', 'status', 'downloads_count', 'created_at']
-    list_filter   = ['status', 'file_type', 'access_level']
+    list_display  = ['title', 'course', 'file_type', 'source', 'access_level', 'status', 'downloads_count', 'created_at']
+    list_filter   = ['status', 'file_type', 'source', 'access_level']
     search_fields = ['title', 'extracted_text', 'original_caption', 'course__name', 'course__code']
     readonly_fields = [
         'extracted_text', 'downloads_count', 'telegram_message_id',
         'original_caption', 'created_at', 'updated_at',
     ]
-    list_editable = ['status', 'access_level']
+    list_editable = ['source', 'status', 'access_level']
     list_per_page = 25
     actions       = ['publish_selected', 'reject_selected', 'mark_as_free', 'mark_as_premium']
     fieldsets = (
         ('Resource Info', {
-            'fields': ('title', 'file', 'file_type', 'course')
+            'fields': ('title', 'file', 'file_type', 'source', 'course')
         }),
         ('Access & Status', {
             'fields': ('access_level', 'status')
@@ -273,6 +273,7 @@ class FileInboxAdmin(ModelAdmin):
             resource = Resource(
                 title               = title,
                 file_type           = Resource.TYPE_LECTURE_NOTE,
+                source              = Resource.SOURCE_OTHER,
                 extracted_text      = item.extracted_text,
                 access_level        = Resource.ACCESS_PREMIUM,
                 status              = Resource.STATUS_PENDING,
