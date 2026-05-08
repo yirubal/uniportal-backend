@@ -48,11 +48,11 @@ class ResourceFileStorageTests(TestCase):
             file_type=Resource.TYPE_LECTURE_NOTE,
             access_level=Resource.ACCESS_PREMIUM,
             status=Resource.STATUS_PENDING,
-            course=self.course,
         )
 
         copy_inbox_file_to_resource(inbox_item, resource)
         resource.save()
+        resource.courses.add(self.course)
 
         self.assertTrue(resource.file.name.startswith('resources/'))
         self.assertNotEqual(resource.file.name, inbox_item.file.name)
@@ -67,10 +67,10 @@ class ResourceFileStorageTests(TestCase):
             file_type=Resource.TYPE_LECTURE_NOTE,
             access_level=Resource.ACCESS_PREMIUM,
             status=Resource.STATUS_PENDING,
-            course=self.course,
         )
         copy_inbox_file_to_resource(inbox_item, resource)
         resource.save()
+        resource.courses.add(self.course)
 
         cleared = clear_inbox_file(
             inbox_item,
@@ -94,8 +94,8 @@ class ResourceFileStorageTests(TestCase):
             file_type=Resource.TYPE_LECTURE_NOTE,
             access_level=Resource.ACCESS_PREMIUM,
             status=Resource.STATUS_PUBLISHED,
-            course=self.course,
         )
+        resource.courses.add(self.course)
         inbox_item.assigned_resource = resource
         inbox_item.save(update_fields=['assigned_resource'])
 
@@ -118,10 +118,10 @@ class ResourceFileStorageTests(TestCase):
             file_type=Resource.TYPE_LECTURE_NOTE,
             access_level=Resource.ACCESS_PREMIUM,
             status=Resource.STATUS_PUBLISHED,
-            course=self.course,
         )
         copy_inbox_file_to_resource(inbox_item, resource)
         resource.save()
+        resource.courses.add(self.course)
         inbox_item.assigned_resource = resource
         inbox_item.save(update_fields=['assigned_resource'])
 
@@ -141,10 +141,10 @@ class ResourceFileStorageTests(TestCase):
             file_type=Resource.TYPE_LECTURE_NOTE,
             access_level=Resource.ACCESS_PREMIUM,
             status=Resource.STATUS_PUBLISHED,
-            course=self.course,
         )
         copy_inbox_file_to_resource(assigned_inbox, resource)
         resource.save()
+        resource.courses.add(self.course)
         assigned_inbox.assigned_resource = resource
         assigned_inbox.save(update_fields=['assigned_resource'])
 

@@ -138,9 +138,9 @@ class CoursePlacementAdmin(ModelAdmin):
 
 @admin.register(Resource)
 class ResourceAdmin(ModelAdmin):
-    list_display  = ['title', 'course', 'file_type', 'source', 'access_level', 'status', 'downloads_count', 'created_at']
-    list_filter   = ['status', 'file_type', 'source', 'access_level']
-    search_fields = ['title', 'extracted_text', 'original_caption', 'course__name', 'course__code']
+    list_display  = ['title', 'display_courses', 'file_type', 'source', 'access_level', 'status', 'downloads_count', 'created_at']
+    list_filter   = ['status', 'file_type', 'source', 'access_level', 'courses']
+    search_fields = ['title', 'extracted_text', 'original_caption', 'courses__name', 'courses__code']
     readonly_fields = [
         'extracted_text', 'downloads_count', 'telegram_message_id',
         'original_caption', 'created_at', 'updated_at',
@@ -150,7 +150,7 @@ class ResourceAdmin(ModelAdmin):
     actions       = ['publish_selected', 'reject_selected', 'mark_as_free', 'mark_as_premium']
     fieldsets = (
         ('Resource Info', {
-            'fields': ('title', 'file', 'file_type', 'source', 'course')
+            'fields': ('title', 'file', 'file_type', 'source', 'courses')
         }),
         ('Access & Status', {
             'fields': ('access_level', 'status')
@@ -169,14 +169,30 @@ class ResourceAdmin(ModelAdmin):
     )
 
     def get_queryset(self, request):
-        return super().get_queryset(request).select_related('course')
+        return super().get_queryset(request).prefetch_related('courses')
 
-    def formfield_for_foreignkey(self, db_field, request, **kwargs):
-        if db_field.name == 'course':
+    @admin.display(description='Courses')
+    def display_courses(self, obj):
+        courses = obj.courses.all()
+        if not courses:
+            return '—'
+        course_codes = [f'{course.code}' for course in courses[:3]]
+        more_count = courses.count() - 3
+        return ', '.join(course_codes) + (f' +{more_count} more' if more_count > 0 else '')
+
+    def formfield_for_manytomany(self, db_field, request, **kwargs):
+        if db_field.name == 'courses':
             kwargs['queryset'] = Course.objects.filter(
                 is_active=True
             ).order_by('name')
-        return super().formfield_for_foreignkey(db_field, request, **kwargs)
+        return super().formfield_for_manytomany(db_field, request, **kwargs)
+
+    def get_changeform_initial_data(self, request):
+        initial = super().get_changeform_initial_data(request)
+        course_id = request.GET.get('course')
+        if course_id:
+            initial['courses'] = [course_id]
+        return initial
 
     @admin.action(description='Publish selected resources')
     def publish_selected(self, request, queryset):
@@ -286,13 +302,14 @@ class FileInboxAdmin(ModelAdmin):
                 extracted_text      = item.extracted_text,
                 access_level        = Resource.ACCESS_PREMIUM,
                 status              = Resource.STATUS_PENDING,
-                course_id           = 1,
                 telegram_message_id = item.telegram_message_id,
                 original_caption    = item.telegram_caption,
             )
             try:
+                placeholder_course = Course.objects.get(pk=1)
                 copy_inbox_file_to_resource(item, resource)
                 resource.save()
+                resource.courses.add(placeholder_course)
             except Exception as exc:
                 failed += 1
                 self.message_user(
