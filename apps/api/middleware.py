@@ -27,6 +27,10 @@ class TelegramAuthMiddleware:
         self.get_response = get_response
 
     def __call__(self, request):
+        # Skip middleware entirely for admin URLs
+        if request.path.startswith('/admin/'):
+            return self.get_response(request)
+
         request.student = SimpleLazyObject(
             lambda: get_student_from_request(request)
         )
