@@ -26,6 +26,8 @@ urlpatterns = [
     # Exams
     path('exams/', views.ExamPaperListView.as_view(), name='exam-list'),
     path('exams/<int:exam_id>/questions/', views.ExamPaperQuestionsView.as_view(), name='exam-questions'),
+    path('exams/lookup/', views.ExamLookupView.as_view(), name='exam-lookup'),
+    path('exams/active-term/', views.ActiveExamTermView.as_view(), name='exam-active-term'),
 
     # Exit Exam Topics
     path('exit-exams/topics/', views.ExitExamTopicsView.as_view(), name='exit-exam-topics'),

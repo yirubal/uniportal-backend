@@ -19,6 +19,7 @@ from .throttles import AuthRateThrottle, SubscriptionRateThrottle
 from apps.accounts.models import Student
 from apps.accounts.auth import validate_telegram_init_data
 from apps.content.models import Department, Course, CoursePlacement, Resource
+from apps.exams.models import ExamTerm, StudentExam
 from apps.quiz.models import ExamPaper, Question, QuizAttempt
 from .serializers import (
     StudentSerializer,
@@ -425,6 +426,86 @@ class ExamPaperQuestionsView(APIView):
             else QuestionSimulationSerializer
         )
         return Response(serializer_class(questions, many=True).data)
+
+
+class ActiveExamTermView(APIView):
+    """Returns whether an active exam term exists."""
+
+    permission_classes = [IsTelegramAuthenticated]
+
+    def get(self, request):
+        term = ExamTerm.objects.filter(is_active=True).first()
+        if not term:
+            return Response({'active': False})
+
+        return Response({
+            'active': True,
+            'year': term.year,
+            'term': term.term,
+            'center': term.center,
+        })
+
+
+class ExamLookupView(APIView):
+    """
+    Looks up a student's exam schedule by student ID or name.
+    Query params: ?student_id=93372 OR ?name=Abirham
+    Returns all exams for the active term.
+    """
+
+    permission_classes = [IsTelegramAuthenticated]
+
+    def get(self, request):
+        student_id = request.query_params.get('student_id', '').strip()
+        name = request.query_params.get('name', '').strip()
+
+        if not student_id and not name:
+            return Response(
+                {'error': 'Provide student_id or name'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        term = ExamTerm.objects.filter(is_active=True).first()
+        if not term:
+            return Response(
+                {'error': 'No active exam schedule available'},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        queryset = StudentExam.objects.filter(term=term).select_related('session')
+
+        if student_id:
+            queryset = queryset.filter(student_id=student_id)
+        else:
+            queryset = queryset.filter(student_name__icontains=name)
+
+        exams = list(queryset.order_by('session__date', 'session__start_time'))
+        if not exams:
+            return Response(
+                {'error': 'No exam found. Check your ID or name spelling.'},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        first_exam = exams[0]
+        results = []
+        for exam in exams:
+            results.append({
+                'course_name': exam.course_name,
+                'course_code': exam.course_code,
+                'room_code': exam.room_code,
+                'department': exam.department,
+                'date': exam.session.date.strftime('%A, %B %d, %Y'),
+                'start_time': exam.session.start_time.strftime('%I:%M %p'),
+                'end_time': exam.session.end_time.strftime('%I:%M %p'),
+                'session': f'Session {exam.session.session_number}',
+            })
+
+        return Response({
+            'student_name': first_exam.student_name,
+            'student_id': first_exam.student_id,
+            'term': str(term),
+            'exams': results,
+        })
 
 
 # ─── QUESTIONS ────────────────────────────────────────────────────────────────
