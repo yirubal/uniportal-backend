@@ -1,0 +1,45 @@
+{% extends "admin/change_list.html" %}
+{% load i18n %}
+
+{% block content %}
+<div style="
+  margin-bottom: 1rem;
+  padding: 1.25rem 1.5rem;
+  border-radius: var(--border-radius, 6px);
+">
+  <p style="
+    font-size: 0.65rem;
+    font-weight: 600;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--color-base-400, #9ca3af);
+    margin: 0 0 0.65rem;
+  ">Quick Actions</p>
+
+  <a href="{% url 'admin:exams_examterm_upload_pdfs' %}" style="
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.55rem 1.2rem;
+    border-radius: var(--border-radius, 6px);
+    font-size: 0.875rem;
+    font-weight: 600;
+    text-decoration: none;
+    background: var(--color-primary-600, #7c3aed);
+    color: #fff;
+    transition: background 0.15s, transform 0.1s;
+  "
+  onmouseover="this.style.background='var(--color-primary-700, #6d28d9)'; this.style.transform='translateY(-1px)'"
+  onmouseout="this.style.background='var(--color-primary-600, #7c3aed)'; this.style.transform='translateY(0)'">
+    Upload Exam PDFs
+  </a>
+
+  <p style="
+    font-size: 0.75rem;
+    color: var(--color-base-400, #9ca3af);
+    margin: 0.5rem 0 0;
+  ">Start from the schedule PDF and then upload the attendance PDFs for student lookup.</p>
+</div>
+
+{{ block.super }}
+{% endblock %}

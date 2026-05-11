@@ -297,6 +297,16 @@ UNFOLD = {
                         'icon': 'assignment',
                         'link': '/admin/exams/studentexam/',
                     },
+                    {
+                        'title': 'PDF Uploads',
+                        'icon': 'upload_file',
+                        'link': '/admin/exams/exampdfupload/',
+                    },
+                    {
+                        'title': 'Notifications Log',
+                        'icon': 'notifications',
+                        'link': '/admin/exams/examnotificationlog/',
+                    },
                 ],
             },
 
