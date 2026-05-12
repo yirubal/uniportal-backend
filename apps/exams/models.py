@@ -1,4 +1,4 @@
-from django.db import models
+from django.db import models, transaction
 
 
 class ExamTerm(models.Model):
@@ -25,10 +25,32 @@ class ExamTerm(models.Model):
     def __str__(self):
         return f'{self.year} Term {self.term} — {self.center}'
 
+    def activate(self):
+        if self.pk is None:
+            self.is_active = True
+            self.save()
+            return
+
+        with transaction.atomic():
+            type(self).objects.select_for_update().filter(pk=self.pk).exists()
+            type(self).objects.exclude(pk=self.pk).update(is_active=False)
+            type(self).objects.filter(pk=self.pk).update(is_active=True)
+
+        self.is_active = True
+
+    def deactivate(self):
+        if self.pk is None:
+            self.is_active = False
+            return
+
+        type(self).objects.filter(pk=self.pk).update(is_active=False)
+        self.is_active = False
+
     def save(self, *args, **kwargs):
-        if self.is_active:
-            ExamTerm.objects.exclude(pk=self.pk).update(is_active=False)
-        super().save(*args, **kwargs)
+        with transaction.atomic():
+            super().save(*args, **kwargs)
+            if self.is_active:
+                type(self).objects.exclude(pk=self.pk).update(is_active=False)
 
 
 class ExamSession(models.Model):

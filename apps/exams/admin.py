@@ -4,8 +4,10 @@ from django.contrib import admin, messages
 from django.core.management import call_command
 from django.db import close_old_connections, connections
 from django.db.models import Count, Q
-from django.shortcuts import redirect, render
-from django.urls import path
+from django.shortcuts import get_object_or_404, redirect, render
+from django.urls import path, reverse
+from django.utils.html import format_html
+from django.utils.http import url_has_allowed_host_and_scheme
 from unfold.admin import ModelAdmin, TabularInline
 
 from .models import (
@@ -34,10 +36,17 @@ class ExamScheduleEntryInline(TabularInline):
 
 @admin.register(ExamTerm)
 class ExamTermAdmin(ModelAdmin):
-    list_display = ['__str__', 'is_active', 'exam_start_date', 'student_count', 'pdf_count']
-    list_editable = ['is_active']
+    list_display = [
+        '__str__',
+        'active_status',
+        'exam_start_date',
+        'student_count',
+        'pdf_count',
+        'activation_controls',
+    ]
     readonly_fields = ['exam_start_date']
     inlines = [ExamSessionInline]
+    actions = ['activate_selected_term', 'deactivate_selected_terms']
 
     def get_urls(self):
         urls = super().get_urls()
@@ -57,8 +66,48 @@ class ExamTermAdmin(ModelAdmin):
                 self.admin_site.admin_view(self.upload_status_view),
                 name='exam_upload_status',
             ),
+            path(
+                '<int:term_id>/activate/',
+                self.admin_site.admin_view(self.activate_term_view),
+                name='exams_examterm_activate',
+            ),
+            path(
+                '<int:term_id>/deactivate/',
+                self.admin_site.admin_view(self.deactivate_term_view),
+                name='exams_examterm_deactivate',
+            ),
         ]
         return custom + urls
+
+    def activate_term_view(self, request, term_id):
+        term = get_object_or_404(ExamTerm, pk=term_id)
+        if request.method != 'POST':
+            messages.warning(request, 'Use the Activate button to change the active exam term.')
+            return self._redirect_back(request)
+
+        term.activate()
+        messages.success(request, f'{term} is now the active exam term.')
+        return self._redirect_back(request)
+
+    def deactivate_term_view(self, request, term_id):
+        term = get_object_or_404(ExamTerm, pk=term_id)
+        if request.method != 'POST':
+            messages.warning(request, 'Use the Deactivate button to change the active exam term.')
+            return self._redirect_back(request)
+
+        term.deactivate()
+        messages.success(request, f'{term} has been deactivated.')
+        return self._redirect_back(request)
+
+    def _redirect_back(self, request):
+        fallback = reverse('admin:exams_examterm_changelist')
+        referer = request.META.get('HTTP_REFERER')
+        if referer and url_has_allowed_host_and_scheme(
+            referer,
+            allowed_hosts={request.get_host()},
+        ):
+            return redirect(referer)
+        return redirect(fallback)
 
     def upload_status_view(self, request, term_id):
         from django.http import JsonResponse
@@ -174,6 +223,59 @@ class ExamTermAdmin(ModelAdmin):
         extra_context = extra_context or {}
         extra_context['upload_pdfs_url'] = f'/admin/exams/examterm/{object_id}/upload-pdfs/'
         return super().change_view(request, object_id, form_url, extra_context)
+
+    @admin.display(description='Active')
+    def active_status(self, obj):
+        if obj.is_active:
+            return format_html(
+                '<span style="font-weight: 600; color: var(--color-primary-600, #7c3aed);">'
+                '{}</span>',
+                'Active',
+            )
+        return format_html(
+            '<span style="color: var(--color-base-500, #6b7280);">{}</span>',
+            'Inactive',
+        )
+
+    @admin.display(description='Term state')
+    def activation_controls(self, obj):
+        if obj.is_active:
+            url = reverse('admin:exams_examterm_deactivate', args=[obj.pk])
+            label = 'Deactivate'
+            color = 'var(--color-danger-600, #dc2626)'
+        else:
+            url = reverse('admin:exams_examterm_activate', args=[obj.pk])
+            label = 'Activate'
+            color = 'var(--color-primary-600, #7c3aed)'
+
+        return format_html(
+            '<button type="submit" form="changelist-form" formmethod="post" formaction="{}" '
+            'style="border: 0; border-radius: var(--border-radius, 6px); color: #fff; '
+            'cursor: pointer; font-size: 0.75rem; font-weight: 600; padding: 0.35rem 0.75rem; '
+            'background: {};">{}</button>',
+            url,
+            color,
+            label,
+        )
+
+    @admin.action(description='Activate selected term')
+    def activate_selected_term(self, request, queryset):
+        terms = list(queryset)
+        if len(terms) != 1:
+            messages.error(request, 'Select exactly one exam term to activate.')
+            return
+
+        terms[0].activate()
+        messages.success(request, f'{terms[0]} is now the active exam term.')
+
+    @admin.action(description='Deactivate selected term(s)')
+    def deactivate_selected_terms(self, request, queryset):
+        count = 0
+        for term in queryset:
+            term.deactivate()
+            count += 1
+
+        messages.success(request, f'{count} exam term(s) deactivated.')
 
     @admin.display(description='Students')
     def student_count(self, obj):
