@@ -13,7 +13,7 @@ from apps.api.views import _generate_jwt
 from apps.exams.models import ExamNotificationLog, ExamScheduleEntry, ExamSession, ExamTerm, StudentExam
 from apps.exams.parsers.attendance_parser import _parse_attendance_text
 from apps.exams.parsers.schedule_parser import _parse_schedule_text
-from apps.exams.services import _resolve_attendance_course_details
+from apps.exams.services import _ensure_active_term, _resolve_attendance_course_details
 
 
 class ExamLookupApiTests(APITestCase):
@@ -30,6 +30,17 @@ class ExamLookupApiTests(APITestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.data, {'active': False})
+
+    def test_exam_endpoints_return_json_auth_error_without_token(self):
+        self.client.credentials()
+
+        active_response = self.client.get('/api/exams/active-term/')
+        lookup_response = self.client.get('/api/exams/lookup/', {'name': 'azaria'})
+
+        self.assertEqual(active_response.status_code, 403)
+        self.assertEqual(active_response.data['detail'], 'Authentication required.')
+        self.assertEqual(lookup_response.status_code, 403)
+        self.assertEqual(lookup_response.data['detail'], 'Authentication required.')
 
     def test_exam_lookup_returns_active_term_results_in_session_order(self):
         active_term = ExamTerm.objects.create(year=2018, term=2, is_active=True)
@@ -97,6 +108,52 @@ class ExamLookupApiTests(APITestCase):
         self.assertEqual(len(response.data['exams']), 2)
         self.assertEqual(response.data['exams'][0]['course_code'], 'ACFN 301')
         self.assertEqual(response.data['exams'][1]['course_code'], 'ACFN 322')
+
+    def test_exam_lookup_returns_partial_name_results(self):
+        active_term = ExamTerm.objects.create(year=2018, term=1, is_active=True)
+        first_session = ExamSession.objects.create(
+            term=active_term,
+            session_number=1,
+            date=date(2026, 2, 21),
+            start_time=time(8, 0),
+            end_time=time(10, 0),
+        )
+        second_session = ExamSession.objects.create(
+            term=active_term,
+            session_number=3,
+            date=date(2026, 2, 22),
+            start_time=time(13, 30),
+            end_time=time(15, 30),
+        )
+
+        StudentExam.objects.create(
+            term=active_term,
+            session=second_session,
+            student_name='Azaria Wondwossen',
+            student_id='95568',
+            department='Economics',
+            course_name='Global Trends',
+            course_code='GLTR 1012',
+            room_code='J-11',
+        )
+        StudentExam.objects.create(
+            term=active_term,
+            session=first_session,
+            student_name='Azaria Wendwossen',
+            student_id='95568',
+            department='Economics',
+            course_name='Entrepreneurship',
+            course_code='MGMT 1012',
+            room_code='J-23',
+        )
+
+        response = self.client.get('/api/exams/lookup/', {'name': 'azaria'})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data['student_id'], '95568')
+        self.assertEqual(len(response.data['exams']), 2)
+        self.assertEqual(response.data['exams'][0]['course_code'], 'MGMT 1012')
+        self.assertEqual(response.data['exams'][1]['course_code'], 'GLTR 1012')
 
 
 class ExamTermModelTests(TestCase):
@@ -342,6 +399,27 @@ class AttendanceCourseResolutionTests(TestCase):
 
         self.assertEqual(resolved_name, 'Advanced Accounting - II/Advanced Financial Accounting - II')
         self.assertEqual(resolved_code, 'ACFN 402')
+
+
+class ExamTermActivationTests(TestCase):
+    def test_ensure_active_term_activates_imported_term_when_none_exists(self):
+        term = ExamTerm.objects.create(year=2018, term=1, center='Addis Ababa')
+
+        _ensure_active_term(term)
+
+        term.refresh_from_db()
+        self.assertTrue(term.is_active)
+
+    def test_ensure_active_term_does_not_override_existing_active_term(self):
+        active_term = ExamTerm.objects.create(year=2018, term=1, center='Addis Ababa', is_active=True)
+        imported_term = ExamTerm.objects.create(year=2018, term=2, center='Addis Ababa')
+
+        _ensure_active_term(imported_term)
+
+        active_term.refresh_from_db()
+        imported_term.refresh_from_db()
+        self.assertTrue(active_term.is_active)
+        self.assertFalse(imported_term.is_active)
 
 
 @override_settings(TELEGRAM_BOT_TOKEN='test-token')

@@ -36,6 +36,7 @@ def process_schedule_pdf(upload_record):
             term=parsed.term,
             center=parsed.center or 'Addis Ababa',
         )
+        _ensure_active_term(term)
 
         if parsed.earliest_date:
             term.exam_start_date = parsed.earliest_date
@@ -121,6 +122,7 @@ def process_attendance_pdf(upload_record):
             term=first_block.term,
             center='Addis Ababa',
         )
+        _ensure_active_term(term)
 
         upload_record.term = term
         upload_record.save(update_fields=['term'])
@@ -225,6 +227,16 @@ def _resolve_attendance_course_details(term, session, parsed, original_name):
         course_name = filename_hint
 
     return course_name, course_code
+
+
+def _ensure_active_term(term):
+    from .models import ExamTerm
+
+    if term.is_active or ExamTerm.objects.filter(is_active=True).exists():
+        return
+
+    term.is_active = True
+    term.save(update_fields=['is_active'])
 
 
 def _pick_best_schedule_match(candidates, room_code, course_name, filename_hint):
