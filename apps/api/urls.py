@@ -4,6 +4,7 @@ from . import views
 urlpatterns = [
     # Auth
     path('auth/telegram/', views.TelegramAuthView.as_view(), name='auth-telegram'),
+    path('telegram/webhook/', views.TelegramWebhookView.as_view(), name='telegram-webhook'),
 
     # Student
     path('students/me/', views.StudentProfileView.as_view(), name='student-profile'),

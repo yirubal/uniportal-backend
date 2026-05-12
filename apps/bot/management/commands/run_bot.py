@@ -1,79 +1,24 @@
-import logging
-from django.core.management.base import BaseCommand
-from django.conf import settings
-from telegram.ext import (
-    Application,
-    MessageHandler,
-    CommandHandler,
-    CallbackQueryHandler,
-    filters,
-)
+"""
+In webhook mode this command is no longer needed for bot polling.
 
-logger = logging.getLogger(__name__)
+Bot updates are handled by the web service via:
+  POST /api/telegram/webhook/
+"""
+
+from django.core.management.base import BaseCommand
 
 
 class Command(BaseCommand):
-    help = 'Runs the Telegram bot for file harvesting and student interaction'
+    help = 'Verifies bot webhook mode and runs inbox recovery tasks'
 
     def handle(self, *args, **kwargs):
-        from apps.bot.handlers import (
-            handle_exam,
-            handle_exam_lookup_response,
-            handle_channel_post,
-            handle_start,
-            handle_help,
-            handle_status,
-            handle_unknown_message,
-            handle_callback_query,
-        )
+        from apps.bot.tasks import recover_failed_inbox_items, recover_stuck_inbox_items
 
-        self.stdout.write(self.style.SUCCESS('Starting Telegram bot...'))
+        self.stdout.write('UniPortal Bot - Webhook Mode')
+        self.stdout.write('Bot updates are handled by the web service.')
+        self.stdout.write('Run: python manage.py setup_webhook to register the webhook.')
 
-        app = (
-            Application.builder()
-            .token(settings.TELEGRAM_BOT_TOKEN)
-            .read_timeout(10)
-            .write_timeout(10)
-            .connect_timeout(10)
-            .pool_timeout(10)
-            .build()
-        )
+        recover_stuck_inbox_items()
+        recover_failed_inbox_items()
 
-        # ── Student commands ──────────────────────────────────────────────────
-        app.add_handler(CommandHandler('start',  handle_start))
-        app.add_handler(CommandHandler('help',   handle_help))
-        app.add_handler(CommandHandler('status', handle_status))
-        app.add_handler(CommandHandler('exam', handle_exam))
-
-        # ── Inline button callbacks ───────────────────────────────────────────
-        app.add_handler(CallbackQueryHandler(handle_callback_query))
-
-        # ── Channel file harvesting ───────────────────────────────────────────
-        app.add_handler(MessageHandler(
-            filters.ChatType.CHANNEL & (filters.Document.ALL | filters.PHOTO),
-            handle_channel_post,
-        ))
-
-        # ── Contextual private text handling ──────────────────────────────────
-        app.add_handler(MessageHandler(
-            filters.ChatType.PRIVATE & filters.TEXT & ~filters.COMMAND,
-            handle_exam_lookup_response,
-        ), group=0)
-
-        # ── Unknown messages from students ────────────────────────────────────
-        app.add_handler(MessageHandler(
-            filters.ChatType.PRIVATE & ~filters.COMMAND,
-            handle_unknown_message,
-        ), group=1)
-
-        self.stdout.write(self.style.SUCCESS(
-            'Bot is running.\n'
-            'Commands: /start  /help  /status  /exam\n'
-            'Press Ctrl+C to stop.'
-        ))
-
-        app.run_polling(
-            allowed_updates=['message', 'channel_post', 'callback_query'],
-            drop_pending_updates=False,
-            poll_interval=2.0,
-        )
+        self.stdout.write(self.style.SUCCESS('Inbox recovery complete.'))

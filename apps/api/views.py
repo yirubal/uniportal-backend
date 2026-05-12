@@ -1,3 +1,4 @@
+import asyncio
 import mimetypes
 import logging
 import re
@@ -106,6 +107,37 @@ class TelegramAuthView(APIView):
             'token': token,
             'student': StudentSerializer(student).data,
         })
+
+
+class TelegramWebhookView(APIView):
+    """
+    Receives Telegram updates via webhook POST requests.
+    Telegram authenticates with the secret-token header configured on webhook setup.
+    """
+    permission_classes = []
+    authentication_classes = []
+
+    def post(self, request):
+        secret = settings.TELEGRAM_WEBHOOK_SECRET
+        if secret:
+            token_header = request.headers.get('X-Telegram-Bot-Api-Secret-Token', '')
+            if token_header != secret:
+                logger.warning('Webhook request with invalid secret token')
+                return Response({'error': 'Unauthorized'}, status=status.HTTP_403_FORBIDDEN)
+
+        if not settings.TELEGRAM_BOT_TOKEN:
+            return Response({'error': 'Bot not configured'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        try:
+            from apps.bot.application import process_telegram_update
+
+            asyncio.run(process_telegram_update(request.data))
+            return Response({'ok': True})
+        except Exception:
+            logger.exception('Webhook processing error')
+            # Telegram retries non-200 responses aggressively. Processing errors are
+            # logged, but the request is acknowledged to avoid retry storms.
+            return Response({'ok': True})
 
 
 
