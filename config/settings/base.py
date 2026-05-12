@@ -35,6 +35,7 @@ INSTALLED_APPS = [
     'apps.accounts.apps.AccountsConfig',
     'apps.content',
     'apps.quiz',
+    'apps.exams.apps.ExamsConfig',
     'apps.bot',
     'apps.api',
 ]
@@ -279,6 +280,32 @@ UNFOLD = {
                         'title': 'Quiz Attempts',
                         'icon':  'history_edu',
                         'link':  '/admin/quiz/quizattempt/',
+                    },
+                ],
+            },
+            {
+                'title': 'Exams',
+                'separator': True,
+                'items': [
+                    {
+                        'title': 'Exam Terms',
+                        'icon': 'calendar_month',
+                        'link': '/admin/exams/examterm/',
+                    },
+                    {
+                        'title': 'Student Exams',
+                        'icon': 'assignment',
+                        'link': '/admin/exams/studentexam/',
+                    },
+                    {
+                        'title': 'PDF Uploads',
+                        'icon': 'upload_file',
+                        'link': '/admin/exams/exampdfupload/',
+                    },
+                    {
+                        'title': 'Notifications Log',
+                        'icon': 'notifications',
+                        'link': '/admin/exams/examnotificationlog/',
                     },
                 ],
             },

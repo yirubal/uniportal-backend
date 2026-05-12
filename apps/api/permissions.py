@@ -11,11 +11,10 @@ class IsTelegramAuthenticated(BasePermission):
     message = 'Authentication required.'
 
     def has_permission(self, request, view):
-        return (
-            hasattr(request, 'student') and
-            request.student is not None and
-            request.student.is_active
-        )
+        student = getattr(request, 'student', None)
+        if not student:
+            return False
+        return bool(getattr(student, 'is_active', False))
 
 
 class IsPremium(BasePermission):
@@ -29,9 +28,10 @@ class IsPremium(BasePermission):
     }
 
     def has_permission(self, request, view):
-        if not hasattr(request, 'student'):
+        student = getattr(request, 'student', None)
+        if not student:
             return False
-        return request.student.is_premium
+        return bool(getattr(student, 'is_premium', False))
 
 
 class FreeQuotaNotExceeded(BasePermission):
@@ -46,9 +46,9 @@ class FreeQuotaNotExceeded(BasePermission):
     }
 
     def has_permission(self, request, view):
-        if not hasattr(request, 'student'):
+        student = getattr(request, 'student', None)
+        if not student:
             return False
-        student = request.student
         if student.is_premium:
             return True
         student.reset_daily_quota()

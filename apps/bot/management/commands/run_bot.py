@@ -17,6 +17,8 @@ class Command(BaseCommand):
 
     def handle(self, *args, **kwargs):
         from apps.bot.handlers import (
+            handle_exam,
+            handle_exam_lookup_response,
             handle_channel_post,
             handle_start,
             handle_help,
@@ -41,6 +43,7 @@ class Command(BaseCommand):
         app.add_handler(CommandHandler('start',  handle_start))
         app.add_handler(CommandHandler('help',   handle_help))
         app.add_handler(CommandHandler('status', handle_status))
+        app.add_handler(CommandHandler('exam', handle_exam))
 
         # ── Inline button callbacks ───────────────────────────────────────────
         app.add_handler(CallbackQueryHandler(handle_callback_query))
@@ -51,15 +54,21 @@ class Command(BaseCommand):
             handle_channel_post,
         ))
 
+        # ── Contextual private text handling ──────────────────────────────────
+        app.add_handler(MessageHandler(
+            filters.ChatType.PRIVATE & filters.TEXT & ~filters.COMMAND,
+            handle_exam_lookup_response,
+        ), group=0)
+
         # ── Unknown messages from students ────────────────────────────────────
         app.add_handler(MessageHandler(
-            filters.ChatType.PRIVATE & filters.ALL,
+            filters.ChatType.PRIVATE & ~filters.COMMAND,
             handle_unknown_message,
-        ))
+        ), group=1)
 
         self.stdout.write(self.style.SUCCESS(
             'Bot is running.\n'
-            'Commands: /start  /help  /status\n'
+            'Commands: /start  /help  /status  /exam\n'
             'Press Ctrl+C to stop.'
         ))
 
