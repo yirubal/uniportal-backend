@@ -178,6 +178,73 @@ class ExamTermModelTests(TestCase):
         self.assertFalse(first_term.is_active)
         self.assertTrue(second_term.is_active)
 
+    def test_activate_method_persists_active_term_and_deactivates_previous_one(self):
+        first_term = ExamTerm.objects.create(year=2018, term=1, is_active=True)
+        second_term = ExamTerm.objects.create(year=2018, term=2)
+
+        second_term.activate()
+
+        first_term.refresh_from_db()
+        second_term.refresh_from_db()
+        self.assertFalse(first_term.is_active)
+        self.assertTrue(second_term.is_active)
+
+    def test_deactivate_method_persists_without_reactivating_term(self):
+        term = ExamTerm.objects.create(year=2018, term=1, is_active=True)
+
+        term.deactivate()
+
+        term.refresh_from_db()
+        self.assertFalse(term.is_active)
+
+
+@override_settings(ALLOWED_HOSTS=['testserver'])
+class ExamTermAdminActivationTests(TestCase):
+    def setUp(self):
+        self.user = get_user_model().objects.create_superuser(
+            username='admin',
+            email='admin@example.com',
+            password='password',
+        )
+        self.client.force_login(self.user)
+
+    def test_admin_activate_view_persists_new_active_term(self):
+        first_term = ExamTerm.objects.create(year=2018, term=1, is_active=True)
+        second_term = ExamTerm.objects.create(year=2018, term=2)
+
+        response = self.client.post(
+            f'/admin/exams/examterm/{second_term.pk}/activate/',
+            HTTP_REFERER='/admin/exams/examterm/',
+        )
+
+        self.assertEqual(response.status_code, 302)
+        first_term.refresh_from_db()
+        second_term.refresh_from_db()
+        self.assertFalse(first_term.is_active)
+        self.assertTrue(second_term.is_active)
+
+    def test_admin_deactivate_view_persists_inactive_term(self):
+        term = ExamTerm.objects.create(year=2018, term=1, is_active=True)
+
+        response = self.client.post(
+            f'/admin/exams/examterm/{term.pk}/deactivate/',
+            HTTP_REFERER='/admin/exams/examterm/',
+        )
+
+        self.assertEqual(response.status_code, 302)
+        term.refresh_from_db()
+        self.assertFalse(term.is_active)
+
+    def test_admin_term_list_renders_activation_controls(self):
+        ExamTerm.objects.create(year=2018, term=1, is_active=True)
+        ExamTerm.objects.create(year=2018, term=2)
+
+        response = self.client.get('/admin/exams/examterm/')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Deactivate')
+        self.assertContains(response, 'Activate')
+
 
 class ExamPDFUploadQueueTests(TestCase):
     def setUp(self):
