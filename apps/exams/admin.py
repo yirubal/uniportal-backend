@@ -1,4 +1,5 @@
 from django.contrib import admin, messages
+from django.db.models import Count, Q
 from django.shortcuts import redirect, render
 from django.urls import path
 from unfold.admin import ModelAdmin, TabularInline
@@ -51,8 +52,6 @@ class ExamTermAdmin(ModelAdmin):
         return custom + urls
 
     def upload_pdfs_view(self, request, term_id=None):
-        from .services import process_attendance_pdf, process_schedule_pdf
-
         term = None
         if term_id is not None:
             term = ExamTerm.objects.filter(pk=term_id).first()
@@ -60,65 +59,55 @@ class ExamTermAdmin(ModelAdmin):
         if request.method == 'POST':
             schedule_files = request.FILES.getlist('schedule_pdf')
             attendance_files = request.FILES.getlist('attendance_pdfs')
-            total_created = 0
-            failed = 0
+            queued_count = 0
 
             for upload_file in schedule_files:
                 upload = ExamPDFUpload(
                     original_name=upload_file.name,
                     pdf_type=ExamPDFUpload.TYPE_SCHEDULE,
                     term=term,
+                    status=ExamPDFUpload.STATUS_PENDING,
                 )
                 upload.file.save(upload_file.name, upload_file, save=True)
-                success, created, error = process_schedule_pdf(upload)
-                if success:
-                    total_created += created
-                    if upload.term and term is None:
-                        term = upload.term
-                        term_id = term.id
-                else:
-                    failed += 1
-                    messages.error(request, f'Schedule PDF failed: {error}')
+                queued_count += 1
 
             for upload_file in attendance_files:
                 upload = ExamPDFUpload(
                     original_name=upload_file.name,
                     pdf_type=ExamPDFUpload.TYPE_ATTENDANCE,
                     term=term,
+                    status=ExamPDFUpload.STATUS_PENDING,
                 )
                 upload.file.save(upload_file.name, upload_file, save=True)
-                success, created, error = process_attendance_pdf(upload)
-                if success:
-                    total_created += created
-                    if upload.term and term is None:
-                        term = upload.term
-                        term_id = term.id
-                else:
-                    failed += 1
-                    messages.error(request, f'Failed: {upload_file.name} — {error}')
 
-            processed_count = len(schedule_files) + len(attendance_files) - failed
-            if total_created or processed_count:
+                queued_count += 1
+
+            if queued_count:
                 messages.success(
                     request,
-                    f'Processed {processed_count} PDFs. {total_created} records created.',
+                    f'{queued_count} PDF file(s) uploaded and queued for background processing.',
                 )
+            else:
+                messages.warning(request, 'No PDF files were selected.')
 
-            if term_id:
-                return redirect(f'/admin/exams/examterm/{term_id}/change/')
-            return redirect('/admin/exams/examterm/')
+            return redirect(request.path)
 
-        uploads = (
-            ExamPDFUpload.objects.filter(term=term).order_by('-uploaded_at')
-            if term
-            else ExamPDFUpload.objects.order_by('-uploaded_at')[:50]
+        upload_qs = ExamPDFUpload.objects.filter(term=term) if term else ExamPDFUpload.objects.all()
+        status_counts = upload_qs.aggregate(
+            pending=Count('id', filter=Q(status=ExamPDFUpload.STATUS_PENDING)),
+            processing=Count('id', filter=Q(status=ExamPDFUpload.STATUS_PROCESSING)),
+            done=Count('id', filter=Q(status=ExamPDFUpload.STATUS_PROCESSED)),
+            failed=Count('id', filter=Q(status=ExamPDFUpload.STATUS_FAILED)),
         )
+        uploads = upload_qs.order_by('-uploaded_at')[:50]
         context = {
             **self.admin_site.each_context(request),
             'title': f'Upload PDFs — {term or "New Term"}',
             'term': term,
             'term_id': term_id,
             'uploads': uploads,
+            'status_counts': status_counts,
+            'should_auto_refresh': status_counts['pending'] or status_counts['processing'],
             'opts': ExamTerm._meta,
         }
         return render(request, 'admin/exams/upload_pdfs.html', context)

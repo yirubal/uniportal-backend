@@ -110,10 +110,12 @@ class ExamPDFUpload(models.Model):
     ]
 
     STATUS_PENDING = 'pending'
+    STATUS_PROCESSING = 'processing'
     STATUS_PROCESSED = 'processed'
     STATUS_FAILED = 'failed'
     STATUS_CHOICES = [
         (STATUS_PENDING, 'Pending'),
+        (STATUS_PROCESSING, 'Processing'),
         (STATUS_PROCESSED, 'Processed'),
         (STATUS_FAILED, 'Failed'),
     ]
