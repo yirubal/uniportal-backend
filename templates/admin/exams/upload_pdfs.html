@@ -50,6 +50,7 @@
 
   <form method="post" enctype="multipart/form-data" class="space-y-7">
     {% csrf_token %}
+    <input type="hidden" name="action" value="upload">
 
     <section class="overflow-hidden rounded-default border border-base-700 bg-base-900 shadow-sm">
       <div class="border-b border-base-700 bg-base-800/80 px-6 py-4">
@@ -143,9 +144,20 @@
         <span class="material-symbols-outlined text-base">cloud_upload</span>
         Upload &amp; Queue PDFs
       </button>
-      <p class="text-sm text-base-400 dark:text-base-500">Files are processed by the background PDF cron job.</p>
+      <p class="text-sm text-base-400 dark:text-base-500">Files stay pending until you start processing.</p>
     </div>
   </form>
+
+  {% if pending_count and not processing_count %}
+  <form method="post" class="mt-6">
+    {% csrf_token %}
+    <input type="hidden" name="action" value="process">
+    <button type="submit"
+      class="px-6 py-2.5 text-sm font-semibold bg-green-600 hover:bg-green-700 text-white rounded-lg">
+      ⚙️ Process {{ pending_count }} PDF(s)
+    </button>
+  </form>
+  {% endif %}
 
   {% if uploads %}
   <div class="mt-10">
