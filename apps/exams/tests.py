@@ -1,8 +1,12 @@
+import shutil
+import tempfile
 from datetime import date, time, timedelta
 from io import StringIO
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
+from django.contrib.auth import get_user_model
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.core.management import call_command
 from django.test import TestCase, override_settings
 from django.utils import timezone
@@ -10,7 +14,14 @@ from rest_framework.test import APITestCase
 
 from apps.accounts.models import Student
 from apps.api.views import _generate_jwt
-from apps.exams.models import ExamNotificationLog, ExamScheduleEntry, ExamSession, ExamTerm, StudentExam
+from apps.exams.models import (
+    ExamNotificationLog,
+    ExamPDFUpload,
+    ExamScheduleEntry,
+    ExamSession,
+    ExamTerm,
+    StudentExam,
+)
 from apps.exams.parsers.attendance_parser import _parse_attendance_text
 from apps.exams.parsers.schedule_parser import _parse_schedule_text
 from apps.exams.services import _ensure_active_term, _resolve_attendance_course_details
@@ -166,6 +177,82 @@ class ExamTermModelTests(TestCase):
 
         self.assertFalse(first_term.is_active)
         self.assertTrue(second_term.is_active)
+
+
+class ExamPDFUploadQueueTests(TestCase):
+    def setUp(self):
+        self.media_root = tempfile.mkdtemp()
+        self.override = override_settings(MEDIA_ROOT=self.media_root)
+        self.override.enable()
+
+    def tearDown(self):
+        self.override.disable()
+        shutil.rmtree(self.media_root, ignore_errors=True)
+
+    def test_admin_upload_queues_pdfs_without_processing_them_in_request(self):
+        user = get_user_model().objects.create_superuser(
+            username='admin',
+            email='admin@example.com',
+            password='password',
+        )
+        self.client.force_login(user)
+
+        with (
+            patch('apps.exams.services.process_schedule_pdf') as process_schedule,
+            patch('apps.exams.services.process_attendance_pdf') as process_attendance,
+        ):
+            response = self.client.post(
+                '/admin/exams/examterm/upload-pdfs/',
+                {
+                    'schedule_pdf': SimpleUploadedFile(
+                        'schedule.pdf',
+                        b'%PDF schedule',
+                        content_type='application/pdf',
+                    ),
+                    'attendance_pdfs': SimpleUploadedFile(
+                        'attendance.pdf',
+                        b'%PDF attendance',
+                        content_type='application/pdf',
+                    ),
+                },
+            )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response['Location'], '/admin/exams/examterm/upload-pdfs/')
+        process_schedule.assert_not_called()
+        process_attendance.assert_not_called()
+
+        uploads = list(ExamPDFUpload.objects.order_by('pdf_type'))
+        self.assertEqual(len(uploads), 2)
+        self.assertTrue(all(upload.status == ExamPDFUpload.STATUS_PENDING for upload in uploads))
+
+    def test_process_exam_pdfs_command_processes_pending_uploads(self):
+        upload = ExamPDFUpload.objects.create(
+            original_name='schedule.pdf',
+            pdf_type=ExamPDFUpload.TYPE_SCHEDULE,
+        )
+        upload.file.save(
+            'schedule.pdf',
+            SimpleUploadedFile('schedule.pdf', b'%PDF schedule', content_type='application/pdf'),
+            save=True,
+        )
+
+        def process_schedule(upload_record):
+            self.assertEqual(upload_record.status, ExamPDFUpload.STATUS_PROCESSING)
+            upload_record.status = ExamPDFUpload.STATUS_PROCESSED
+            upload_record.records_created = 7
+            upload_record.error_message = ''
+            upload_record.save(update_fields=['status', 'records_created', 'error_message'])
+            return True, 7, ''
+
+        stdout = StringIO()
+        with patch('apps.exams.services.process_schedule_pdf', side_effect=process_schedule):
+            call_command('process_exam_pdfs', stdout=stdout)
+
+        upload.refresh_from_db()
+        self.assertEqual(upload.status, ExamPDFUpload.STATUS_PROCESSED)
+        self.assertEqual(upload.records_created, 7)
+        self.assertIn('Processed=1', stdout.getvalue())
 
 
 class ScheduleParserTests(TestCase):
