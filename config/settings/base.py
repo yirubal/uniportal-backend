@@ -163,6 +163,11 @@ TELEGRAM_BOT_TOKEN          = env('TELEGRAM_BOT_TOKEN',          default='')
 TELEGRAM_ADMIN_CHAT_ID      = env('TELEGRAM_ADMIN_CHAT_ID',      default='')
 TELEGRAM_CHANNEL_ID         = env('TELEGRAM_CHANNEL_ID',         default='')   # resource-upload channel
 TELEGRAM_OFFICIAL_CHANNEL_ID = env('TELEGRAM_OFFICIAL_CHANNEL_ID', default='') # public channel users must join
+TELEGRAM_WEBHOOK_SECRET     = env('TELEGRAM_WEBHOOK_SECRET',     default='')
+TELEGRAM_WEBHOOK_URL        = env(
+    'TELEGRAM_WEBHOOK_URL',
+    default='https://web-production-312b.up.railway.app/api/telegram/webhook/',
+)
 # Public link shown to users who haven't joined yet
 TELEGRAM_CHANNEL_LINK = env('TELEGRAM_CHANNEL_LINK', default='https://t.me/unityuniversityportal')
 MINI_APP_URL = env('MINI_APP_URL', default='')
