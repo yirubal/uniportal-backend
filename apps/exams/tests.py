@@ -254,6 +254,35 @@ class ExamPDFUploadQueueTests(TestCase):
         self.assertEqual(upload.records_created, 7)
         self.assertIn('Processed=1', stdout.getvalue())
 
+    def test_admin_process_action_starts_background_thread(self):
+        user = get_user_model().objects.create_superuser(
+            username='processor',
+            email='processor@example.com',
+            password='password',
+        )
+        self.client.force_login(user)
+        ExamPDFUpload.objects.create(
+            original_name='pending.pdf',
+            pdf_type=ExamPDFUpload.TYPE_SCHEDULE,
+            status=ExamPDFUpload.STATUS_PENDING,
+        )
+
+        with patch('apps.exams.admin.threading.Thread') as thread_class:
+            response = self.client.post(
+                '/admin/exams/examterm/upload-pdfs/',
+                {'action': 'process'},
+            )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response['Location'], '/admin/exams/examterm/upload-pdfs/')
+        thread_class.assert_called_once()
+        self.assertEqual(thread_class.call_args.kwargs['daemon'], True)
+        self.assertEqual(
+            thread_class.call_args.kwargs['target'].__name__,
+            '_process_exam_pdfs_in_background',
+        )
+        thread_class.return_value.start.assert_called_once()
+
 
 class ScheduleParserTests(TestCase):
     def test_parse_schedule_text_extracts_term_sessions_and_rooms(self):

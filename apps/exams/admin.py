@@ -1,4 +1,8 @@
+import threading
+
 from django.contrib import admin, messages
+from django.core.management import call_command
+from django.db import close_old_connections, connections
 from django.db.models import Count, Q
 from django.shortcuts import redirect, render
 from django.urls import path
@@ -57,6 +61,29 @@ class ExamTermAdmin(ModelAdmin):
             term = ExamTerm.objects.filter(pk=term_id).first()
 
         if request.method == 'POST':
+            action = request.POST.get('action', 'upload')
+
+            if action == 'process':
+                has_pending = ExamPDFUpload.objects.filter(
+                    status=ExamPDFUpload.STATUS_PENDING,
+                ).exists()
+                has_processing = ExamPDFUpload.objects.filter(
+                    status=ExamPDFUpload.STATUS_PROCESSING,
+                ).exists()
+
+                if has_pending and not has_processing:
+                    threading.Thread(
+                        target=self._process_exam_pdfs_in_background,
+                        daemon=True,
+                    ).start()
+                    messages.success(request, 'Processing started...')
+                elif has_processing:
+                    messages.warning(request, 'PDF processing is already running.')
+                else:
+                    messages.warning(request, 'No pending PDF files to process.')
+
+                return redirect(request.path)
+
             schedule_files = request.FILES.getlist('schedule_pdf')
             attendance_files = request.FILES.getlist('attendance_pdfs')
             queued_count = 0
@@ -99,6 +126,8 @@ class ExamTermAdmin(ModelAdmin):
             done=Count('id', filter=Q(status=ExamPDFUpload.STATUS_PROCESSED)),
             failed=Count('id', filter=Q(status=ExamPDFUpload.STATUS_FAILED)),
         )
+        pending_count = status_counts['pending'] or 0
+        processing_count = status_counts['processing'] or 0
         uploads = upload_qs.order_by('-uploaded_at')[:50]
         context = {
             **self.admin_site.each_context(request),
@@ -107,10 +136,20 @@ class ExamTermAdmin(ModelAdmin):
             'term_id': term_id,
             'uploads': uploads,
             'status_counts': status_counts,
-            'should_auto_refresh': status_counts['pending'] or status_counts['processing'],
+            'pending_count': pending_count,
+            'processing_count': processing_count,
+            'should_auto_refresh': pending_count or processing_count,
             'opts': ExamTerm._meta,
         }
         return render(request, 'admin/exams/upload_pdfs.html', context)
+
+    @staticmethod
+    def _process_exam_pdfs_in_background():
+        close_old_connections()
+        try:
+            call_command('process_exam_pdfs')
+        finally:
+            connections.close_all()
 
     def change_view(self, request, object_id, form_url='', extra_context=None):
         extra_context = extra_context or {}
