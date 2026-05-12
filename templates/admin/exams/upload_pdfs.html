@@ -11,12 +11,6 @@
 {% endblock %}
 
 {% block content %}
-{% if should_auto_refresh %}
-<script>
-  window.setTimeout(() => window.location.reload(), 5000);
-</script>
-{% endif %}
-
 <div class="pb-12">
 
   <div class="mb-8 flex items-start gap-4">
@@ -29,24 +23,24 @@
     </div>
   </div>
 
-  <section class="mb-8 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+  <div id="status-counts" class="mb-8 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
     <div class="rounded-default border border-yellow-700/50 bg-yellow-950/20 px-5 py-4">
       <div class="text-xs font-semibold uppercase tracking-wide text-yellow-300">Pending</div>
-      <div class="mt-2 text-3xl font-bold text-base-50">{{ status_counts.pending|default:0 }}</div>
+      <div class="mt-2 text-3xl font-bold text-base-50"><span id="pending-count">{{ pending_count }}</span></div>
     </div>
     <div class="rounded-default border border-blue-700/50 bg-blue-950/20 px-5 py-4">
       <div class="text-xs font-semibold uppercase tracking-wide text-blue-300">Processing</div>
-      <div class="mt-2 text-3xl font-bold text-base-50">{{ status_counts.processing|default:0 }}</div>
+      <div class="mt-2 text-3xl font-bold text-base-50"><span id="processing-count">{{ processing_count }}</span></div>
     </div>
     <div class="rounded-default border border-green-700/50 bg-green-950/20 px-5 py-4">
       <div class="text-xs font-semibold uppercase tracking-wide text-green-300">Done</div>
-      <div class="mt-2 text-3xl font-bold text-base-50">{{ status_counts.done|default:0 }}</div>
+      <div class="mt-2 text-3xl font-bold text-base-50"><span id="processed-count">{{ processed_count }}</span></div>
     </div>
     <div class="rounded-default border border-red-700/50 bg-red-950/20 px-5 py-4">
       <div class="text-xs font-semibold uppercase tracking-wide text-red-300">Failed</div>
-      <div class="mt-2 text-3xl font-bold text-base-50">{{ status_counts.failed|default:0 }}</div>
+      <div class="mt-2 text-3xl font-bold text-base-50"><span id="failed-count">{{ failed_count }}</span></div>
     </div>
-  </section>
+  </div>
 
   <form method="post" enctype="multipart/form-data" class="space-y-7">
     {% csrf_token %}
@@ -152,7 +146,7 @@
   <form method="post" class="mt-6">
     {% csrf_token %}
     <input type="hidden" name="action" value="process">
-    <button type="submit"
+    <button id="process-btn" type="submit"
       class="px-6 py-2.5 text-sm font-semibold bg-green-600 hover:bg-green-700 text-white rounded-lg">
       ⚙️ Process {{ pending_count }} PDF(s)
     </button>
@@ -218,6 +212,59 @@
 </div>
 
 <script>
+  const statusUrl = {% if term_id %}'/admin/exams/examterm/{{ term_id }}/upload-status/'{% else %}''{% endif %};
+  let processingStarted = false;
+
+  function updateCount(id, value) {
+    const element = document.getElementById(id);
+    if (element) {
+      element.textContent = value;
+    }
+  }
+
+  function pollStatus() {
+    if (!statusUrl) {
+      return;
+    }
+
+    fetch(statusUrl)
+      .then(response => response.json())
+      .then(data => {
+        updateCount('pending-count', data.pending);
+        updateCount('processing-count', data.processing);
+        updateCount('processed-count', data.processed);
+        updateCount('failed-count', data.failed);
+
+        const btn = document.getElementById('process-btn');
+        if (btn) {
+          btn.style.display = data.pending > 0 && data.processing === 0 ? 'block' : 'none';
+        }
+
+        if (data.processing > 0 || (data.pending > 0 && processingStarted)) {
+          window.setTimeout(pollStatus, 3000);
+        } else {
+          processingStarted = false;
+          window.sessionStorage.removeItem('examPdfProcessingStarted');
+        }
+      });
+  }
+
+  document.addEventListener('DOMContentLoaded', () => {
+    const btn = document.getElementById('process-btn');
+    if (btn) {
+      btn.addEventListener('click', () => {
+        processingStarted = true;
+        window.sessionStorage.setItem('examPdfProcessingStarted', '1');
+        window.setTimeout(pollStatus, 1000);
+      });
+    }
+
+    if (window.sessionStorage.getItem('examPdfProcessingStarted') === '1' || {{ processing_count }} > 0) {
+      processingStarted = true;
+      pollStatus();
+    }
+  });
+
   function updateFileSelection(kind) {
     const input = document.getElementById(kind === 'schedule' ? 'schedule_pdf_input' : 'attendance_pdfs_input');
     const state = document.getElementById(kind === 'schedule' ? 'schedule_file_state' : 'attendance_file_state');

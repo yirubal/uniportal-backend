@@ -52,8 +52,24 @@ class ExamTermAdmin(ModelAdmin):
                 self.admin_site.admin_view(self.upload_pdfs_view),
                 name='exam_upload_pdfs',
             ),
+            path(
+                '<int:term_id>/upload-status/',
+                self.admin_site.admin_view(self.upload_status_view),
+                name='exam_upload_status',
+            ),
         ]
         return custom + urls
+
+    def upload_status_view(self, request, term_id):
+        from django.http import JsonResponse
+
+        uploads = ExamPDFUpload.objects.filter(term_id=term_id)
+        return JsonResponse({
+            'pending': uploads.filter(status=ExamPDFUpload.STATUS_PENDING).count(),
+            'processing': uploads.filter(status=ExamPDFUpload.STATUS_PROCESSING).count(),
+            'processed': uploads.filter(status=ExamPDFUpload.STATUS_PROCESSED).count(),
+            'failed': uploads.filter(status=ExamPDFUpload.STATUS_FAILED).count(),
+        })
 
     def upload_pdfs_view(self, request, term_id=None):
         term = None
@@ -123,11 +139,13 @@ class ExamTermAdmin(ModelAdmin):
         status_counts = upload_qs.aggregate(
             pending=Count('id', filter=Q(status=ExamPDFUpload.STATUS_PENDING)),
             processing=Count('id', filter=Q(status=ExamPDFUpload.STATUS_PROCESSING)),
-            done=Count('id', filter=Q(status=ExamPDFUpload.STATUS_PROCESSED)),
+            processed=Count('id', filter=Q(status=ExamPDFUpload.STATUS_PROCESSED)),
             failed=Count('id', filter=Q(status=ExamPDFUpload.STATUS_FAILED)),
         )
         pending_count = status_counts['pending'] or 0
         processing_count = status_counts['processing'] or 0
+        processed_count = status_counts['processed'] or 0
+        failed_count = status_counts['failed'] or 0
         uploads = upload_qs.order_by('-uploaded_at')[:50]
         context = {
             **self.admin_site.each_context(request),
@@ -138,7 +156,8 @@ class ExamTermAdmin(ModelAdmin):
             'status_counts': status_counts,
             'pending_count': pending_count,
             'processing_count': processing_count,
-            'should_auto_refresh': pending_count or processing_count,
+            'processed_count': processed_count,
+            'failed_count': failed_count,
             'opts': ExamTerm._meta,
         }
         return render(request, 'admin/exams/upload_pdfs.html', context)

@@ -283,6 +283,54 @@ class ExamPDFUploadQueueTests(TestCase):
         )
         thread_class.return_value.start.assert_called_once()
 
+    def test_admin_upload_status_returns_term_counts(self):
+        user = get_user_model().objects.create_superuser(
+            username='status-admin',
+            email='status-admin@example.com',
+            password='password',
+        )
+        self.client.force_login(user)
+        term = ExamTerm.objects.create(year=2018, term=1)
+        other_term = ExamTerm.objects.create(year=2018, term=2)
+        ExamPDFUpload.objects.create(
+            term=term,
+            original_name='pending.pdf',
+            pdf_type=ExamPDFUpload.TYPE_SCHEDULE,
+            status=ExamPDFUpload.STATUS_PENDING,
+        )
+        ExamPDFUpload.objects.create(
+            term=term,
+            original_name='processing.pdf',
+            pdf_type=ExamPDFUpload.TYPE_ATTENDANCE,
+            status=ExamPDFUpload.STATUS_PROCESSING,
+        )
+        ExamPDFUpload.objects.create(
+            term=term,
+            original_name='processed.pdf',
+            pdf_type=ExamPDFUpload.TYPE_ATTENDANCE,
+            status=ExamPDFUpload.STATUS_PROCESSED,
+        )
+        ExamPDFUpload.objects.create(
+            term=term,
+            original_name='failed.pdf',
+            pdf_type=ExamPDFUpload.TYPE_ATTENDANCE,
+            status=ExamPDFUpload.STATUS_FAILED,
+        )
+        ExamPDFUpload.objects.create(
+            term=other_term,
+            original_name='other.pdf',
+            pdf_type=ExamPDFUpload.TYPE_SCHEDULE,
+            status=ExamPDFUpload.STATUS_PENDING,
+        )
+
+        response = self.client.get(f'/admin/exams/examterm/{term.id}/upload-status/')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.json(),
+            {'pending': 1, 'processing': 1, 'processed': 1, 'failed': 1},
+        )
+
 
 class ScheduleParserTests(TestCase):
     def test_parse_schedule_text_extracts_term_sessions_and_rooms(self):
