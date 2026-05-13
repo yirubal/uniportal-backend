@@ -306,6 +306,7 @@ async def handle_exam_lookup_response(update: Update, context: ContextTypes.DEFA
 
     from django.db.models import Q
     from apps.exams.models import ExamTerm, StudentExam
+    from apps.exams.services import dedupe_student_exam_rows
 
     term = await sync_to_async(ExamTerm.objects.filter(is_active=True).first)()
 
@@ -316,12 +317,12 @@ async def handle_exam_lookup_response(update: Update, context: ContextTypes.DEFA
         )
         raise ApplicationHandlerStop
 
-    exams = await sync_to_async(list)(
+    exams = await sync_to_async(lambda: dedupe_student_exam_rows(
         StudentExam.objects.filter(term=term)
         .filter(Q(student_id=query) | Q(student_name__icontains=query))
         .select_related('session')
         .order_by('session__date', 'session__start_time')
-    )
+    ))()
 
     if not exams:
         await update.message.reply_text(
@@ -356,6 +357,9 @@ async def handle_unknown_message(update: Update, context: ContextTypes.DEFAULT_T
     Handles any message that is not a recognized command.
     Gently guides the student to use the portal.
     """
+    if context.user_data.get('awaiting_exam_lookup'):
+        return
+
     from django.conf import settings
     mini_app_url = getattr(settings, 'MINI_APP_URL', '')
 

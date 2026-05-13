@@ -153,6 +153,7 @@ class ExamPDFUpload(models.Model):
     pdf_type = models.CharField(max_length=15, choices=TYPE_CHOICES)
     file = models.FileField(upload_to='exam_pdfs/%Y/%m/')
     original_name = models.CharField(max_length=500)
+    content_hash = models.CharField(max_length=64, blank=True, db_index=True)
     status = models.CharField(max_length=15, choices=STATUS_CHOICES, default=STATUS_PENDING)
     records_created = models.IntegerField(default=0)
     error_message = models.TextField(blank=True)
