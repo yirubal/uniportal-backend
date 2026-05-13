@@ -464,10 +464,11 @@ class ExamPaperQuestionsView(APIView):
         mode    = request.query_params.get('mode', 'simulation')
 
         if mode == 'practice':
+            requested_limit = request.query_params.get('limit')
             questions = get_practice_questions(
                 exam_paper_id=exam_id,
                 is_premium=student.is_premium,
-                limit=int(request.query_params.get('limit', 10)),
+                limit=int(requested_limit) if requested_limit else None,
                 topic=request.query_params.get('topic'),
             )
         else:

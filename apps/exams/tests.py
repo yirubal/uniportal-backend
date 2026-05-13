@@ -25,6 +25,7 @@ from apps.exams.models import (
 from apps.exams.parsers.attendance_parser import _parse_attendance_text
 from apps.exams.parsers.schedule_parser import _parse_schedule_text
 from apps.exams.services import _ensure_active_term, _resolve_attendance_course_details
+from apps.quiz.models import ExamPaper, Question
 
 
 class ExamLookupApiTests(APITestCase):
@@ -289,6 +290,54 @@ class ExamLookupApiTests(APITestCase):
 
         self.assertEqual(response.status_code, 400)
         self.assertIn('Too many results for "Gedion"', response.data['error'])
+
+
+class ExamPaperQuestionsApiTests(APITestCase):
+    def setUp(self):
+        self.student = Student.objects.create(
+            telegram_id=123456790,
+            first_name='Quiz',
+            username='quizuser',
+        )
+        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {_generate_jwt(self.student)}')
+
+    def test_practice_questions_returns_all_active_paper_questions_by_default(self):
+        exam = ExamPaper.objects.create(
+            title='Team Quiz Paper',
+            exam_type=ExamPaper.TYPE_QUIZ,
+            year=2018,
+            duration_minutes=30,
+            access_level=ExamPaper.ACCESS_FREE,
+            is_active=True,
+        )
+        Question.objects.bulk_create([
+            Question(
+                exam_paper=exam,
+                text=f'Question {index}',
+                option_a='A',
+                option_b='B',
+                correct_option='a',
+                is_active=True,
+            )
+            for index in range(25)
+        ])
+        inactive_question = Question.objects.create(
+            exam_paper=exam,
+            text='Inactive question',
+            option_a='A',
+            option_b='B',
+            correct_option='a',
+            is_active=False,
+        )
+
+        response = self.client.get(
+            f'/api/exams/{exam.id}/questions/',
+            {'mode': 'practice'},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.data), 25)
+        self.assertNotIn(inactive_question.id, [item['id'] for item in response.data])
 
 
 class ExamTermModelTests(TestCase):

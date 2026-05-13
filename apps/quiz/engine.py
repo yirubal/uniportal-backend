@@ -8,7 +8,7 @@ logger = logging.getLogger(__name__)
 def get_practice_questions(
     exam_paper_id: int,
     is_premium: bool,
-    limit: int = 10,
+    limit: int = None,
     topic: str = None,
 ) -> list:
     """
@@ -33,12 +33,15 @@ def get_practice_questions(
     if topic:
         questions = questions.filter(topic_tags__contains=topic)
 
-    if not is_premium:
+    if limit and not is_premium:
         limit = min(limit, 5)
 
     questions = list(questions)
     random.shuffle(questions)
-    return questions[:limit]
+    if limit:
+        return questions[:limit]
+
+    return questions
 
 
 def get_exit_exam_questions(
