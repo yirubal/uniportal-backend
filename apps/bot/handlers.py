@@ -2,7 +2,7 @@ import logging
 from django.utils import timezone
 from asgiref.sync import sync_to_async
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
-from telegram.ext import ApplicationHandlerStop, ContextTypes
+from telegram.ext import ContextTypes
 
 from apps.content.models import FileInbox
 from apps.content.services import create_inbox_item_from_local_file
@@ -192,8 +192,7 @@ async def handle_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
         '*Available Commands:*\n'
         '/start — Open the student portal\n'
         '/help — Show this help message\n'
-        '/status — Check your subscription status\n'
-        '/exam — Check your exam schedule\n\n'
+        '/status — Check your subscription status\n\n'
         '*How it works:*\n'
         '1. Open the portal using /start\n'
         '2. Complete onboarding — pick your department, program, year and semester\n'
@@ -285,81 +284,11 @@ async def handle_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
 
-async def handle_exam(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handles /exam command — asks student for ID or name."""
-    await update.message.reply_text(
-        '📋 *Exam Schedule Lookup*\n\n'
-        'Send your *Student ID* or *Full Name* to find your exam schedule.\n\n'
-        'Example: `93372` or `Abirham Worku`',
-        parse_mode='Markdown',
-    )
-    context.user_data['awaiting_exam_lookup'] = True
-
-
-async def handle_exam_lookup_response(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handles the student ID/name response after /exam command."""
-    if not context.user_data.get('awaiting_exam_lookup'):
-        return
-
-    context.user_data['awaiting_exam_lookup'] = False
-    query = (update.message.text or '').strip()
-
-    from django.db.models import Q
-    from apps.exams.models import ExamTerm, StudentExam
-    from apps.exams.services import dedupe_student_exam_rows
-
-    term = await sync_to_async(ExamTerm.objects.filter(is_active=True).first)()
-
-    if not term:
-        await update.message.reply_text(
-            '❌ No active exam schedule available right now.\n'
-            'Check back when the university releases the schedule.'
-        )
-        raise ApplicationHandlerStop
-
-    exams = await sync_to_async(lambda: dedupe_student_exam_rows(
-        StudentExam.objects.filter(term=term)
-        .filter(Q(student_id=query) | Q(student_name__icontains=query))
-        .select_related('session')
-        .order_by('session__date', 'session__start_time')
-    ))()
-
-    if not exams:
-        await update.message.reply_text(
-            f'❌ No exam found for *{query}*.\n\n'
-            'Make sure you entered your correct Student ID or full name as registered.',
-            parse_mode='Markdown',
-        )
-        raise ApplicationHandlerStop
-
-    student_name = exams[0].student_name
-    lines = [f'📋 *Exam Schedule for {student_name}*\n*{term}*\n']
-
-    current_date = None
-    for exam in exams:
-        date_str = exam.session.date.strftime('%A, %b %d')
-        if date_str != current_date:
-            lines.append(f'\n📅 *{date_str}*')
-            current_date = date_str
-        lines.append(
-            f'  🕐 {exam.session.start_time.strftime("%I:%M %p")} – '
-            f'{exam.session.end_time.strftime("%I:%M %p")}\n'
-            f'  📚 {exam.course_name}\n'
-            f'  🚪 Room: *{exam.room_code}*'
-        )
-
-    await update.message.reply_text('\n'.join(lines), parse_mode='Markdown')
-    raise ApplicationHandlerStop
-
-
 async def handle_unknown_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     Handles any message that is not a recognized command.
     Gently guides the student to use the portal.
     """
-    if context.user_data.get('awaiting_exam_lookup'):
-        return
-
     from django.conf import settings
     mini_app_url = getattr(settings, 'MINI_APP_URL', '')
 
@@ -378,8 +307,7 @@ async def handle_unknown_message(update: Update, context: ContextTypes.DEFAULT_T
         '*Available commands:*\n'
         '/start — Open the portal\n'
         '/help — Show help\n'
-        '/status — Check subscription\n'
-        '/exam — Check your exam schedule',
+        '/status — Check subscription',
         parse_mode='Markdown',
         reply_markup=keyboard,
     )
@@ -415,8 +343,7 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
             '*Commands:*\n'
             '/start — Open the student portal\n'
             '/help — Show this message\n'
-            '/status — Check your subscription\n'
-            '/exam — Check your exam schedule\n\n'
+            '/status — Check your subscription\n\n'
             '*Support:*\n'
             'Contact your university admin for help.'
         )

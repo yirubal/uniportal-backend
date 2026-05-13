@@ -8,18 +8,20 @@ from django.test import TestCase, override_settings
 from rest_framework.test import APIClient
 
 from apps.bot.application import BOT_COMMANDS, set_visible_bot_commands
-from apps.bot.handlers import handle_unknown_message
 
 
 class BotCommandRegistrationTests(TestCase):
-    def test_exam_command_is_registered_for_telegram_menu(self):
+    def test_exam_command_is_removed_from_telegram_menu(self):
         commands = {command.command: command.description for command in BOT_COMMANDS}
 
-        self.assertEqual(commands['exam'], 'Check your exam schedule and room')
+        self.assertNotIn('exam', commands)
         self.assertEqual(
             list(commands.keys()),
-            ['start', 'help', 'status', 'exam'],
+            ['start', 'help', 'status'],
         )
+        self.assertEqual(commands['start'], 'Open UniPortal')
+        self.assertEqual(commands['help'], 'How to use the portal')
+        self.assertEqual(commands['status'], 'Check your subscription')
 
     def test_set_visible_bot_commands_sends_full_command_list(self):
         bot = SimpleNamespace(set_my_commands=AsyncMock())
@@ -124,18 +126,6 @@ class TelegramWebhookViewTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json(), {'ok': True})
-
-
-class BotExamLookupHandlerTests(TestCase):
-    def test_unknown_message_does_not_reply_while_exam_lookup_is_pending(self):
-        update = SimpleNamespace(
-            message=SimpleNamespace(reply_text=AsyncMock()),
-        )
-        context = SimpleNamespace(user_data={'awaiting_exam_lookup': True})
-
-        async_to_sync(handle_unknown_message)(update, context)
-
-        update.message.reply_text.assert_not_awaited()
 
 
 class SetupWebhookCommandTests(TestCase):
