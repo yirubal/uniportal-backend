@@ -25,6 +25,7 @@ from apps.exams.models import (
 from apps.exams.parsers.attendance_parser import _parse_attendance_text
 from apps.exams.parsers.schedule_parser import _parse_schedule_text
 from apps.exams.services import _ensure_active_term, _resolve_attendance_course_details
+from apps.quiz.models import ExamPaper, Question
 
 
 class ExamLookupApiTests(APITestCase):
@@ -193,6 +194,150 @@ class ExamLookupApiTests(APITestCase):
         self.assertEqual(len(response.data['exams']), 2)
         self.assertEqual(response.data['exams'][0]['course_code'], 'MGMT 1012')
         self.assertEqual(response.data['exams'][1]['course_code'], 'GLTR 1012')
+
+    def test_exam_lookup_uses_unified_query_param_for_student_id(self):
+        active_term = ExamTerm.objects.create(year=2018, term=2, is_active=True)
+        session = ExamSession.objects.create(
+            term=active_term,
+            session_number=1,
+            date=date(2026, 2, 21),
+            start_time=time(8, 0),
+            end_time=time(10, 0),
+        )
+        StudentExam.objects.create(
+            term=active_term,
+            session=session,
+            student_name='Gedion Bekele',
+            student_id='93372',
+            department='Accounting',
+            course_name='Taxation',
+            course_code='ACFN 301',
+            room_code='J-2',
+        )
+
+        response = self.client.get('/api/exams/lookup/', {'query': '93372'})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data['student_name'], 'Gedion Bekele')
+        self.assertEqual(response.data['student_id'], '93372')
+
+    def test_exam_lookup_name_search_matches_start_of_name_only(self):
+        active_term = ExamTerm.objects.create(year=2018, term=2, is_active=True)
+        session = ExamSession.objects.create(
+            term=active_term,
+            session_number=1,
+            date=date(2026, 2, 21),
+            start_time=time(8, 0),
+            end_time=time(10, 0),
+        )
+        StudentExam.objects.create(
+            term=active_term,
+            session=session,
+            student_name='Gedion Bekele',
+            student_id='93372',
+            department='Accounting',
+            course_name='Taxation',
+            course_code='ACFN 301',
+            room_code='J-2',
+        )
+        StudentExam.objects.create(
+            term=active_term,
+            session=session,
+            student_name='Bekele Gedion Haile',
+            student_id='93373',
+            department='Accounting',
+            course_name='Taxation',
+            course_code='ACFN 301',
+            room_code='J-3',
+        )
+
+        response = self.client.get('/api/exams/lookup/', {'query': 'Gedion'})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data['student_name'], 'Gedion Bekele')
+        self.assertEqual(response.data['student_id'], '93372')
+
+    def test_exam_lookup_rejects_short_name_queries(self):
+        ExamTerm.objects.create(year=2018, term=2, is_active=True)
+
+        response = self.client.get('/api/exams/lookup/', {'query': 'Ge'})
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.data['error'], 'Enter at least 3 characters to search by name')
+
+    def test_exam_lookup_rejects_too_many_name_results(self):
+        active_term = ExamTerm.objects.create(year=2018, term=2, is_active=True)
+        session = ExamSession.objects.create(
+            term=active_term,
+            session_number=1,
+            date=date(2026, 2, 21),
+            start_time=time(8, 0),
+            end_time=time(10, 0),
+        )
+        for index in range(21):
+            StudentExam.objects.create(
+                term=active_term,
+                session=session,
+                student_name=f'Gedion Student {index}',
+                student_id=f'93{index:03d}',
+                department='Accounting',
+                course_name='Taxation',
+                course_code=f'ACFN {index:03d}',
+                room_code='J-2',
+            )
+
+        response = self.client.get('/api/exams/lookup/', {'query': 'Gedion'})
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn('Too many results for "Gedion"', response.data['error'])
+
+
+class ExamPaperQuestionsApiTests(APITestCase):
+    def setUp(self):
+        self.student = Student.objects.create(
+            telegram_id=123456790,
+            first_name='Quiz',
+            username='quizuser',
+        )
+        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {_generate_jwt(self.student)}')
+
+    def test_practice_questions_returns_all_active_paper_questions_by_default(self):
+        exam = ExamPaper.objects.create(
+            title='Team Quiz Paper',
+            exam_type=ExamPaper.TYPE_QUIZ,
+            year=2018,
+            duration_minutes=30,
+            access_level=ExamPaper.ACCESS_FREE,
+            is_active=True,
+        )
+        Question.objects.bulk_create([
+            Question(
+                exam_paper=exam,
+                text=f'Question {index}',
+                option_a='A',
+                option_b='B',
+                correct_option='a',
+                is_active=True,
+            )
+            for index in range(25)
+        ])
+        inactive_question = Question.objects.create(
+            exam_paper=exam,
+            text='Inactive question',
+            option_a='A',
+            option_b='B',
+            correct_option='a',
+            is_active=False,
+        )
+
+        response = self.client.get(
+            f'/api/exams/{exam.id}/questions/',
+            {'mode': 'practice'},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.data), 25)
+        self.assertNotIn(inactive_question.id, [item['id'] for item in response.data])
 
 
 class ExamTermModelTests(TestCase):

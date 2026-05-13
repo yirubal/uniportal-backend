@@ -14,10 +14,9 @@ from telegram import BotCommand, Update
 logger = logging.getLogger(__name__)
 
 BOT_COMMANDS = (
-    BotCommand('start', 'Open the student portal'),
-    BotCommand('help', 'Show help and support information'),
-    BotCommand('status', 'Check your subscription status'),
-    BotCommand('exam', 'Check your exam schedule and room'),
+    BotCommand('start', 'Open UniPortal'),
+    BotCommand('help', 'How to use the portal'),
+    BotCommand('status', 'Check your subscription'),
 )
 
 _application = None
@@ -82,8 +81,6 @@ def _build_application():
     from apps.bot.handlers import (
         handle_callback_query,
         handle_channel_post,
-        handle_exam,
-        handle_exam_lookup_response,
         handle_help,
         handle_start,
         handle_status,
@@ -104,7 +101,6 @@ def _build_application():
     app.add_handler(CommandHandler('start', handle_start))
     app.add_handler(CommandHandler('help', handle_help))
     app.add_handler(CommandHandler('status', handle_status))
-    app.add_handler(CommandHandler('exam', handle_exam))
 
     app.add_handler(CallbackQueryHandler(handle_callback_query))
 
@@ -114,14 +110,9 @@ def _build_application():
     ))
 
     app.add_handler(MessageHandler(
-        filters.ChatType.PRIVATE & filters.TEXT & ~filters.COMMAND,
-        handle_exam_lookup_response,
-    ), group=0)
-
-    app.add_handler(MessageHandler(
         filters.ChatType.PRIVATE & ~filters.COMMAND,
         handle_unknown_message,
-    ), group=1)
+    ))
 
     logger.info('Bot application initialized in webhook mode')
     return app
