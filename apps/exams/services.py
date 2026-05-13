@@ -150,13 +150,11 @@ def process_attendance_pdf(upload_record):
                     term=term,
                     session=session,
                     student_name=student.name,
+                    student_id=student.student_id,
+                    department=student.department,
+                    course_name=course_name,
                     course_code=course_code,
-                    defaults={
-                        'student_id': student.student_id,
-                        'department': student.department,
-                        'course_name': course_name,
-                        'room_code': parsed.room_code,
-                    },
+                    room_code=parsed.room_code,
                 )
                 if was_created:
                     created += 1
@@ -237,6 +235,30 @@ def _ensure_active_term(term):
 
     term.is_active = True
     term.save(update_fields=['is_active'])
+
+
+def dedupe_student_exam_rows(exams):
+    """
+    Keep one row for duplicate imported exam entries while preserving order.
+    Duplicates are scoped to the same student, session, course, department, and room.
+    """
+    seen = set()
+    unique = []
+    for exam in exams:
+        key = (
+            exam.student_id.strip().lower(),
+            exam.student_name.strip().lower(),
+            exam.department.strip().lower(),
+            exam.course_name.strip().lower(),
+            exam.course_code.strip().lower(),
+            exam.room_code.strip().lower(),
+            exam.session_id,
+        )
+        if key in seen:
+            continue
+        seen.add(key)
+        unique.append(exam)
+    return unique
 
 
 def _pick_best_schedule_match(candidates, room_code, course_name, filename_hint):

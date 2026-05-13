@@ -120,6 +120,34 @@ class ExamLookupApiTests(APITestCase):
         self.assertEqual(response.data['exams'][0]['course_code'], 'ACFN 301')
         self.assertEqual(response.data['exams'][1]['course_code'], 'ACFN 322')
 
+    def test_exam_lookup_deduplicates_same_course_room_department_and_session(self):
+        active_term = ExamTerm.objects.create(year=2018, term=2, is_active=True)
+        session = ExamSession.objects.create(
+            term=active_term,
+            session_number=1,
+            date=date(2026, 2, 21),
+            start_time=time(8, 0),
+            end_time=time(10, 0),
+        )
+        exam_data = {
+            'term': active_term,
+            'session': session,
+            'student_name': 'Abirham Worku',
+            'student_id': '93372',
+            'department': 'Accounting',
+            'course_name': 'Taxation',
+            'course_code': 'ACFN 301',
+            'room_code': 'J-2',
+        }
+        StudentExam.objects.create(**exam_data)
+        StudentExam.objects.create(**exam_data)
+
+        response = self.client.get('/api/exams/lookup/', {'student_id': '93372'})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.data['exams']), 1)
+        self.assertEqual(response.data['exams'][0]['course_code'], 'ACFN 301')
+
     def test_exam_lookup_returns_partial_name_results(self):
         active_term = ExamTerm.objects.create(year=2018, term=1, is_active=True)
         first_session = ExamSession.objects.create(
@@ -292,6 +320,41 @@ class ExamPDFUploadQueueTests(TestCase):
         uploads = list(ExamPDFUpload.objects.order_by('pdf_type'))
         self.assertEqual(len(uploads), 2)
         self.assertTrue(all(upload.status == ExamPDFUpload.STATUS_PENDING for upload in uploads))
+        self.assertTrue(all(upload.content_hash for upload in uploads))
+
+    def test_admin_upload_skips_duplicate_pdf_content(self):
+        user = get_user_model().objects.create_superuser(
+            username='dedupe-admin',
+            email='dedupe-admin@example.com',
+            password='password',
+        )
+        self.client.force_login(user)
+
+        first_response = self.client.post(
+            '/admin/exams/examterm/upload-pdfs/',
+            {
+                'schedule_pdf': SimpleUploadedFile(
+                    'schedule.pdf',
+                    b'%PDF same schedule',
+                    content_type='application/pdf',
+                ),
+            },
+        )
+        second_response = self.client.post(
+            '/admin/exams/examterm/upload-pdfs/',
+            {
+                'schedule_pdf': SimpleUploadedFile(
+                    'schedule-copy.pdf',
+                    b'%PDF same schedule',
+                    content_type='application/pdf',
+                ),
+            },
+        )
+
+        self.assertEqual(first_response.status_code, 302)
+        self.assertEqual(second_response.status_code, 302)
+        self.assertEqual(ExamPDFUpload.objects.count(), 1)
+        self.assertEqual(ExamPDFUpload.objects.get().original_name, 'schedule.pdf')
 
     def test_process_exam_pdfs_command_processes_pending_uploads(self):
         upload = ExamPDFUpload.objects.create(

@@ -2,6 +2,7 @@ import asyncio
 import mimetypes
 import logging
 import re
+import threading
 from pathlib import Path
 from urllib.parse import quote, unquote
 
@@ -21,6 +22,7 @@ from apps.accounts.models import Student
 from apps.accounts.auth import validate_telegram_init_data
 from apps.content.models import Department, Course, CoursePlacement, Resource
 from apps.exams.models import ExamTerm, StudentExam
+from apps.exams.services import dedupe_student_exam_rows
 from apps.quiz.models import ExamPaper, Question, QuizAttempt
 from .serializers import (
     StudentSerializer,
@@ -40,6 +42,19 @@ logger = logging.getLogger(__name__)
 RESOURCE_DOWNLOAD_TOKEN_MAX_AGE = 900
 RESOURCE_DOWNLOAD_TOKEN_SALT = 'apps.api.resource-download'
 PAYMENT_REFERENCE_RE = re.compile(r'^[A-Z0-9]{6,50}$')
+_telegram_webhook_loop = None
+_telegram_webhook_thread = None
+_telegram_webhook_loop_lock = threading.Lock()
+
+
+def _run_telegram_webhook_loop(loop):
+    asyncio.set_event_loop(loop)
+
+    def keepalive():
+        loop.call_later(0.25, keepalive)
+
+    loop.call_soon(keepalive)
+    loop.run_forever()
 
 
 # ─── AUTH ─────────────────────────────────────────────────────────────────────
@@ -117,6 +132,29 @@ class TelegramWebhookView(APIView):
     permission_classes = []
     authentication_classes = []
 
+    @staticmethod
+    def get_event_loop():
+        global _telegram_webhook_loop, _telegram_webhook_thread
+
+        with _telegram_webhook_loop_lock:
+            thread_dead = (
+                _telegram_webhook_thread is None
+                or not _telegram_webhook_thread.is_alive()
+            )
+            if (
+                _telegram_webhook_loop is None
+                or _telegram_webhook_loop.is_closed()
+                or thread_dead
+            ):
+                _telegram_webhook_loop = asyncio.new_event_loop()
+                _telegram_webhook_thread = threading.Thread(
+                    target=_run_telegram_webhook_loop,
+                    args=(_telegram_webhook_loop,),
+                    daemon=True,
+                )
+                _telegram_webhook_thread.start()
+            return _telegram_webhook_loop
+
     def post(self, request):
         secret = settings.TELEGRAM_WEBHOOK_SECRET
         if secret:
@@ -131,7 +169,12 @@ class TelegramWebhookView(APIView):
         try:
             from apps.bot.application import process_telegram_update
 
-            asyncio.run(process_telegram_update(request.data))
+            loop = self.get_event_loop()
+            future = asyncio.run_coroutine_threadsafe(
+                process_telegram_update(request.data),
+                loop,
+            )
+            future.result(timeout=30)
             return Response({'ok': True})
         except Exception:
             logger.exception('Webhook processing error')
@@ -511,7 +554,9 @@ class ExamLookupView(APIView):
         else:
             queryset = queryset.filter(student_name__icontains=name)
 
-        exams = list(queryset.order_by('session__date', 'session__start_time'))
+        exams = dedupe_student_exam_rows(
+            queryset.order_by('session__date', 'session__start_time'),
+        )
         if not exams:
             return Response(
                 {'error': 'No exam found. Check your ID or name spelling.'},

@@ -8,6 +8,7 @@ from django.test import TestCase, override_settings
 from rest_framework.test import APIClient
 
 from apps.bot.application import BOT_COMMANDS, set_visible_bot_commands
+from apps.bot.handlers import handle_unknown_message
 
 
 class BotCommandRegistrationTests(TestCase):
@@ -84,6 +85,31 @@ class TelegramWebhookViewTests(TestCase):
         self.assertEqual(calls, [{'update_id': 456}])
 
     @override_settings(TELEGRAM_BOT_TOKEN='123:test-token', TELEGRAM_WEBHOOK_SECRET='')
+    def test_processes_webhook_updates_on_persistent_event_loop(self):
+        loop_ids = []
+
+        async def fake_process_update(payload):
+            import asyncio
+
+            loop_ids.append(id(asyncio.get_running_loop()))
+
+        with patch('apps.bot.application.process_telegram_update', side_effect=fake_process_update):
+            first_response = self.client.post(
+                '/api/telegram/webhook/',
+                {'update_id': 1},
+                format='json',
+            )
+            second_response = self.client.post(
+                '/api/telegram/webhook/',
+                {'update_id': 2},
+                format='json',
+            )
+
+        self.assertEqual(first_response.status_code, 200)
+        self.assertEqual(second_response.status_code, 200)
+        self.assertEqual(len(set(loop_ids)), 1)
+
+    @override_settings(TELEGRAM_BOT_TOKEN='123:test-token', TELEGRAM_WEBHOOK_SECRET='')
     def test_processing_errors_are_acknowledged_to_stop_telegram_retries(self):
         async def fake_process_update(payload):
             raise RuntimeError('handler failed')
@@ -98,6 +124,18 @@ class TelegramWebhookViewTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json(), {'ok': True})
+
+
+class BotExamLookupHandlerTests(TestCase):
+    def test_unknown_message_does_not_reply_while_exam_lookup_is_pending(self):
+        update = SimpleNamespace(
+            message=SimpleNamespace(reply_text=AsyncMock()),
+        )
+        context = SimpleNamespace(user_data={'awaiting_exam_lookup': True})
+
+        async_to_sync(handle_unknown_message)(update, context)
+
+        update.message.reply_text.assert_not_awaited()
 
 
 class SetupWebhookCommandTests(TestCase):

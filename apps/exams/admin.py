@@ -1,4 +1,5 @@
 import threading
+from hashlib import sha256
 
 from django.contrib import admin, messages
 from django.core.management import call_command
@@ -152,22 +153,37 @@ class ExamTermAdmin(ModelAdmin):
             schedule_files = request.FILES.getlist('schedule_pdf')
             attendance_files = request.FILES.getlist('attendance_pdfs')
             queued_count = 0
+            skipped_count = 0
 
             for upload_file in schedule_files:
+                content_hash = self._uploaded_file_hash(upload_file)
+                if self._is_duplicate_pdf_upload(content_hash):
+                    skipped_count += 1
+                    messages.warning(request, f'{upload_file.name} was already uploaded, so it was skipped.')
+                    continue
+
                 upload = ExamPDFUpload(
                     original_name=upload_file.name,
                     pdf_type=ExamPDFUpload.TYPE_SCHEDULE,
                     term=term,
+                    content_hash=content_hash,
                     status=ExamPDFUpload.STATUS_PENDING,
                 )
                 upload.file.save(upload_file.name, upload_file, save=True)
                 queued_count += 1
 
             for upload_file in attendance_files:
+                content_hash = self._uploaded_file_hash(upload_file)
+                if self._is_duplicate_pdf_upload(content_hash):
+                    skipped_count += 1
+                    messages.warning(request, f'{upload_file.name} was already uploaded, so it was skipped.')
+                    continue
+
                 upload = ExamPDFUpload(
                     original_name=upload_file.name,
                     pdf_type=ExamPDFUpload.TYPE_ATTENDANCE,
                     term=term,
+                    content_hash=content_hash,
                     status=ExamPDFUpload.STATUS_PENDING,
                 )
                 upload.file.save(upload_file.name, upload_file, save=True)
@@ -179,6 +195,8 @@ class ExamTermAdmin(ModelAdmin):
                     request,
                     f'{queued_count} PDF file(s) uploaded and queued for background processing.',
                 )
+            elif skipped_count:
+                messages.warning(request, 'No new PDF files were queued because all selected files were duplicates.')
             else:
                 messages.warning(request, 'No PDF files were selected.')
 
@@ -218,6 +236,25 @@ class ExamTermAdmin(ModelAdmin):
             call_command('process_exam_pdfs')
         finally:
             connections.close_all()
+
+    @staticmethod
+    def _uploaded_file_hash(upload_file):
+        digest = sha256()
+        for chunk in upload_file.chunks():
+            digest.update(chunk)
+        upload_file.seek(0)
+        return digest.hexdigest()
+
+    @staticmethod
+    def _is_duplicate_pdf_upload(content_hash):
+        return ExamPDFUpload.objects.filter(
+            content_hash=content_hash,
+            status__in=[
+                ExamPDFUpload.STATUS_PENDING,
+                ExamPDFUpload.STATUS_PROCESSING,
+                ExamPDFUpload.STATUS_PROCESSED,
+            ],
+        ).exists()
 
     def change_view(self, request, object_id, form_url='', extra_context=None):
         extra_context = extra_context or {}
@@ -314,6 +351,7 @@ class ExamPDFUploadAdmin(ModelAdmin):
         'pdf_type',
         'term',
         'file',
+        'content_hash',
         'status',
         'records_created',
         'error_message',
