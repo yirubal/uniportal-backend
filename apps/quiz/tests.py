@@ -211,6 +211,8 @@ class QuizFeedbackApiTests(APITestCase):
         self.assertEqual(response.data['course_id'], self.course.id)
         self.assertEqual(response.data['course_name'], self.course.name)
         self.assertEqual(response.data['course_code'], self.course.code)
+        self.assertEqual(response.data['chapters'], ['arithmetic', 'functions'])
+        self.assertEqual(response.data['total_chapters'], 2)
         self.assertEqual(response.data['topics'], ['arithmetic', 'functions'])
         self.assertEqual(response.data['total_topics'], 2)
 
@@ -241,6 +243,62 @@ class QuizFeedbackApiTests(APITestCase):
         self.assertEqual(
             response.data['topics'],
             ['Premium Topic', 'arithmetic', 'functions'],
+        )
+        self.assertEqual(
+            response.data['chapters'],
+            ['arithmetic', 'functions', 'Premium Topic'],
+        )
+
+    def test_course_topics_returns_unique_chapters_from_first_topic_tag_only(self):
+        Question.objects.create(
+            exam_paper=self.exam_paper,
+            text='Another Chapter 1 question',
+            option_a='A',
+            option_b='B',
+            correct_option='a',
+            topic_tags=['Chapter 1: Introduction', 'Definition'],
+        )
+        Question.objects.create(
+            exam_paper=self.exam_paper,
+            text='Second Chapter 1 question',
+            option_a='A',
+            option_b='B',
+            correct_option='a',
+            topic_tags=['Chapter 1: Introduction', 'Basics'],
+        )
+        Question.objects.create(
+            exam_paper=self.exam_paper,
+            text='Chapter 2 question',
+            option_a='A',
+            option_b='B',
+            correct_option='a',
+            topic_tags=['Chapter 2: Risk Analysis', 'Risk'],
+        )
+
+        response = self.client.get(f'/api/quiz/courses/{self.course.id}/topics/')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data['chapters'], [
+            'Chapter 1: Introduction',
+            'Chapter 2: Risk Analysis',
+            'arithmetic',
+            'functions',
+        ])
+        self.assertIn('Definition', response.data['topics'])
+        self.assertIn('Basics', response.data['topics'])
+        self.assertIn('Risk', response.data['topics'])
+        self.assertEqual(
+            response.data['chapters_with_count'][:2],
+            [
+                {
+                    'name': 'Chapter 1: Introduction',
+                    'question_count': 2,
+                },
+                {
+                    'name': 'Chapter 2: Risk Analysis',
+                    'question_count': 1,
+                },
+            ],
         )
 
     def test_selective_practice_returns_questions_matching_selected_topics(self):
@@ -464,7 +522,7 @@ class QuizChapterImportTests(TestCase):
             'A',
             '',
             'medium',
-            'Chapter 2: Risk Analysis, Risk',
+            'Chapter 2: Risk Analysis, Chapter 2: Risk Analysis, Risk, Risk',
             '2024',
         ]])
 

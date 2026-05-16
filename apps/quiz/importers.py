@@ -168,12 +168,17 @@ def import_questions_from_excel(file, exam_paper) -> ImportResult:
         # Topic tags
         raw_tags = get(row, "topic_tags")
         if raw_tags:
-            topic_tags = [t.strip() for t in raw_tags.split(",") if t.strip()]
+            raw_topic_tags = [t.strip() for t in raw_tags.split(",") if t.strip()]
         else:
-            topic_tags = []
+            raw_topic_tags = []
 
-        if chapter not in topic_tags:
-            topic_tags.insert(0, chapter)
+        topic_tags = []
+        seen_tags = set()
+        for tag in [chapter, *raw_topic_tags]:
+            if tag in seen_tags:
+                continue
+            seen_tags.add(tag)
+            topic_tags.append(tag)
 
         # Explanation
         explanation = get(row, "explanation")

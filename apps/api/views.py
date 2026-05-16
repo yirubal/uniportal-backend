@@ -525,19 +525,53 @@ class CourseTopicsView(APIView):
                 exam_paper__access_level=ExamPaper.ACCESS_FREE,
             )
 
-        topics = set()
+        chapter_counts = {}
+        other_topics = set()
+        all_topics = set()
         for topic_list in questions.values_list('topic_tags', flat=True):
-            if isinstance(topic_list, list):
-                topics.update(topic for topic in topic_list if topic)
+            if not isinstance(topic_list, list) or not topic_list:
+                continue
 
-        sorted_topics = sorted(topics)
+            cleaned_topics = [str(topic).strip() for topic in topic_list if str(topic).strip()]
+            if not cleaned_topics:
+                continue
+
+            chapter = cleaned_topics[0]
+            chapter_counts[chapter] = chapter_counts.get(chapter, 0) + 1
+            all_topics.update(cleaned_topics)
+            other_topics.update(cleaned_topics[1:])
+
+        chapters = sorted(
+            chapter_counts,
+            key=lambda chapter: (
+                self._chapter_number(chapter),
+                chapter.lower(),
+            ),
+        )
+        chapters_with_count = [
+            {
+                'name': chapter,
+                'question_count': chapter_counts[chapter],
+            }
+            for chapter in chapters
+        ]
+
         return Response({
             'course_id': course.id,
             'course_name': course.name,
             'course_code': course.code,
-            'total_topics': len(sorted_topics),
-            'topics': sorted_topics,
+            'total_chapters': len(chapters),
+            'chapters': chapters,
+            'chapters_with_count': chapters_with_count,
+            'total_topics': len(all_topics),
+            'topics': sorted(all_topics),
+            'other_topics': sorted(other_topics),
         })
+
+    @staticmethod
+    def _chapter_number(chapter):
+        match = re.search(r'\d+', chapter)
+        return int(match.group()) if match else 999
 
 
 class SelectivePracticeView(APIView):
