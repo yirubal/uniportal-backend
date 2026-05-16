@@ -1,10 +1,17 @@
+from datetime import timedelta
+from io import BytesIO, StringIO
+import tempfile
+
+from django.core.management import call_command, CommandError
 from django.test import TestCase
+from django.utils import timezone
 from rest_framework.test import APITestCase
 
 from apps.accounts.models import Student
 from apps.api.views import _generate_jwt
 from apps.content.models import Course
 from apps.quiz.engine import get_topics_with_low_score
+from apps.quiz.importers import import_questions_from_excel
 from apps.quiz.models import ExamPaper, Question, QuizAttempt
 
 
@@ -181,6 +188,145 @@ class QuizFeedbackApiTests(APITestCase):
             'topics_missed': [],
         })
 
+    def test_course_topics_returns_unique_topics_for_available_course_questions(self):
+        premium_paper = ExamPaper.objects.create(
+            title='Premium Programming Quiz',
+            course=self.course,
+            exam_type=ExamPaper.TYPE_QUIZ,
+            year=2027,
+            access_level=ExamPaper.ACCESS_PREMIUM,
+        )
+        Question.objects.create(
+            exam_paper=premium_paper,
+            text='Premium-only topic question',
+            option_a='A',
+            option_b='B',
+            correct_option='a',
+            topic_tags=['Premium Topic'],
+        )
+
+        response = self.client.get(f'/api/quiz/courses/{self.course.id}/topics/')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data['course_id'], self.course.id)
+        self.assertEqual(response.data['course_name'], self.course.name)
+        self.assertEqual(response.data['course_code'], self.course.code)
+        self.assertEqual(response.data['topics'], ['arithmetic', 'functions'])
+        self.assertEqual(response.data['total_topics'], 2)
+
+    def test_course_topics_returns_premium_topics_for_premium_students(self):
+        self.student.subscription_status = Student.SUBSCRIPTION_PREMIUM
+
+        self.student.subscription_expiry = timezone.now() + timedelta(days=1)
+        self.student.save(update_fields=['subscription_status', 'subscription_expiry'])
+
+        premium_paper = ExamPaper.objects.create(
+            title='Premium Programming Quiz',
+            course=self.course,
+            exam_type=ExamPaper.TYPE_QUIZ,
+            year=2027,
+            access_level=ExamPaper.ACCESS_PREMIUM,
+        )
+        Question.objects.create(
+            exam_paper=premium_paper,
+            text='Premium-only topic question',
+            option_a='A',
+            option_b='B',
+            correct_option='a',
+            topic_tags=['Premium Topic'],
+        )
+
+        response = self.client.get(f'/api/quiz/courses/{self.course.id}/topics/')
+
+        self.assertEqual(
+            response.data['topics'],
+            ['Premium Topic', 'arithmetic', 'functions'],
+        )
+
+    def test_selective_practice_returns_questions_matching_selected_topics(self):
+        response = self.client.post(
+            '/api/quiz/selective-practice/',
+            {
+                'course_id': self.course.id,
+                'selected_topics': ['functions'],
+                'limit': 10,
+            },
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data['course_id'], self.course.id)
+        self.assertEqual(response.data['selected_topics'], ['functions'])
+        self.assertEqual(response.data['filtered_count'], 1)
+        self.assertEqual(response.data['returned_count'], 1)
+        self.assertTrue(response.data['can_start'])
+        self.assertEqual(response.data['questions'][0]['id'], self.second_question.id)
+        self.assertEqual(response.data['questions'][0]['topic_tags'], ['functions'])
+
+    def test_selective_practice_filters_premium_questions_for_free_students(self):
+        premium_paper = ExamPaper.objects.create(
+            title='Premium Programming Quiz',
+            course=self.course,
+            exam_type=ExamPaper.TYPE_QUIZ,
+            year=2027,
+            access_level=ExamPaper.ACCESS_PREMIUM,
+        )
+        Question.objects.create(
+            exam_paper=premium_paper,
+            text='Premium-only topic question',
+            option_a='A',
+            option_b='B',
+            correct_option='a',
+            topic_tags=['Premium Topic'],
+        )
+
+        response = self.client.post(
+            '/api/quiz/selective-practice/',
+            {
+                'course_id': self.course.id,
+                'selected_topics': ['Premium Topic'],
+            },
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.data['detail'], 'No questions found for selected topics')
+
+    def test_selective_practice_requires_topics(self):
+        response = self.client.post(
+            '/api/quiz/selective-practice/',
+            {
+                'course_id': self.course.id,
+                'selected_topics': [],
+            },
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.data['detail'], 'selected_topics must be a non-empty list')
+
+    def test_selective_attempt_submission_saves_selected_topics(self):
+        response = self.client.post(
+            '/api/quiz/attempts/',
+            {
+                'course_id': self.course.id,
+                'mode': QuizAttempt.MODE_SELECTIVE,
+                'selected_topics': ['functions'],
+                'answers': [
+                    {
+                        'question_id': self.second_question.id,
+                        'selected_option': 'c',
+                    },
+                ],
+            },
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, 201)
+        attempt = QuizAttempt.objects.get(id=response.data['attempt_id'])
+        self.assertEqual(attempt.mode, QuizAttempt.MODE_SELECTIVE)
+        self.assertEqual(attempt.selected_topics, ['functions'])
+
 
 class QuizFeedbackEngineTests(TestCase):
     def test_get_topics_with_low_score_returns_topics_under_fifty_percent(self):
@@ -196,3 +342,190 @@ class QuizFeedbackEngineTests(TestCase):
             'correct': 0,
             'total': 1,
         }])
+
+
+class QuizChapterImportTests(TestCase):
+    def setUp(self):
+        self.course = Course.objects.create(
+            name='Entrepreneurship',
+            code='MGMT221',
+        )
+        self.exam_paper = ExamPaper.objects.create(
+            title='Entrepreneurship Quiz',
+            course=self.course,
+            exam_type=ExamPaper.TYPE_QUIZ,
+            year=2026,
+            access_level=ExamPaper.ACCESS_PREMIUM,
+        )
+
+    def _build_workbook(self, rows):
+        from openpyxl import Workbook
+
+        workbook = Workbook()
+        worksheet = workbook.active
+        worksheet.title = 'Questions'
+        worksheet.append([
+            'question_type',
+            'question',
+            'chapter',
+            'option_a',
+            'option_b',
+            'option_c',
+            'option_d',
+            'option_e',
+            'correct_option',
+            'explanation',
+            'difficulty',
+            'topic_tags',
+            'year_source',
+        ])
+        worksheet.append([
+            'mcq / true_false / fill_blank / matching / essay',
+            'Full question text',
+            'Required chapter e.g. Chapter 1: Introduction',
+            'Option A',
+            'Option B',
+            'Option C',
+            'Option D',
+            'Optional option E',
+            'a/b/c/d/e',
+            'Explanation',
+            'easy / medium / hard',
+            'Comma separated optional tags',
+            'e.g. 2024',
+        ])
+        for row in rows:
+            worksheet.append(row)
+
+        output = BytesIO()
+        workbook.save(output)
+        output.seek(0)
+        return output
+
+    def test_excel_import_requires_chapter_and_adds_it_to_topic_tags_first(self):
+        workbook = self._build_workbook([
+            [
+                'mcq',
+                'What is entrepreneurship?',
+                'Chapter 1: Introduction',
+                'Creating value',
+                'A license',
+                'A tax',
+                'A building',
+                '',
+                'A',
+                'Entrepreneurship creates value.',
+                'easy',
+                'Definition, Basics',
+                '2024',
+            ],
+            [
+                'mcq',
+                'Which row has no chapter?',
+                '',
+                'A',
+                'B',
+                'C',
+                'D',
+                '',
+                'A',
+                '',
+                'easy',
+                'Missing Chapter',
+                '2024',
+            ],
+        ])
+
+        result = import_questions_from_excel(workbook, self.exam_paper)
+
+        self.assertEqual(result.created, 1)
+        self.assertEqual(result.skipped, 1)
+        self.assertIn('Row 4: skipped — chapter is required.', result.errors)
+
+        question = Question.objects.get()
+        self.assertEqual(question.text, 'What is entrepreneurship?')
+        self.assertEqual(question.exam_paper, self.exam_paper)
+        self.assertEqual(
+            question.topic_tags,
+            ['Chapter 1: Introduction', 'Definition', 'Basics'],
+        )
+        self.assertFalse(question.is_active)
+
+    def test_excel_import_does_not_duplicate_chapter_when_already_in_tags(self):
+        workbook = self._build_workbook([[
+            'mcq',
+            'What is risk?',
+            'Chapter 2: Risk Analysis',
+            'Market uncertainty',
+            'Free capital',
+            'No competition',
+            'Guaranteed success',
+            '',
+            'A',
+            '',
+            'medium',
+            'Chapter 2: Risk Analysis, Risk',
+            '2024',
+        ]])
+
+        result = import_questions_from_excel(workbook, self.exam_paper)
+
+        self.assertEqual(result.created, 1)
+        question = Question.objects.get()
+        self.assertEqual(
+            question.topic_tags,
+            ['Chapter 2: Risk Analysis', 'Risk'],
+        )
+
+    def test_import_command_validates_exam_paper_course(self):
+        other_course = Course.objects.create(
+            name='Accounting',
+            code='ACFN101',
+        )
+        workbook = self._build_workbook([])
+
+        with tempfile.NamedTemporaryFile(suffix='.xlsx') as tmp:
+            tmp.write(workbook.read())
+            tmp.flush()
+
+            with self.assertRaises(CommandError):
+                call_command(
+                    'import_questions_with_chapters',
+                    tmp.name,
+                    exam_paper_id=self.exam_paper.id,
+                    course_id=other_course.id,
+                    stdout=StringIO(),
+                )
+
+    def test_import_command_imports_chapter_mapped_questions(self):
+        workbook = self._build_workbook([[
+            'mcq',
+            'What is innovation?',
+            'Chapter 1: Introduction',
+            'Creating new ideas',
+            'Copying others',
+            'Waiting',
+            'Avoiding change',
+            '',
+            'A',
+            '',
+            'easy',
+            'Innovation',
+            '2024',
+        ]])
+
+        with tempfile.NamedTemporaryFile(suffix='.xlsx') as tmp:
+            tmp.write(workbook.read())
+            tmp.flush()
+            output = StringIO()
+
+            call_command(
+                'import_questions_with_chapters',
+                tmp.name,
+                exam_paper_id=self.exam_paper.id,
+                course_id=self.course.id,
+                stdout=output,
+            )
+
+        self.assertEqual(Question.objects.count(), 1)
+        self.assertIn('Created: 1', output.getvalue())

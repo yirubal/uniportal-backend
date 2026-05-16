@@ -250,10 +250,12 @@ class QuizAttempt(models.Model):
     MODE_PRACTICE   = 'practice'
     MODE_SIMULATION = 'simulation'
     MODE_TOPIC      = 'topic'
+    MODE_SELECTIVE  = 'selective'
     MODE_CHOICES = [
         (MODE_PRACTICE,   'Practice'),
         (MODE_SIMULATION, 'Simulation'),
         (MODE_TOPIC,      'Topic'),
+        (MODE_SELECTIVE,  'Selective Practice'),
     ]
 
     student = models.ForeignKey(
@@ -299,6 +301,11 @@ class QuizAttempt(models.Model):
             'Includes selected answer, correct answer, options, explanation, '
             'topic tags, and correctness metadata.'
         ),
+    )
+    selected_topics = models.JSONField(
+        default=list,
+        blank=True,
+        help_text='Topics selected for this attempt e.g. ["Chapter 1", "Loops"]',
     )
     mode = models.CharField(
         max_length=15,

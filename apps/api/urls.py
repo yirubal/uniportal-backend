@@ -30,6 +30,10 @@ urlpatterns = [
     path('exams/lookup/', views.ExamLookupView.as_view(), name='exam-lookup'),
     path('exams/active-term/', views.ActiveExamTermView.as_view(), name='exam-active-term'),
 
+    # Selective Practice
+    path('quiz/courses/<int:course_id>/topics/', views.CourseTopicsView.as_view(), name='course-topics'),
+    path('quiz/selective-practice/', views.SelectivePracticeView.as_view(), name='selective-practice'),
+
     # Exit Exam Topics
     path('exit-exams/topics/', views.ExitExamTopicsView.as_view(), name='exit-exam-topics'),
     path('exit-exams/topics/questions/', views.TopicQuestionsView.as_view(), name='exit-exam-topic-questions'),
