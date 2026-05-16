@@ -291,6 +291,15 @@ class QuizAttempt(models.Model):
         default=dict,
         help_text='Format: {question_id: selected_option} e.g. {"12": "a", "13": "c"}',
     )
+    detailed_answers = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text=(
+            'Detailed per-question answer feedback keyed by question id. '
+            'Includes selected answer, correct answer, options, explanation, '
+            'topic tags, and correctness metadata.'
+        ),
+    )
     mode = models.CharField(
         max_length=15,
         choices=MODE_CHOICES,

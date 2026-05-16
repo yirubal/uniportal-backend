@@ -36,6 +36,7 @@ urlpatterns = [
 
     # Quiz Attempts
     path('quiz/attempts/', views.QuizAttemptView.as_view(), name='quiz-attempts'),
+    path('quiz/attempts/<int:attempt_id>/feedback/', views.QuizFeedbackView.as_view(), name='quiz-feedback'),
 
     # Subscription
     path('subscription/plans/', views.SubscriptionPlansView.as_view(), name='subscription-plans'),

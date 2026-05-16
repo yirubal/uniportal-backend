@@ -733,6 +733,31 @@ class QuizAttemptView(APIView):
             )
 
         result = calculate_score(questions=questions, answers=answers)
+        questions_map = {str(question.id): question for question in questions}
+        result_map = {
+            str(item['question_id']): item
+            for item in result.get('results', [])
+        }
+        detailed_answers = {}
+
+        for answer in answers:
+            question_id = str(answer.get('question_id'))
+            question = questions_map.get(question_id)
+            scored = result_map.get(question_id, {})
+            if not question:
+                continue
+
+            detailed_answers[question_id] = {
+                'selected_option': answer.get('selected_option', ''),
+                'correct_option': question.correct_option,
+                'is_correct': scored.get('is_correct', False),
+                'is_pending': scored.get('is_pending', False),
+                'question_text': question.text,
+                'question_type': question.question_type,
+                'options': question.available_options,
+                'explanation': question.explanation or '',
+                'topic_tags': question.topic_tags or [],
+            }
 
         attempt = QuizAttempt.objects.create(
             student=student,
@@ -745,11 +770,13 @@ class QuizAttemptView(APIView):
                 str(a['question_id']): a.get('selected_option', '')
                 for a in answers
             },
+            detailed_answers=detailed_answers,
             mode=mode,
         )
 
         return Response({
             'attempt_id': attempt.id,
+            'detailed_answers': detailed_answers,
             **result,
         }, status=status.HTTP_201_CREATED)
 
@@ -759,6 +786,47 @@ class QuizAttemptView(APIView):
         ).select_related('exam_paper').order_by('-completed_at')[:20]
 
         return Response(QuizAttemptSerializer(attempts, many=True).data)
+
+
+class QuizFeedbackView(APIView):
+    permission_classes = [IsTelegramAuthenticated]
+
+    def get(self, request, attempt_id):
+        from apps.quiz.engine import get_topics_with_low_score
+
+        try:
+            attempt = QuizAttempt.objects.get(
+                id=attempt_id,
+                student=request.student,
+            )
+        except QuizAttempt.DoesNotExist:
+            return Response(
+                {'detail': 'Attempt not found'},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        detailed_answers = attempt.detailed_answers or {}
+
+        return Response({
+            'attempt_id': attempt.id,
+            'score': attempt.score,
+            'total_questions': attempt.total_questions,
+            'percentage': attempt.percentage,
+            'mode': attempt.mode,
+            'completed_at': attempt.completed_at,
+            'detailed_answers': detailed_answers,
+            'summary': {
+                'correct': sum(
+                    1 for answer in detailed_answers.values()
+                    if answer.get('is_correct')
+                ),
+                'incorrect': sum(
+                    1 for answer in detailed_answers.values()
+                    if not answer.get('is_correct')
+                ),
+                'topics_missed': get_topics_with_low_score(detailed_answers),
+            },
+        })
 
 
 # ─── PERFORMANCE ──────────────────────────────────────────────────────────────
