@@ -252,6 +252,41 @@ def calculate_score(
     }
 
 
+def get_topics_with_low_score(detailed_answers: dict) -> list[dict]:
+    """
+    From detailed answer feedback, return topics where the student scored below 50%.
+    """
+    topic_scores = {}
+
+    for answer_data in detailed_answers.values():
+        is_correct = answer_data.get('is_correct', False)
+        topics = answer_data.get('topic_tags', [])
+
+        for topic in topics:
+            if topic not in topic_scores:
+                topic_scores[topic] = {'correct': 0, 'total': 0}
+
+            topic_scores[topic]['total'] += 1
+            if is_correct:
+                topic_scores[topic]['correct'] += 1
+
+    weak_topics = []
+    for topic, scores in topic_scores.items():
+        percentage = (
+            scores['correct'] / scores['total'] * 100
+            if scores['total'] > 0 else 0
+        )
+        if percentage < 50:
+            weak_topics.append({
+                'topic': topic,
+                'percentage': round(percentage, 1),
+                'correct': scores['correct'],
+                'total': scores['total'],
+            })
+
+    return sorted(weak_topics, key=lambda item: item['percentage'])
+
+
 def get_performance_summary(student) -> dict:
     """
     Returns a student's overall performance summary across all attempts.

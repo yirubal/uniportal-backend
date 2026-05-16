@@ -503,6 +503,134 @@ class ExamPaperQuestionsView(APIView):
         return Response(serializer_class(questions, many=True).data)
 
 
+class CourseTopicsView(APIView):
+    permission_classes = [IsTelegramAuthenticated]
+
+    def get(self, request, course_id):
+        try:
+            course = Course.objects.get(id=course_id, is_active=True)
+        except Course.DoesNotExist:
+            return Response(
+                {'detail': 'Course not found'},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        questions = Question.objects.filter(
+            exam_paper__course=course,
+            exam_paper__is_active=True,
+            is_active=True,
+        )
+        if not request.student.is_premium:
+            questions = questions.filter(
+                exam_paper__access_level=ExamPaper.ACCESS_FREE,
+            )
+
+        topics = set()
+        for topic_list in questions.values_list('topic_tags', flat=True):
+            if isinstance(topic_list, list):
+                topics.update(topic for topic in topic_list if topic)
+
+        sorted_topics = sorted(topics)
+        return Response({
+            'course_id': course.id,
+            'course_name': course.name,
+            'course_code': course.code,
+            'total_topics': len(sorted_topics),
+            'topics': sorted_topics,
+        })
+
+
+class SelectivePracticeView(APIView):
+    permission_classes = [IsTelegramAuthenticated]
+
+    def post(self, request):
+        course_id = request.data.get('course_id')
+        selected_topics = request.data.get('selected_topics', [])
+        limit = request.data.get('limit', 50)
+
+        if not course_id:
+            return Response(
+                {'detail': 'course_id is required'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if not isinstance(selected_topics, list) or not selected_topics:
+            return Response(
+                {'detail': 'selected_topics must be a non-empty list'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            limit = int(limit)
+        except (TypeError, ValueError):
+            return Response(
+                {'detail': 'limit must be a number'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        limit = max(1, min(limit, 100))
+
+        try:
+            course = Course.objects.get(id=course_id, is_active=True)
+        except Course.DoesNotExist:
+            return Response(
+                {'detail': 'Course not found'},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        normalized_topics = [
+            str(topic).strip()
+            for topic in selected_topics
+            if str(topic).strip()
+        ]
+        if not normalized_topics:
+            return Response(
+                {'detail': 'selected_topics must be a non-empty list'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        base_queryset = Question.objects.filter(
+            exam_paper__course=course,
+            exam_paper__is_active=True,
+            is_active=True,
+        ).select_related('exam_paper').order_by('id')
+
+        if not request.student.is_premium:
+            base_queryset = base_queryset.filter(
+                exam_paper__access_level=ExamPaper.ACCESS_FREE,
+            )
+
+        filtered_questions = []
+        for question in base_queryset:
+            question_topics = question.topic_tags or []
+            if any(topic in question_topics for topic in normalized_topics):
+                filtered_questions.append(question)
+
+        total_filtered_count = len(filtered_questions)
+        filtered_questions = filtered_questions[:limit]
+
+        if not filtered_questions:
+            return Response(
+                {
+                    'detail': 'No questions found for selected topics',
+                    'course_id': course.id,
+                    'selected_topics': normalized_topics,
+                },
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        return Response({
+            'course_id': course.id,
+            'course_name': course.name,
+            'course_code': course.code,
+            'selected_topics': normalized_topics,
+            'questions': QuestionSerializer(filtered_questions, many=True).data,
+            'total_questions_in_course': base_queryset.count(),
+            'filtered_count': total_filtered_count,
+            'returned_count': len(filtered_questions),
+            'can_start': True,
+        })
+
+
 class ActiveExamTermView(APIView):
     """Returns whether an active exam term exists."""
 
@@ -713,6 +841,7 @@ class QuizAttemptView(APIView):
         exam_paper_id = request.data.get('exam_paper_id')
         course_id     = request.data.get('course_id')
         department_id = request.data.get('department_id')
+        selected_topics = request.data.get('selected_topics', [])
 
         if not answers:
             return Response(
@@ -733,6 +862,31 @@ class QuizAttemptView(APIView):
             )
 
         result = calculate_score(questions=questions, answers=answers)
+        questions_map = {str(question.id): question for question in questions}
+        result_map = {
+            str(item['question_id']): item
+            for item in result.get('results', [])
+        }
+        detailed_answers = {}
+
+        for answer in answers:
+            question_id = str(answer.get('question_id'))
+            question = questions_map.get(question_id)
+            scored = result_map.get(question_id, {})
+            if not question:
+                continue
+
+            detailed_answers[question_id] = {
+                'selected_option': answer.get('selected_option', ''),
+                'correct_option': question.correct_option,
+                'is_correct': scored.get('is_correct', False),
+                'is_pending': scored.get('is_pending', False),
+                'question_text': question.text,
+                'question_type': question.question_type,
+                'options': question.available_options,
+                'explanation': question.explanation or '',
+                'topic_tags': question.topic_tags or [],
+            }
 
         attempt = QuizAttempt.objects.create(
             student=student,
@@ -745,11 +899,18 @@ class QuizAttemptView(APIView):
                 str(a['question_id']): a.get('selected_option', '')
                 for a in answers
             },
+            detailed_answers=detailed_answers,
+            selected_topics=(
+                selected_topics
+                if mode == QuizAttempt.MODE_SELECTIVE and isinstance(selected_topics, list)
+                else []
+            ),
             mode=mode,
         )
 
         return Response({
             'attempt_id': attempt.id,
+            'detailed_answers': detailed_answers,
             **result,
         }, status=status.HTTP_201_CREATED)
 
@@ -759,6 +920,47 @@ class QuizAttemptView(APIView):
         ).select_related('exam_paper').order_by('-completed_at')[:20]
 
         return Response(QuizAttemptSerializer(attempts, many=True).data)
+
+
+class QuizFeedbackView(APIView):
+    permission_classes = [IsTelegramAuthenticated]
+
+    def get(self, request, attempt_id):
+        from apps.quiz.engine import get_topics_with_low_score
+
+        try:
+            attempt = QuizAttempt.objects.get(
+                id=attempt_id,
+                student=request.student,
+            )
+        except QuizAttempt.DoesNotExist:
+            return Response(
+                {'detail': 'Attempt not found'},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        detailed_answers = attempt.detailed_answers or {}
+
+        return Response({
+            'attempt_id': attempt.id,
+            'score': attempt.score,
+            'total_questions': attempt.total_questions,
+            'percentage': attempt.percentage,
+            'mode': attempt.mode,
+            'completed_at': attempt.completed_at,
+            'detailed_answers': detailed_answers,
+            'summary': {
+                'correct': sum(
+                    1 for answer in detailed_answers.values()
+                    if answer.get('is_correct')
+                ),
+                'incorrect': sum(
+                    1 for answer in detailed_answers.values()
+                    if not answer.get('is_correct')
+                ),
+                'topics_missed': get_topics_with_low_score(detailed_answers),
+            },
+        })
 
 
 # ─── PERFORMANCE ──────────────────────────────────────────────────────────────

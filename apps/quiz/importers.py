@@ -64,6 +64,7 @@ def import_questions_from_excel(file, exam_paper) -> ImportResult:
     COL = {
         "question_type":  col("question_type"),
         "question":       col("question"),
+        "chapter":        col("chapter"),
         "option_a":       col("option_a"),
         "option_b":       col("option_b"),
         "option_c":       col("option_c"),
@@ -76,9 +77,9 @@ def import_questions_from_excel(file, exam_paper) -> ImportResult:
         "year_source":    col("year_source"),
     }
 
-    if COL["question_type"] is None or COL["question"] is None:
+    if COL["question_type"] is None or COL["question"] is None or COL["chapter"] is None:
         return ImportResult(0, 0, [
-            "Could not find required columns 'question_type' and 'question'. "
+            "Could not find required columns 'question_type', 'question', and 'chapter'. "
             "Make sure you are using the official template."
         ])
 
@@ -109,9 +110,15 @@ def import_questions_from_excel(file, exam_paper) -> ImportResult:
 
         q_type = get(row, "question_type").lower()
         q_text = get(row, "question")
+        chapter = get(row, "chapter")
 
         if not q_text:
             errors.append(f"Row {row_num}: skipped — question text is empty.")
+            skipped += 1
+            continue
+
+        if not chapter:
+            errors.append(f"Row {row_num}: skipped — chapter is required.")
             skipped += 1
             continue
 
@@ -164,6 +171,9 @@ def import_questions_from_excel(file, exam_paper) -> ImportResult:
             topic_tags = [t.strip() for t in raw_tags.split(",") if t.strip()]
         else:
             topic_tags = []
+
+        if chapter not in topic_tags:
+            topic_tags.insert(0, chapter)
 
         # Explanation
         explanation = get(row, "explanation")
