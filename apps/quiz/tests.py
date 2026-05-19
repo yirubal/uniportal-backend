@@ -12,7 +12,7 @@ from apps.api.views import _generate_jwt
 from apps.content.models import Course
 from apps.quiz.engine import get_topics_with_low_score
 from apps.quiz.importers import import_questions_from_excel
-from apps.quiz.models import ExamPaper, Question, QuizAttempt
+from apps.quiz.models import Chapter, ExamPaper, Question, QuizAttempt
 
 
 class QuizFeedbackApiTests(APITestCase):
@@ -215,6 +215,51 @@ class QuizFeedbackApiTests(APITestCase):
         self.assertEqual(response.data['total_chapters'], 2)
         self.assertEqual(response.data['topics'], ['arithmetic', 'functions'])
         self.assertEqual(response.data['total_topics'], 2)
+
+    def test_course_chapters_returns_active_chapters_with_question_counts(self):
+        chapter = Chapter.objects.create(
+            course=self.course,
+            number=1,
+            title='Introduction',
+            description='Foundations',
+            icon='📚',
+            order=1,
+        )
+        Chapter.objects.create(
+            course=self.course,
+            number=2,
+            title='Inactive Chapter',
+            is_active=False,
+        )
+        self.first_question.chapter = chapter
+        self.first_question.save(update_fields=['chapter'])
+        Question.objects.create(
+            exam_paper=self.exam_paper,
+            chapter=chapter,
+            text='Inactive question',
+            option_a='A',
+            option_b='B',
+            correct_option='a',
+            is_active=False,
+        )
+
+        response = self.client.get(f'/api/quiz/courses/{self.course.id}/chapters/')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data['course_id'], self.course.id)
+        self.assertEqual(response.data['course_name'], self.course.name)
+        self.assertEqual(response.data['course_code'], self.course.code)
+        self.assertEqual(response.data['total_chapters'], 1)
+        self.assertEqual(response.data['chapters'], [
+            {
+                'id': chapter.id,
+                'number': 1,
+                'title': 'Introduction',
+                'description': 'Foundations',
+                'icon': '📚',
+                'question_count': 1,
+            }
+        ])
 
     def test_course_topics_returns_premium_topics_for_premium_students(self):
         self.student.subscription_status = Student.SUBSCRIPTION_PREMIUM
@@ -507,6 +552,9 @@ class QuizChapterImportTests(TestCase):
             question.topic_tags,
             ['Chapter 1: Introduction', 'Definition', 'Basics'],
         )
+        self.assertEqual(question.chapter.course, self.course)
+        self.assertEqual(question.chapter.number, 1)
+        self.assertEqual(question.chapter.title, 'Introduction')
         self.assertFalse(question.is_active)
 
     def test_excel_import_does_not_duplicate_chapter_when_already_in_tags(self):
@@ -534,6 +582,8 @@ class QuizChapterImportTests(TestCase):
             question.topic_tags,
             ['Chapter 2: Risk Analysis', 'Risk'],
         )
+        self.assertEqual(question.chapter.number, 2)
+        self.assertEqual(question.chapter.title, 'Risk Analysis')
 
     def test_import_command_validates_exam_paper_course(self):
         other_course = Course.objects.create(
@@ -586,4 +636,164 @@ class QuizChapterImportTests(TestCase):
             )
 
         self.assertEqual(Question.objects.count(), 1)
+        question = Question.objects.get()
+        self.assertEqual(question.chapter.number, 1)
+        self.assertEqual(question.chapter.title, 'Introduction')
         self.assertIn('Created: 1', output.getvalue())
+
+    def test_import_course_with_chapters_command_creates_chapters_and_questions(self):
+        from openpyxl import Workbook
+
+        workbook = Workbook()
+        chapters = workbook.active
+        chapters.title = 'CHAPTERS'
+        chapters.append(['number', 'title', 'description', 'icon'])
+        chapters.append([1, 'Introduction', 'Foundations', '📚'])
+        questions = workbook.create_sheet('QUESTIONS')
+        questions.append([
+            'question_text',
+            'chapter_number',
+            'option_a',
+            'option_b',
+            'option_c',
+            'option_d',
+            'correct_option',
+            'explanation',
+            'difficulty',
+            'topic_tags',
+            'year_source',
+        ])
+        questions.append([
+            'What is entrepreneurship?',
+            1,
+            'Creating value',
+            'A license',
+            'A tax',
+            'A building',
+            'a',
+            'Entrepreneurship creates value.',
+            'easy',
+            'Definition, Basics',
+            '2024',
+        ])
+
+        output = BytesIO()
+        workbook.save(output)
+        output.seek(0)
+
+        with tempfile.NamedTemporaryFile(suffix='.xlsx') as tmp:
+            tmp.write(output.read())
+            tmp.flush()
+            command_output = StringIO()
+
+            call_command(
+                'import_course_with_chapters',
+                file=tmp.name,
+                course_id=self.course.id,
+                exam_paper_id=self.exam_paper.id,
+                stdout=command_output,
+            )
+
+        chapter = Chapter.objects.get(course=self.course, number=1)
+        question = Question.objects.get()
+        self.assertEqual(chapter.title, 'Introduction')
+        self.assertEqual(question.chapter, chapter)
+        self.assertEqual(question.exam_paper, self.exam_paper)
+        self.assertTrue(question.is_active)
+        self.assertEqual(
+            question.topic_tags,
+            ['Chapter 1: Introduction', 'Definition', 'Basics'],
+        )
+        self.assertIn('Questions created: 1', command_output.getvalue())
+
+    def test_import_course_with_chapters_command_auto_extracts_chapters_from_single_sheet(self):
+        from openpyxl import Workbook
+
+        workbook = Workbook()
+        questions = workbook.active
+        questions.title = 'Generated'
+        questions.append([
+            'chapter',
+            'question',
+            'option_a',
+            'option_b',
+            'option_c',
+            'option_d',
+            'correct_option',
+            'explanation',
+            'difficulty',
+            'topic_tags',
+            'year_source',
+        ])
+        questions.append([
+            'Chapter 1: Introduction to Arrays',
+            'What is an array?',
+            'An ordered collection',
+            'A function type',
+            'A storage device',
+            'Network protocol',
+            'a',
+            'Arrays store elements consecutively.',
+            'easy',
+            'array,basics',
+            '2023',
+        ])
+        questions.append([
+            '1: Introduction to Arrays',
+            'How are arrays stored in memory?',
+            'Consecutively',
+            'In a linked list',
+            'In a tree',
+            'In a hash table',
+            'a',
+            'Arrays allocate contiguous memory.',
+            'medium',
+            'array,memory',
+            '2023',
+        ])
+        questions.append([
+            'Chapter 2',
+            'What is a linked list?',
+            'List with pointers',
+            'Array with links',
+            'Tree structure',
+            'Graph structure',
+            'a',
+            'Linked lists use node pointers.',
+            'medium',
+            'linked-list,basics',
+            '',
+        ])
+
+        output = BytesIO()
+        workbook.save(output)
+        output.seek(0)
+
+        with tempfile.NamedTemporaryFile(suffix='.xlsx') as tmp:
+            tmp.write(output.read())
+            tmp.flush()
+            command_output = StringIO()
+
+            call_command(
+                'import_course_with_chapters',
+                file=tmp.name,
+                course_id=self.course.id,
+                stdout=command_output,
+            )
+
+        self.assertEqual(Chapter.objects.count(), 2)
+        self.assertEqual(Question.objects.count(), 3)
+
+        first_chapter = Chapter.objects.get(course=self.course, number=1)
+        second_chapter = Chapter.objects.get(course=self.course, number=2)
+        self.assertEqual(first_chapter.title, 'Introduction to Arrays')
+        self.assertEqual(second_chapter.title, 'Chapter 2')
+
+        first_question = Question.objects.get(text='What is an array?')
+        self.assertEqual(first_question.chapter, first_chapter)
+        self.assertEqual(
+            first_question.topic_tags,
+            ['Chapter 1: Introduction to Arrays', 'array', 'basics'],
+        )
+        self.assertIn('Format: single sheet', command_output.getvalue())
+        self.assertIn('Questions created: 3', command_output.getvalue())

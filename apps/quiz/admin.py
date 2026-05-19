@@ -5,10 +5,11 @@ from django.http import HttpResponseRedirect
 from unfold.admin import ModelAdmin
 from django.http import HttpResponse, HttpResponseRedirect
 from django.urls import path, reverse
+from django.utils.html import format_html
 import os
 
 
-from .models import ExamPaper, Question, QuizAttempt
+from .models import Chapter, ExamPaper, Question, QuizAttempt
 
 
 # ─── Filters ──────────────────────────────────────────────────────────────────
@@ -29,6 +30,71 @@ class AssignmentStatusFilter(admin.SimpleListFilter):
         if self.value() == 'assigned':
             return queryset.filter(exam_paper__isnull=False)
         return queryset
+
+
+# ─── Chapter Admin ────────────────────────────────────────────────────────────
+
+@admin.register(Chapter)
+class ChapterAdmin(ModelAdmin):
+    list_display = [
+        'chapter_display',
+        'course',
+        'title',
+        'question_count_display',
+        'is_active',
+        'created_at',
+    ]
+    list_filter = [
+        'course',
+        'is_active',
+        'created_at',
+    ]
+    search_fields = [
+        'title',
+        'description',
+        'course__name',
+        'course__code',
+    ]
+    readonly_fields = ['created_at', 'updated_at']
+    ordering = ['course', 'number']
+    list_editable = ['is_active']
+    fieldsets = (
+        ('Chapter Info', {
+            'fields': (
+                'course',
+                'number',
+                'title',
+                'description',
+            )
+        }),
+        ('Display Settings', {
+            'fields': (
+                'icon',
+                'order',
+                'is_active',
+            )
+        }),
+        ('Metadata', {
+            'classes': ('collapse',),
+            'fields': (
+                'created_at',
+                'updated_at',
+            )
+        }),
+    )
+
+    @admin.display(description='Chapter')
+    def chapter_display(self, obj):
+        label = f'{obj.icon} Chapter {obj.number}' if obj.icon else f'Chapter {obj.number}'
+        return format_html('<strong>{}</strong>', label)
+
+    @admin.display(description='Questions')
+    def question_count_display(self, obj):
+        return format_html(
+            '<span style="background-color:#E8F4F8;padding:3px 8px;'
+            'border-radius:3px;font-weight:bold">{} Q</span>',
+            obj.question_count,
+        )
 
 
 # ─── ExamPaper Admin ───────────────────────────────────────────────────────────"
@@ -206,6 +272,7 @@ class QuestionAdmin(ModelAdmin):
     list_display = [
         'short_text',
         'question_type',
+        'chapter',
         'exam_paper',
         'difficulty',
         'year_source',
@@ -216,12 +283,16 @@ class QuestionAdmin(ModelAdmin):
         'question_type',
         'difficulty',
         'is_active',
+        'chapter__course',
+        'chapter',
         'exam_paper__exam_type',
         'exam_paper__department',
+        'exam_paper__course',
     ]
     search_fields = [
         'text',
         'explanation',
+        'chapter__title',
         'exam_paper__title',
         'exam_paper__department__name',
         'exam_paper__course__name',
@@ -233,6 +304,7 @@ class QuestionAdmin(ModelAdmin):
                 'text',
                 'question_type',
                 'exam_paper',
+                'chapter',
             )
         }),
         ('Options', {
@@ -347,6 +419,10 @@ class QuestionAdmin(ModelAdmin):
             if paper_id:
                 updates['exam_paper'] = ExamPaper.objects.get(id=paper_id)
 
+            chapter_id = request.POST.get('chapter')
+            if chapter_id:
+                updates['chapter'] = Chapter.objects.get(id=chapter_id)
+
             year = request.POST.get('year_source')
             if year:
                 updates['year_source'] = year.strip()
@@ -376,6 +452,7 @@ class QuestionAdmin(ModelAdmin):
             'title': 'Set Question Metadata',
             'question_ids': question_ids,
             'exam_papers': ExamPaper.objects.filter(is_active=True).order_by('-year', 'title'),
+            'chapters': Chapter.objects.filter(is_active=True).select_related('course').order_by('course__name', 'number'),
         }
         return render(request, 'admin/quiz/bulk_metadata.html', context)
 

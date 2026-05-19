@@ -6,7 +6,10 @@ Used by the admin upload action on ExamPaper.
 """
 
 import logging
+import re
 from typing import NamedTuple
+
+from django.db.models import Max
 
 logger = logging.getLogger(__name__)
 
@@ -19,6 +22,56 @@ class ImportResult(NamedTuple):
     created: int
     skipped: int
     errors: list[str]
+
+
+def parse_chapter_label(value: str) -> tuple[int | None, str]:
+    text = str(value or "").strip()
+    match = re.match(r'^(?:chapter\s*)?(\d+)\s*[:.)\-]?\s*(.*)$', text, re.IGNORECASE)
+    if not match:
+        return None, text
+
+    number = int(match.group(1))
+    title = match.group(2).strip() or f'Chapter {number}'
+    return number, title
+
+
+def get_or_create_chapter_from_label(course, label):
+    if not course:
+        return None
+
+    number, title = parse_chapter_label(label)
+    from apps.quiz.models import Chapter
+
+    if number is not None:
+        chapter, created = Chapter.objects.get_or_create(
+            course=course,
+            number=number,
+            defaults={
+                'title': title,
+                'order': number,
+                'is_active': True,
+            },
+        )
+        if not created and title and chapter.title != title:
+            chapter.title = title
+            chapter.save(update_fields=['title', 'updated_at'])
+        return chapter
+
+    chapter = Chapter.objects.filter(course=course, title__iexact=title).first()
+    if chapter:
+        return chapter
+
+    next_number = (
+        Chapter.objects.filter(course=course).aggregate(max_number=Max('number'))['max_number']
+        or 0
+    ) + 1
+    return Chapter.objects.create(
+        course=course,
+        number=next_number,
+        title=title,
+        order=next_number,
+        is_active=True,
+    )
 
 
 def import_questions_from_excel(file, exam_paper) -> ImportResult:
@@ -185,9 +238,11 @@ def import_questions_from_excel(file, exam_paper) -> ImportResult:
 
         try:
             year_source = normalize_year_source(get(row, "year_source"))
+            chapter_obj = get_or_create_chapter_from_label(exam_paper.course, chapter)
 
             Question.objects.create(
                 exam_paper=exam_paper,
+                chapter=chapter_obj,
                 question_type=q_type,
                 text=q_text,
                 option_a=option_a,

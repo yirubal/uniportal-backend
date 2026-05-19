@@ -22,13 +22,14 @@ from apps.accounts.models import Student
 from apps.accounts.auth import validate_telegram_init_data
 from apps.content.models import Department, Course, CoursePlacement, Resource
 from apps.exams.models import ExamTerm, StudentExam
-from apps.quiz.models import ExamPaper, Question, QuizAttempt
+from apps.quiz.models import Chapter, ExamPaper, Question, QuizAttempt
 from .serializers import (
     StudentSerializer,
     DepartmentSerializer,
     CourseSerializer,
     CoursePlacementSerializer,
     ResourceSerializer,
+    ChapterSerializer,
     QuestionSerializer,
     QuestionSimulationSerializer,
     ExamPaperSerializer,
@@ -572,6 +573,34 @@ class CourseTopicsView(APIView):
     def _chapter_number(chapter):
         match = re.search(r'\d+', chapter)
         return int(match.group()) if match else 999
+
+
+class CourseChaptersView(APIView):
+    permission_classes = [IsTelegramAuthenticated]
+
+    def get(self, request, course_id):
+        try:
+            course = Course.objects.get(id=course_id, is_active=True)
+        except Course.DoesNotExist:
+            return Response(
+                {'detail': 'Course not found'},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        chapters = Chapter.objects.filter(
+            course=course,
+            is_active=True,
+        ).order_by('order', 'number')
+
+        serializer = ChapterSerializer(chapters, many=True)
+
+        return Response({
+            'course_id': course.id,
+            'course_name': course.name,
+            'course_code': course.code,
+            'total_chapters': chapters.count(),
+            'chapters': serializer.data,
+        })
 
 
 class SelectivePracticeView(APIView):
