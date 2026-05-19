@@ -2,6 +2,7 @@ from datetime import timedelta
 from io import BytesIO, StringIO
 import tempfile
 
+from django.contrib import admin as django_admin
 from django.core.management import call_command, CommandError
 from django.test import TestCase
 from django.utils import timezone
@@ -9,9 +10,10 @@ from rest_framework.test import APITestCase
 
 from apps.accounts.models import Student
 from apps.api.views import _generate_jwt
-from apps.content.models import Course
+from apps.content.models import Course, Department
+from apps.quiz.admin import ExamPaperAdmin
 from apps.quiz.engine import get_topics_with_low_score
-from apps.quiz.importers import import_questions_from_excel
+from apps.quiz.importers import import_exit_questions_from_excel, import_questions_from_excel
 from apps.quiz.models import Chapter, ExamPaper, Question, QuizAttempt
 
 
@@ -797,3 +799,232 @@ class QuizChapterImportTests(TestCase):
         )
         self.assertIn('Format: single sheet', command_output.getvalue())
         self.assertIn('Questions created: 3', command_output.getvalue())
+
+    def test_import_exit_exam_questions_sets_exam_course_and_leaves_chapter_empty(self):
+        from openpyxl import Workbook
+
+        department = Department.objects.create(name='Computing')
+        exit_paper = ExamPaper.objects.create(
+            title='Computing Exit Model',
+            department=department,
+            exam_type=ExamPaper.TYPE_EXIT_MODEL,
+            year=2026,
+            duration_minutes=120,
+            access_level=ExamPaper.ACCESS_PREMIUM,
+        )
+        workbook = Workbook()
+        questions = workbook.active
+        questions.title = 'Questions'
+        questions.append([
+            'course',
+            'question',
+            'option_a',
+            'option_b',
+            'option_c',
+            'option_d',
+            'correct_option',
+            'explanation',
+            'difficulty',
+            'topic_tags',
+            'year_source',
+        ])
+        questions.append([
+            'Required course name or code',
+            'Full question text',
+            'Option A',
+            'Option B',
+            'Option C',
+            'Option D',
+            'a/b/c/d/e',
+            'Explanation',
+            'easy / medium / hard',
+            'Comma separated optional tags',
+            'e.g. 2024',
+        ])
+        questions.append([
+            self.course.name,
+            'What is entrepreneurship?',
+            'Creating value',
+            'A license',
+            'A tax',
+            'A building',
+            'a',
+            'Entrepreneurship creates value.',
+            'easy',
+            'Definition, Basics',
+            '2024',
+        ])
+
+        output = BytesIO()
+        workbook.save(output)
+        output.seek(0)
+
+        with tempfile.NamedTemporaryFile(suffix='.xlsx') as tmp:
+            tmp.write(output.read())
+            tmp.flush()
+            command_output = StringIO()
+
+            call_command(
+                'import_exit_exam_questions',
+                file=tmp.name,
+                exam_paper_id=exit_paper.id,
+                stdout=command_output,
+            )
+
+        exit_paper.refresh_from_db()
+        question = Question.objects.get()
+        self.assertEqual(exit_paper.course, self.course)
+        self.assertEqual(question.exam_paper, exit_paper)
+        self.assertIsNone(question.chapter)
+        self.assertTrue(question.is_active)
+        self.assertEqual(question.topic_tags, ['Definition', 'Basics'])
+        self.assertEqual(question.year_source, '2024')
+        self.assertIn('Questions created: 1', command_output.getvalue())
+
+    def test_import_exit_exam_questions_rejects_multiple_courses_for_one_paper(self):
+        from openpyxl import Workbook
+
+        department = Department.objects.create(name='Computing')
+        other_course = Course.objects.create(
+            name='Data Structures',
+            code='CS202',
+        )
+        exit_paper = ExamPaper.objects.create(
+            title='Computing Exit Model',
+            department=department,
+            exam_type=ExamPaper.TYPE_EXIT_MODEL,
+            year=2026,
+            duration_minutes=120,
+            access_level=ExamPaper.ACCESS_PREMIUM,
+        )
+        workbook = Workbook()
+        questions = workbook.active
+        questions.append([
+            'course',
+            'question',
+            'option_a',
+            'option_b',
+            'option_c',
+            'option_d',
+            'correct_option',
+            'explanation',
+        ])
+        for course_name in [self.course.name, other_course.name]:
+            questions.append([
+                course_name,
+                f'Question for {course_name}?',
+                'A',
+                'B',
+                'C',
+                'D',
+                'a',
+                'Because A is correct.',
+            ])
+
+        output = BytesIO()
+        workbook.save(output)
+        output.seek(0)
+
+        with tempfile.NamedTemporaryFile(suffix='.xlsx') as tmp:
+            tmp.write(output.read())
+            tmp.flush()
+
+            with self.assertRaises(CommandError):
+                call_command(
+                    'import_exit_exam_questions',
+                    file=tmp.name,
+                    exam_paper_id=exit_paper.id,
+                    stdout=StringIO(),
+                )
+
+        self.assertEqual(Question.objects.count(), 0)
+
+    def test_admin_import_page_uses_exit_template_for_exit_papers(self):
+        department = Department.objects.create(name='Computing')
+        exit_paper = ExamPaper.objects.create(
+            title='Computing Exit Official',
+            department=department,
+            exam_type=ExamPaper.TYPE_EXIT_REAL,
+            year=2026,
+            duration_minutes=120,
+        )
+        model_admin = ExamPaperAdmin(ExamPaper, django_admin.site)
+
+        exit_template = model_admin._import_template_context(exit_paper)
+        regular_template = model_admin._import_template_context(self.exam_paper)
+
+        self.assertEqual(exit_template['filename'], 'exit_exam_import_template.xlsx')
+        self.assertEqual(regular_template['filename'], 'quiz_import_template.xlsx')
+
+    def test_admin_exit_excel_importer_accepts_course_template(self):
+        from openpyxl import Workbook
+
+        department = Department.objects.create(name='Computing')
+        exit_paper = ExamPaper.objects.create(
+            title='Computing Exit Official',
+            department=department,
+            exam_type=ExamPaper.TYPE_EXIT_REAL,
+            year=2026,
+            duration_minutes=120,
+        )
+        workbook = Workbook()
+        questions = workbook.active
+        questions.title = 'Questions'
+        questions.append([
+            'course',
+            'question',
+            'option_a',
+            'option_b',
+            'option_c',
+            'option_d',
+            'option_e',
+            'correct_option',
+            'explanation',
+            'difficulty',
+            'topic_tags',
+            'year_source',
+        ])
+        questions.append([
+            'Required course name or code',
+            'Full question text',
+            'Option A',
+            'Option B',
+            'Option C',
+            'Option D',
+            'Optional option E',
+            'a/b/c/d/e',
+            'Explanation',
+            'easy / medium / hard',
+            'Comma separated optional tags',
+            'e.g. 2024',
+        ])
+        questions.append([
+            self.course.code,
+            'What is an exit exam?',
+            'A comprehensive assessment',
+            'A chapter quiz',
+            'A license',
+            'A form',
+            '',
+            'a',
+            'Exit exams assess broader course knowledge.',
+            'medium',
+            'assessment,basics',
+            '2026',
+        ])
+
+        output = BytesIO()
+        workbook.save(output)
+        output.seek(0)
+
+        result = import_exit_questions_from_excel(output, exit_paper)
+
+        exit_paper.refresh_from_db()
+        question = Question.objects.get()
+        self.assertEqual(result.created, 1)
+        self.assertEqual(result.skipped, 0)
+        self.assertEqual(exit_paper.course, self.course)
+        self.assertEqual(question.exam_paper, exit_paper)
+        self.assertIsNone(question.chapter)
+        self.assertFalse(question.is_active)
+        self.assertEqual(question.topic_tags, ['assessment', 'basics'])

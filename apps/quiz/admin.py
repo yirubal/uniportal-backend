@@ -187,14 +187,42 @@ class ExamPaperAdmin(ModelAdmin):
                 self.admin_site.admin_view(self.download_template_view),
                 name='quiz_exampaper_download_template',
             ),
+            path(
+                '<int:paper_id>/download-template/',
+                self.admin_site.admin_view(self.download_template_view),
+                name='quiz_exampaper_download_template_for_paper',
+            ),
         ]
         return custom + urls
 
     # ── Download template ─────────────────────────────────────────────────────
 
-    def download_template_view(self, request):
+    def _import_template_context(self, exam_paper=None):
+        is_exit_exam = bool(exam_paper and exam_paper.is_exit_exam)
+        filename = (
+            'exit_exam_import_template.xlsx'
+            if is_exit_exam
+            else 'quiz_import_template.xlsx'
+        )
+        label = 'Exit exam import template' if is_exit_exam else 'Quiz import template'
+        return {
+            'filename': filename,
+            'label': label,
+            'path': os.path.join(os.path.dirname(__file__), 'static', 'quiz', filename),
+        }
+
+    def download_template_view(self, request, paper_id=None):
+        exam_paper = None
+        if paper_id is not None:
+            try:
+                exam_paper = ExamPaper.objects.get(pk=paper_id)
+            except ExamPaper.DoesNotExist:
+                messages.error(request, 'Exam paper not found.')
+                return HttpResponseRedirect(reverse('admin:quiz_exampaper_changelist'))
+
+        template = self._import_template_context(exam_paper)
         template_path = os.path.join(
-            os.path.dirname(__file__), 'static', 'quiz', 'quiz_import_template.xlsx'
+            os.path.dirname(__file__), 'static', 'quiz', template['filename']
         )
         if not os.path.exists(template_path):
             messages.error(request, 'Template file not found. Contact the developer.')
@@ -205,14 +233,14 @@ class ExamPaperAdmin(ModelAdmin):
                 f.read(),
                 content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
             )
-            response['Content-Disposition'] = 'attachment; filename="quiz_import_template.xlsx"'
+            response['Content-Disposition'] = f'attachment; filename="{template["filename"]}"'
             return response
 
     # ── Import questions view ─────────────────────────────────────────────────
 
     def import_questions_view(self, request, paper_id):
         from apps.quiz.models import ExamPaper
-        from apps.quiz.importers import import_questions_from_excel
+        from apps.quiz.importers import import_exit_questions_from_excel, import_questions_from_excel
 
         try:
             exam_paper = ExamPaper.objects.get(pk=paper_id)
@@ -225,7 +253,10 @@ class ExamPaperAdmin(ModelAdmin):
             if not excel_file:
                 messages.error(request, 'No file uploaded.')
             else:
-                result = import_questions_from_excel(excel_file, exam_paper)
+                if exam_paper.is_exit_exam:
+                    result = import_exit_questions_from_excel(excel_file, exam_paper)
+                else:
+                    result = import_questions_from_excel(excel_file, exam_paper)
 
                 if result.created:
                     messages.success(
@@ -244,11 +275,17 @@ class ExamPaperAdmin(ModelAdmin):
                         f'?exam_paper__id__exact={paper_id}'
                     )
 
+        template = self._import_template_context(exam_paper)
         context = {
             **self.admin_site.each_context(request),
             'title': f'Import Questions — {exam_paper.title}',
             'exam_paper': exam_paper,
-            'template_url': reverse('admin:quiz_exampaper_download_template'),
+            'template_url': reverse(
+                'admin:quiz_exampaper_download_template_for_paper',
+                args=[paper_id],
+            ),
+            'template_filename': template['filename'],
+            'template_label': template['label'],
         }
         return render(request, 'admin/quiz/exampaper/import_questions.html', context)
 
