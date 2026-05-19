@@ -1,7 +1,7 @@
 from rest_framework import serializers
 from apps.accounts.models import Student
 from apps.content.models import Department, Course, CoursePlacement, Resource
-from apps.quiz.models import ExamPaper, Question, QuizAttempt
+from apps.quiz.models import Chapter, ExamPaper, Question, QuizAttempt
 
 
 class StudentSerializer(serializers.ModelSerializer):
@@ -128,6 +128,24 @@ class ResourceSerializer(serializers.ModelSerializer):
         return list(obj.courses.values_list('name', flat=True))
 
 
+class ChapterSerializer(serializers.ModelSerializer):
+    question_count = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Chapter
+        fields = [
+            'id',
+            'number',
+            'title',
+            'description',
+            'icon',
+            'question_count',
+        ]
+
+    def get_question_count(self, obj) -> int:
+        return obj.questions.filter(is_active=True).count()
+
+
 class QuestionSerializer(serializers.ModelSerializer):
     """
     Practice mode — includes correct answer, explanation, and question_type.
@@ -135,11 +153,17 @@ class QuestionSerializer(serializers.ModelSerializer):
     """
     available_options = serializers.DictField(read_only=True)
     is_auto_gradable = serializers.BooleanField(read_only=True)
+    chapter_id = serializers.IntegerField(read_only=True)
+    chapter_number = serializers.IntegerField(source='chapter.number', read_only=True)
+    chapter_title = serializers.CharField(source='chapter.title', read_only=True)
 
     class Meta:
         model = Question
         fields = [
             'id',
+            'chapter_id',
+            'chapter_number',
+            'chapter_title',
             'text',
             'question_type',
             'option_a',
@@ -164,11 +188,17 @@ class QuestionSimulationSerializer(serializers.ModelSerializer):
     """
     available_options = serializers.DictField(read_only=True)
     is_auto_gradable = serializers.BooleanField(read_only=True)
+    chapter_id = serializers.IntegerField(read_only=True)
+    chapter_number = serializers.IntegerField(source='chapter.number', read_only=True)
+    chapter_title = serializers.CharField(source='chapter.title', read_only=True)
 
     class Meta:
         model = Question
         fields = [
             'id',
+            'chapter_id',
+            'chapter_number',
+            'chapter_title',
             'text',
             'question_type',
             'option_a',

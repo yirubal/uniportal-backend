@@ -1,3 +1,4 @@
+from django.core.validators import MinValueValidator
 from django.db import models
 
 
@@ -87,6 +88,61 @@ class ExamPaper(models.Model):
         return self.exam_type in [self.TYPE_EXIT_REAL, self.TYPE_EXIT_MODEL]
 
 
+class Chapter(models.Model):
+    course = models.ForeignKey(
+        'content.Course',
+        on_delete=models.CASCADE,
+        related_name='chapters',
+        help_text='Which course this chapter belongs to',
+    )
+    number = models.PositiveIntegerField(
+        validators=[MinValueValidator(1)],
+        help_text='Chapter number within course (1, 2, 3...)',
+    )
+    title = models.CharField(
+        max_length=255,
+        help_text='e.g., "Introduction to Entrepreneurship"',
+    )
+    description = models.TextField(
+        blank=True,
+        null=True,
+        help_text='Learning objectives or summary of chapter',
+    )
+    icon = models.CharField(
+        max_length=10,
+        blank=True,
+        null=True,
+        help_text='Optional emoji or icon, e.g., "📚"',
+    )
+    order = models.PositiveIntegerField(
+        default=0,
+        help_text='Display order within course',
+    )
+    is_active = models.BooleanField(
+        default=True,
+        help_text='Active chapters are shown to students',
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = 'Chapter'
+        verbose_name_plural = 'Chapters'
+        unique_together = [['course', 'number']]
+        ordering = ['course', 'order', 'number']
+        indexes = [
+            models.Index(fields=['course', 'is_active'], name='chapter_course_active_idx'),
+            models.Index(fields=['course', 'number'], name='chapter_course_number_idx'),
+        ]
+
+    def __str__(self):
+        return f'{self.course.name} - Chapter {self.number}: {self.title}'
+
+    @property
+    def question_count(self):
+        return self.questions.filter(is_active=True).count()
+
+
 class Question(models.Model):
 
     # ── Question Types ────────────────────────────────────────────────────────
@@ -135,6 +191,14 @@ class Question(models.Model):
         related_name='questions',
         help_text='Every question must be assigned to an exam paper.',
     )
+    chapter = models.ForeignKey(
+        Chapter,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name='questions',
+        help_text='Which chapter this question belongs to',
+    )
 
     # Options — interpretation depends on question_type (see help_text above)
     option_a = models.CharField(max_length=500, blank=True)
@@ -172,7 +236,7 @@ class Question(models.Model):
     topic_tags = models.JSONField(
         default=list,
         blank=True,
-        help_text='Topics this question covers e.g. ["Data Structures", "OOP"]',
+        help_text='Granular topics, not chapters. E.g. ["arrays", "sorting"]',
     )
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)

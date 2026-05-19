@@ -282,6 +282,11 @@ UNFOLD = {
                         'link':  '/admin/quiz/question/',
                     },
                     {
+                        'title': 'Chapters',
+                        'icon':  'menu_book',
+                        'link':  '/admin/quiz/chapter/',
+                    },
+                    {
                         'title': 'Quiz Attempts',
                         'icon':  'history_edu',
                         'link':  '/admin/quiz/quizattempt/',
