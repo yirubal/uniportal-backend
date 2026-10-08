@@ -1,7 +1,12 @@
 """Check the payment uniqueness rule using competing database connections."""
 
 from concurrent.futures import ThreadPoolExecutor
+from datetime import timedelta
 from threading import Barrier
+from unittest.mock import patch
+
+from django.contrib.auth import get_user_model
+from django.utils import timezone
 
 from django.db import IntegrityError, connections, transaction
 from django.test import TransactionTestCase, skipUnlessDBFeature
@@ -40,3 +45,44 @@ class ConcurrentSubscriptionRequestTests(TransactionTestCase):
 
         self.assertCountEqual(results, ['created', 'duplicate'])
         self.assertEqual(SubscriptionRequest.objects.filter(student=student, status='pending').count(), 1)
+
+    @patch('apps.accounts.services.notify_subscription_approved')
+    @patch('apps.accounts.services.notify_subscription_rejected')
+    def test_competing_payment_actions_apply_one_transition(self, rejected, approved):
+        from .services import approve_subscription_request, reject_subscription_request
+        student = Student.objects.create(telegram_id=123457, first_name='Concurrent Approval')
+        plan = SubscriptionPlan.objects.create(plan_id='monthly', name='Monthly', price=100, days=30)
+        actor = get_user_model().objects.create_user(username='concurrent-admin')
+        for compete_with_rejection in (False, True):
+            student.subscription_status = 'free'
+            student.subscription_expiry = None
+            student.save()
+            payment = SubscriptionRequest.objects.create(
+                student=student, plan=plan, amount=100, reference=f'UNI-RACE-{compete_with_rejection}',
+            )
+            barrier = Barrier(2)
+            started = timezone.now()
+
+            def transition(reject):
+                try:
+                    barrier.wait(timeout=10)
+                    if reject:
+                        return reject_subscription_request(payment.pk)
+                    return approve_subscription_request(payment.pk, actor)
+                finally:
+                    connections.close_all()
+
+            with ThreadPoolExecutor(max_workers=2) as pool:
+                futures = [pool.submit(transition, reject) for reject in (False, compete_with_rejection)]
+                results = [future.result(timeout=15) for future in futures]
+            self.assertCountEqual(results, [True, False])
+            payment.refresh_from_db()
+            student.refresh_from_db()
+            if payment.status == 'approved':
+                self.assertTrue(student.is_premium)
+                self.assertGreaterEqual(student.subscription_expiry, started + timedelta(days=30))
+                self.assertLess(student.subscription_expiry, timezone.now() + timedelta(days=30))
+            else:
+                self.assertEqual(payment.status, 'rejected')
+                self.assertIsNone(student.subscription_expiry)
+        self.assertEqual(approved.call_count + rejected.call_count, 2)

@@ -98,6 +98,7 @@ MEDIA_URL   = '/media/'
 MEDIA_ROOT  = BASE_DIR / 'media'
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+CORS_EXPOSE_HEADERS = ['X-Quiz-Simulation-ID']
 
 # ── REST Framework ────────────────────────────────────────────────────────────
 REST_FRAMEWORK = {

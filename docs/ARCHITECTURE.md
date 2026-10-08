@@ -68,7 +68,7 @@ flowchart LR
 |---|---|---|
 | `accounts` | Students, Telegram auth, subscriptions, payments, broadcasts | `Student`, `SubscriptionPlan`, `SubscriptionRequest`, `SiteSettings`, `BroadcastMessage` |
 | `content` | Academic catalogue and downloadable materials | `Department`, `Course`, `CoursePlacement`, `Resource`, `FileInbox` |
-| `quiz` | Question bank, past papers, scoring | `ExamPaper`, `Chapter`, `Question`, `QuizAttempt` |
+| `quiz` | Question bank, past papers, scoring | `ExamPaper`, `Chapter`, `Question`, `QuizAttempt`, `QuizSimulation` |
 | `exams` | Real exam schedule lookup from university PDFs | `ExamTerm`, `ExamSession`, `ExamScheduleEntry`, `StudentExam`, `ExamPDFUpload`, `ExamNotificationLog` |
 | `bot` | Telegram handlers, channel file harvesting, text extraction, AI question extraction | — |
 | `api` | All REST endpoints, auth middleware, permissions, throttles | — |
@@ -171,6 +171,11 @@ flowchart LR
   - `essay`, `matching` are marked pending and excluded from the score.
   - A per-topic breakdown is computed from `topic_tags`; topics under 50%
     are reported as weak. The pass mark is 50%.
+- Simulations store the issued question snapshot in `QuizSimulation`, expose
+  `X-Quiz-Simulation-ID`, count unanswered questions, and complete once.
+- Attempts store the gradable denominator and pending count; weak topics use
+  historical answer snapshots. See [Phase 2](PHASE_2_CORRECTNESS.md) for the
+  submission contract and legacy-history fallback.
 - Every attempt is stored as a `QuizAttempt` with detailed answers, which
   feed `/api/quiz/attempts/{id}/feedback/` and the premium-only
   `/api/students/me/performance/`.
@@ -186,13 +191,16 @@ sequenceDiagram
 
     S->>API: GET /api/subscription/plans/
     S->>API: POST /api/subscription/request/<br/>(plan, telebirr|cbe, payment reference)
-    API->>API: create pending SubscriptionRequest (UNI-xxxxx)
-    API->>B: notify admin chat
+    API->>API: create pending SubscriptionRequest (UNI- + 16 hex characters)
+    API->>B: notify after commit
     A->>A: verify payment, "approve" admin action
-    A->>API: Student.activate_premium(days)
+    A->>API: approve_subscription_request (atomic locks)
     B->>S: confirmation message
 ```
 
+- Only pending payments can be approved or rejected. Repeated approval does
+  not extend access again; approved payments and renewals cannot be rejected.
+- Payment notifications run after commit; durable retry delivery is Phase 3 work.
 - `Student.is_premium` = status is premium **and** expiry is in the future.
 - `check_subscriptions` expires lapsed subscriptions; run it on a schedule.
 

@@ -408,7 +408,7 @@ class QuizFeedbackApiTests(APITestCase):
         )
 
         self.assertEqual(response.status_code, 400)
-        self.assertEqual(response.data['detail'], 'selected_topics must be a non-empty list')
+        self.assertIn('selected_topics', response.data)
 
     def test_selective_attempt_submission_saves_selected_topics(self):
         response = self.client.post(

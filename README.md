@@ -197,6 +197,8 @@ Railway measurements, and backup procedures.
 The app is in a **free adoption period**. Paid access enforcement is deferred.
 Some legacy premium gates remain in the backend; their inventory is documented
 in the baseline. The phased plan is in [improvemnts.md](improvemnts.md).
+Phase 2 quiz/payment changes, simulation headers, migrations, and rollout checks
+are documented in [Phase 2 correctness](docs/PHASE_2_CORRECTNESS.md).
 
 ---
 

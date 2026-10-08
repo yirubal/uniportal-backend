@@ -1,14 +1,14 @@
-from datetime import timedelta
 from django.contrib import admin, messages
-from django.utils import timezone
 from django.urls import path, reverse
 from django.http import HttpResponseRedirect
+from django.db import transaction
 from unfold.admin import ModelAdmin
 
 from django.shortcuts import render, redirect
 
 from .models import Student, SubscriptionPlan, SubscriptionRequest, SiteSettings, BroadcastMessage
-from .notifications import notify_subscription_approved, notify_subscription_rejected, broadcast_to_all_students
+from .notifications import broadcast_to_all_students
+from .services import approve_subscription_request, reject_subscription_request
 
 
 # ─── Student Admin ─────────────────────────────────────────────────────────────
@@ -285,22 +285,20 @@ class SubscriptionRequestAdmin(ModelAdmin):
 
     @admin.action(description='✅ Approve & activate selected requests')
     def approve_requests(self, request, queryset):
-        pending = queryset.filter(status=SubscriptionRequest.STATUS_PENDING)
         activated = 0
-
-        for sub_request in pending:
-            sub_request.student.activate_premium(sub_request.plan.days)
-            _approve_subscription_request(sub_request, request.user)
-            activated += 1
+        selected_ids = list(queryset.values_list('pk', flat=True))
+        for request_id in selected_ids:
+            if approve_subscription_request(request_id, request.user):
+                activated += 1
 
         if activated:
             self.message_user(
                 request,
                 f'✅ Approved and activated premium for {activated} student(s). '
-                f'Telegram notifications sent.',
+                f'Telegram notifications scheduled after commit.',
                 messages.SUCCESS,
             )
-        already_done = queryset.count() - activated
+        already_done = len(selected_ids) - activated
         if already_done:
             self.message_user(
                 request,
@@ -310,46 +308,25 @@ class SubscriptionRequestAdmin(ModelAdmin):
 
     @admin.action(description='❌ Reject selected requests')
     def reject_requests(self, request, queryset):
-        rejectable_requests = list(
-            queryset
-            .filter(status__in=[
-                SubscriptionRequest.STATUS_PENDING,
-                SubscriptionRequest.STATUS_APPROVED,
-            ])
-            .select_related('student', 'plan')
+        selected_ids = list(queryset.values_list('pk', flat=True))
+        rejected = sum(reject_subscription_request(request_id) for request_id in selected_ids)
+        skipped = len(selected_ids) - rejected
+        self.message_user(
+            request,
+            f'Rejected {rejected} pending request(s); skipped {skipped} already processed request(s). '
+            'Approved payments and their granted access are preserved. '
+            'Notifications are scheduled after commit.',
+            messages.SUCCESS if rejected else messages.WARNING,
         )
-        count = len(rejectable_requests)
-        notified = 0
-
-        for sub_request in rejectable_requests:
-            if _reject_subscription_request(sub_request):
-                notified += 1
-
-        skipped = queryset.count() - count
-        if count:
-            failed = count - notified
-            message = f'❌ Rejected {count} subscription request(s).'
-            if failed:
-                message += f' Telegram notification failed for {failed} request(s); check server logs.'
-                level = messages.WARNING
-            else:
-                message += ' Telegram notification sent.'
-                level = messages.SUCCESS
-            self.message_user(request, message, level)
-        if skipped:
-            self.message_user(
-                request,
-                f'{skipped} selected request(s) were already rejected — skipped.',
-                messages.WARNING,
-            )
 
     # ── Keep admin detail saves from bypassing the approve action ─────────────
 
+    @transaction.atomic
     def save_model(self, request, obj, form, change):
         previous_status = None
         if change:
             previous_status = (
-                SubscriptionRequest.objects
+                SubscriptionRequest.objects.select_for_update()
                 .filter(id=obj.id)
                 .values_list('status', flat=True)
                 .first()
@@ -372,16 +349,18 @@ class SubscriptionRequestAdmin(ModelAdmin):
             and obj.status == SubscriptionRequest.STATUS_REJECTED
             and previous_status != SubscriptionRequest.STATUS_REJECTED
         ):
-            notified = _reject_subscription_request(obj)
-            message = f'❌ Subscription request rejected for {obj.student}.'
-            if notified:
-                message += ' Telegram notification sent.'
-                level = messages.SUCCESS
-            else:
-                message += ' Telegram notification failed; check server logs.'
-                level = messages.WARNING
-            self.message_user(request, message, level)
-            return  # already saved inside helper
+            rejected = reject_subscription_request(obj.pk)
+            obj.refresh_from_db()
+            self.message_user(
+                request,
+                'Pending request rejected; notification scheduled after commit.' if rejected
+                else 'Only pending payments can be rejected. Approved payments are preserved.',
+                messages.SUCCESS if rejected else messages.WARNING,
+            )
+            return
+        if change and obj.status != previous_status:
+            obj.status = previous_status
+            self.message_user(request, 'Use the approve/reject actions to change payment status.', messages.WARNING)
         super().save_model(request, obj, form, change)
 
 
@@ -459,44 +438,3 @@ class SiteSettingsAdmin(ModelAdmin):
 
     def has_delete_permission(self, request, obj=None):
         return False
-
-
-# ─── Helpers ───────────────────────────────────────────────────────────────────
-
-def _approve_subscription_request(sub_request: SubscriptionRequest, admin_user):
-    """Mark the request as approved after premium activation was authorized."""
-    sub_request.status       = SubscriptionRequest.STATUS_APPROVED
-    sub_request.activated_by = admin_user
-    sub_request.activated_at = timezone.now()
-    sub_request.save(update_fields=[
-        'status', 'activated_by', 'activated_at', 'updated_at'
-    ])
-
-    notify_subscription_approved(sub_request)
-
-
-def _reject_subscription_request(sub_request: SubscriptionRequest):
-    """Mark a request rejected and roll back premium if this was its only approval."""
-    was_approved = sub_request.status == SubscriptionRequest.STATUS_APPROVED
-
-    sub_request.status = SubscriptionRequest.STATUS_REJECTED
-    sub_request.activated_by = None
-    sub_request.activated_at = None
-    sub_request.save(update_fields=[
-        'status', 'activated_by', 'activated_at', 'updated_at'
-    ])
-
-    if was_approved:
-        has_other_approved = SubscriptionRequest.objects.filter(
-            student=sub_request.student,
-            status=SubscriptionRequest.STATUS_APPROVED,
-        ).exclude(id=sub_request.id).exists()
-
-        if not has_other_approved:
-            sub_request.student.subscription_status = Student.SUBSCRIPTION_FREE
-            sub_request.student.subscription_expiry = None
-            sub_request.student.save(update_fields=[
-                'subscription_status', 'subscription_expiry'
-            ])
-
-    return notify_subscription_rejected(sub_request)

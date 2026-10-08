@@ -8,6 +8,9 @@ from urllib.parse import quote, unquote
 
 from botocore.exceptions import ClientError
 from django.core import signing
+from django.db import transaction
+from django.db.models import F
+from django.utils import timezone
 from django.http import FileResponse
 from django.urls import reverse
 from django.utils.html import escape
@@ -34,6 +37,12 @@ from .serializers import (
     QuestionSimulationSerializer,
     ExamPaperSerializer,
     QuizAttemptSerializer,
+    PaperQuestionInputSerializer,
+    TopicQuestionInputSerializer,
+    SelectivePracticeInputSerializer,
+    QuizSubmissionInputSerializer,
+    SubscriptionRequestInputSerializer,
+    MAX_QUIZ_QUESTIONS,
 )
 from .permissions import IsTelegramAuthenticated, IsPremium, FreeQuotaNotExceeded
 
@@ -330,14 +339,6 @@ class ResourceDownloadView(APIView):
                 status=status.HTTP_403_FORBIDDEN,
             )
 
-        student.reset_daily_quota()
-
-        resource.downloads_count += 1
-        resource.save(update_fields=['downloads_count'])
-
-        student.downloads_today += 1
-        student.save(update_fields=['downloads_today'])
-
         token = signing.dumps(
             {
                 'resource_id': resource.id,
@@ -354,6 +355,13 @@ class ResourceDownloadView(APIView):
             },
         )
         file_url = request.build_absolute_uri(download_path)
+        with transaction.atomic():
+            locked_student = Student.objects.select_for_update().get(pk=student.pk)
+            today = timezone.localdate()
+            if locked_student.last_download_reset < today:
+                Student.objects.filter(pk=student.pk).update(downloads_today=0, last_download_reset=today)
+            Student.objects.filter(pk=student.pk).update(downloads_today=F('downloads_today') + 1)
+            Resource.objects.filter(pk=resource.pk).update(downloads_count=F('downloads_count') + 1)
         return Response({
             'url':      file_url,
             'filename': _resource_download_filename(resource),
@@ -462,15 +470,17 @@ class ExamPaperQuestionsView(APIView):
         from apps.quiz.engine import get_simulation_questions, get_practice_questions
 
         student = request.student
-        mode    = request.query_params.get('mode', 'simulation')
+        inputs = PaperQuestionInputSerializer(data=request.query_params)
+        inputs.is_valid(raise_exception=True)
+        params = inputs.validated_data
+        mode = params['mode']
 
         if mode == 'practice':
-            requested_limit = request.query_params.get('limit')
             questions = get_practice_questions(
                 exam_paper_id=exam_id,
                 is_premium=student.is_premium,
-                limit=int(requested_limit) if requested_limit else None,
-                topic=request.query_params.get('topic'),
+                limit=params.get('limit'),
+                topic=params.get('topic'),
             )
         else:
             questions = get_simulation_questions(
@@ -497,11 +507,16 @@ class ExamPaperQuestionsView(APIView):
                 status=status.HTTP_404_NOT_FOUND,
             )
 
-        serializer_class = (
-            QuestionSerializer if mode == 'practice'
-            else QuestionSimulationSerializer
-        )
-        return Response(serializer_class(questions, many=True).data)
+        if mode == 'simulation':
+            from apps.quiz.services import open_simulation
+            if len(questions) > MAX_QUIZ_QUESTIONS:
+                return Response({'detail': 'Paper exceeds the 500-question simulation limit.'}, status=400)
+            simulation = open_simulation(student, exam_id, questions)
+            return Response(
+                QuestionSimulationSerializer(simulation.question_snapshot, many=True).data,
+                headers={'X-Quiz-Simulation-ID': str(simulation.pk)},
+            )
+        return Response(QuestionSerializer(questions, many=True).data)
 
 
 class CourseTopicsView(APIView):
@@ -607,30 +622,12 @@ class SelectivePracticeView(APIView):
     permission_classes = [IsTelegramAuthenticated]
 
     def post(self, request):
-        course_id = request.data.get('course_id')
-        selected_topics = request.data.get('selected_topics', [])
-        limit = request.data.get('limit', 50)
-
-        if not course_id:
-            return Response(
-                {'detail': 'course_id is required'},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        if not isinstance(selected_topics, list) or not selected_topics:
-            return Response(
-                {'detail': 'selected_topics must be a non-empty list'},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        try:
-            limit = int(limit)
-        except (TypeError, ValueError):
-            return Response(
-                {'detail': 'limit must be a number'},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-        limit = max(1, min(limit, 100))
+        inputs = SelectivePracticeInputSerializer(data=request.data)
+        inputs.is_valid(raise_exception=True)
+        params = inputs.validated_data
+        course_id = params['course_id']
+        selected_topics = params['selected_topics']
+        limit = params['limit']
 
         try:
             course = Course.objects.get(id=course_id, is_active=True)
@@ -870,21 +867,15 @@ class TopicQuestionsView(APIView):
     def get(self, request):
         from apps.quiz.engine import get_topic_questions
 
-        department_id = request.query_params.get('department')
-        topic         = request.query_params.get('topic')
-        limit         = int(request.query_params.get('limit', 20))
-
-        if not department_id or not topic:
-            return Response(
-                {'error': 'INVALID', 'message': 'department and topic are required.'},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+        inputs = TopicQuestionInputSerializer(data=request.query_params)
+        inputs.is_valid(raise_exception=True)
+        params = inputs.validated_data
 
         questions = get_topic_questions(
-            department_id=int(department_id),
-            topic=topic,
+            department_id=params['department'],
+            topic=params['topic'],
             is_premium=request.student.is_premium,
-            limit=limit,
+            limit=params['limit'],
         )
 
         return Response(QuestionSerializer(questions, many=True).data)
@@ -896,86 +887,12 @@ class QuizAttemptView(APIView):
     permission_classes = [IsTelegramAuthenticated]
 
     def post(self, request):
-        from apps.quiz.engine import calculate_score
+        from apps.quiz.services import submit_quiz
 
-        student       = request.student
-        answers       = request.data.get('answers', [])
-        mode          = request.data.get('mode', 'practice')
-        exam_paper_id = request.data.get('exam_paper_id')
-        course_id     = request.data.get('course_id')
-        department_id = request.data.get('department_id')
-        selected_topics = request.data.get('selected_topics', [])
-
-        if not answers:
-            return Response(
-                {'error': 'INVALID', 'message': 'No answers provided.'},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        question_ids = [a.get('question_id') for a in answers]
-        questions    = list(Question.objects.filter(
-            id__in=question_ids,
-            is_active=True,
-        ))
-
-        if not questions:
-            return Response(
-                {'error': 'INVALID', 'message': 'No valid questions found.'},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        result = calculate_score(questions=questions, answers=answers)
-        questions_map = {str(question.id): question for question in questions}
-        result_map = {
-            str(item['question_id']): item
-            for item in result.get('results', [])
-        }
-        detailed_answers = {}
-
-        for answer in answers:
-            question_id = str(answer.get('question_id'))
-            question = questions_map.get(question_id)
-            scored = result_map.get(question_id, {})
-            if not question:
-                continue
-
-            detailed_answers[question_id] = {
-                'selected_option': answer.get('selected_option', ''),
-                'correct_option': question.correct_option,
-                'is_correct': scored.get('is_correct', False),
-                'is_pending': scored.get('is_pending', False),
-                'question_text': question.text,
-                'question_type': question.question_type,
-                'options': question.available_options,
-                'explanation': question.explanation or '',
-                'topic_tags': question.topic_tags or [],
-            }
-
-        attempt = QuizAttempt.objects.create(
-            student=student,
-            exam_paper_id=exam_paper_id,
-            course_id=course_id,
-            department_id=department_id,
-            score=result['score'],
-            total_questions=result['total'],
-            answers={
-                str(a['question_id']): a.get('selected_option', '')
-                for a in answers
-            },
-            detailed_answers=detailed_answers,
-            selected_topics=(
-                selected_topics
-                if mode == QuizAttempt.MODE_SELECTIVE and isinstance(selected_topics, list)
-                else []
-            ),
-            mode=mode,
-        )
-
-        return Response({
-            'attempt_id': attempt.id,
-            'detailed_answers': detailed_answers,
-            **result,
-        }, status=status.HTTP_201_CREATED)
+        inputs = QuizSubmissionInputSerializer(data=request.data)
+        inputs.is_valid(raise_exception=True)
+        result = submit_quiz(request.student, inputs.validated_data)
+        return Response(result, status=status.HTTP_201_CREATED)
 
     def get(self, request):
         attempts = QuizAttempt.objects.filter(
@@ -1009,6 +926,8 @@ class QuizFeedbackView(APIView):
             'score': attempt.score,
             'total_questions': attempt.total_questions,
             'percentage': attempt.percentage,
+            'gradable_total': attempt.gradable_total,
+            'pending_count': attempt.pending_count,
             'mode': attempt.mode,
             'completed_at': attempt.completed_at,
             'detailed_answers': detailed_answers,
@@ -1019,7 +938,7 @@ class QuizFeedbackView(APIView):
                 ),
                 'incorrect': sum(
                     1 for answer in detailed_answers.values()
-                    if not answer.get('is_correct')
+                    if not answer.get('is_correct') and not answer.get('is_pending')
                 ),
                 'topics_missed': get_topics_with_low_score(detailed_answers),
             },
@@ -1063,15 +982,17 @@ class SubscriptionRequestView(APIView):
     throttle_classes = [SubscriptionRateThrottle]
 
     def post(self, request):
-        import random
-        import string
+        from uuid import uuid4
         from django.db import IntegrityError, transaction
         from apps.accounts.models import SiteSettings, SubscriptionPlan, SubscriptionRequest
 
-        plan_id           = request.data.get('plan')
-        payment_method    = (request.data.get('payment_method') or 'telebirr').strip().lower()
+        inputs = SubscriptionRequestInputSerializer(data=request.data)
+        inputs.is_valid(raise_exception=True)
+        params = inputs.validated_data
+        plan_id = params['plan']
+        payment_method = params.get('payment_method') or 'telebirr'
         payment_reference = _normalize_payment_reference(
-            request.data.get('payment_reference', request.data.get('paid_from', ''))
+            params.get('payment_reference', params.get('paid_from', ''))
         )
 
         try:
@@ -1122,7 +1043,8 @@ class SubscriptionRequestView(APIView):
         created = False
         try:
             with transaction.atomic():
-                existing = SubscriptionRequest.objects.select_for_update().filter(
+                Student.objects.select_for_update().get(pk=request.student.pk)
+                existing = SubscriptionRequest.objects.filter(
                     student=request.student,
                     status=SubscriptionRequest.STATUS_PENDING,
                 ).select_related('plan').first()
@@ -1130,11 +1052,7 @@ class SubscriptionRequestView(APIView):
                 if existing:
                     sub_request = existing
                 else:
-                    # Generate unique reference
-                    while True:
-                        reference = 'UNI-' + ''.join(random.choices(string.digits, k=5))
-                        if not SubscriptionRequest.objects.filter(reference=reference).exists():
-                            break
+                    reference = 'UNI-' + uuid4().hex[:16].upper()
 
                     sub_request = SubscriptionRequest.objects.create(
                         student=request.student,
@@ -1156,7 +1074,7 @@ class SubscriptionRequestView(APIView):
                 raise
 
         if created:
-            transaction.on_commit(lambda: _notify_subscription_request_created(sub_request))
+            transaction.on_commit(lambda: _notify_subscription_request_created(sub_request), robust=True)
 
         return _build_payment_response(sub_request, sub_request.plan)
 
@@ -1249,7 +1167,7 @@ def _build_payment_response(sub_request, plan):
     return Response({
         'reference':               sub_request.reference,
         'plan':                    plan.name,
-        'amount':                  float(plan.price),
+        'amount':                  float(sub_request.amount),
         'days':                    plan.days,
         'status':                  sub_request.status,
         'payment_method':          sub_request.payment_method,

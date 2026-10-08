@@ -1,6 +1,6 @@
 # UniPortal improvement roadmap
 
-Created: 2026-10-08. Status: Phase 1 repository work verified; production baseline pending.
+Created: 2026-10-08. Status: Phases 1–2 repository work verified; production checks pending.
 
 ## Product direction
 
@@ -101,28 +101,28 @@ unverified. See [Phase 1 baseline and operations](docs/PHASE_1_BASELINE.md).
 **Outcome:** Valid requests produce consistent results; invalid requests return
 clear client errors; payment actions do not leave partial state.
 
-- [ ] Add focused DRF input serializers for question selection, quiz submission,
+- [x] Add focused DRF input serializers for question selection, quiz submission,
   and subscription requests. Validate types, modes, IDs, answer shapes, duplicate
   question IDs, and bounded per-request limits.
-- [ ] Validate that submitted questions belong to the requested quiz context;
+- [x] Validate that submitted questions belong to the requested quiz context;
   reject unknown IDs and inconsistent course/paper associations. Keep access free.
-- [ ] For simulation, retain the issued question set so omitted answers count as
+- [x] For simulation, retain the issued question set so omitted answers count as
   unanswered rather than disappearing from the denominator. Prevent duplicate
   completion of the same attempt without building a general session framework.
-- [ ] Store a consistent gradable-question denominator and pending-question count.
+- [x] Store a consistent gradable-question denominator and pending-question count.
   Use them across submission feedback, history, pass status, and performance.
   Decide explicitly how older attempts will be displayed or backfilled.
-- [ ] Calculate historical topic performance from stored answer snapshots rather
+- [x] Calculate historical topic performance from stored answer snapshots rather
   than the current, potentially edited question bank.
-- [ ] Make subscription approval one explicit transactional operation. Lock the
+- [x] Make subscription approval one explicit transactional operation. Lock the
   request and student, check state, and make repeated approval harmless.
-- [ ] Review rejection of previously approved payments, including renewals, so
+- [x] Review rejection of previously approved payments, including renewals, so
   subscription expiry remains consistent with the agreed business rule.
-- [ ] Notify only after commit. In Phase 3, move notification delivery to the
+- [x] Notify only after commit. In Phase 3, move notification delivery to the
   durable worker so Telegram failure cannot block or undo payment state.
-- [ ] Use atomic database expressions for download counters. Define them as link
+- [x] Use atomic database expressions for download counters. Define them as link
   issuance counts unless actual completed transfers are measured.
-- [ ] Remove the hardcoded `Course(pk=1)` publishing dependency. Keep unassigned
+- [x] Remove the hardcoded `Course(pk=1)` publishing dependency. Keep unassigned
   resources pending until an administrator selects their actual course.
 
 **Completion checks:** Invalid inputs return 400 rather than 500; mixed-question
@@ -132,6 +132,13 @@ concurrent/repeated approvals cannot activate twice; existing free access works.
 Primary files: `apps/api/views.py`, `apps/api/serializers.py`,
 `apps/quiz/engine.py`, `apps/quiz/models.py`, `apps/accounts/admin.py`,
 `apps/accounts/models.py`, `apps/content/admin.py`.
+
+**2026-10-08 progress:** Repository implementation verified. PostgreSQL passes
+all 113 tests; SQLite passes 108 with five skipped. Coverage includes concurrent payment transitions, simulation completion,
+and download increments. Input validation, historical scoring, and pending-only
+rejection are covered. See [Phase 2 correctness](docs/PHASE_2_CORRECTNESS.md) for
+API compatibility, migration and rollout details. Production/frontend checks
+remain pending; notifications become durable in Phase 3.
 
 ## Phase 3 — Make background work durable
 
@@ -335,7 +342,7 @@ roadmap rather than implementing an outdated assumption.
 | Phase | Status | Validation / impact |
 |---|---|---|
 | 1 — Baseline | Repository work verified; production checks pending | 92 PostgreSQL tests; SQLite 90 passed / 2 skipped; synthetic restore passed. See docs/PHASE_1_BASELINE.md. |
-| 2 — Correctness | Not started | |
+| 2 — Correctness | Repository work verified; rollout pending | 113 PostgreSQL tests pass; SQLite 108 passed / 5 skipped; checks and synthetic restore recorded in docs/PHASE_2_CORRECTNESS.md. |
 | 3 — Background processing | Not started | |
 | 4 — File delivery | Not started | |
 | 5 — Database and API efficiency | Not started | |

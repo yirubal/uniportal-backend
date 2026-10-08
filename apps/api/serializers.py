@@ -1,7 +1,73 @@
 from rest_framework import serializers
-from apps.accounts.models import Student
+from apps.accounts.models import Student, SubscriptionRequest
 from apps.content.models import Department, Course, CoursePlacement, Resource
 from apps.quiz.models import Chapter, ExamPaper, Question, QuizAttempt
+
+MAX_QUIZ_QUESTIONS = 500
+
+
+class PaperQuestionInputSerializer(serializers.Serializer):
+    mode = serializers.ChoiceField(choices=['practice', 'simulation'], default='simulation')
+    limit = serializers.IntegerField(min_value=1, max_value=MAX_QUIZ_QUESTIONS, required=False)
+    topic = serializers.CharField(max_length=255, required=False, allow_blank=True)
+
+
+class TopicQuestionInputSerializer(serializers.Serializer):
+    department = serializers.IntegerField(min_value=1)
+    topic = serializers.CharField(max_length=255)
+    limit = serializers.IntegerField(min_value=1, max_value=MAX_QUIZ_QUESTIONS, default=20)
+
+
+class SelectivePracticeInputSerializer(serializers.Serializer):
+    course_id = serializers.IntegerField(min_value=1)
+    selected_topics = serializers.ListField(
+        child=serializers.CharField(max_length=255), allow_empty=False, max_length=50,
+    )
+    limit = serializers.IntegerField(min_value=1, max_value=100, default=50)
+
+
+class QuizAnswerInputSerializer(serializers.Serializer):
+    question_id = serializers.IntegerField(min_value=1)
+    selected_option = serializers.CharField(max_length=10000, allow_blank=True, default='', trim_whitespace=False)
+
+
+class QuizSubmissionInputSerializer(serializers.Serializer):
+    answers = QuizAnswerInputSerializer(many=True, allow_empty=True, max_length=MAX_QUIZ_QUESTIONS)
+    mode = serializers.ChoiceField(choices=QuizAttempt.MODE_CHOICES, default=QuizAttempt.MODE_PRACTICE)
+    exam_paper_id = serializers.IntegerField(min_value=1, required=False, allow_null=True)
+    course_id = serializers.IntegerField(min_value=1, required=False, allow_null=True)
+    department_id = serializers.IntegerField(min_value=1, required=False, allow_null=True)
+    simulation_id = serializers.UUIDField(required=False)
+    selected_topics = serializers.ListField(
+        child=serializers.CharField(max_length=255), max_length=50, required=False, default=list,
+    )
+
+    def validate(self, data):
+        ids = [answer['question_id'] for answer in data['answers']]
+        if len(ids) != len(set(ids)):
+            raise serializers.ValidationError({'answers': 'Duplicate question IDs are not allowed.'})
+        simulation = data['mode'] == QuizAttempt.MODE_SIMULATION
+        if simulation and not data.get('exam_paper_id'):
+            raise serializers.ValidationError({'exam_paper_id': 'Required for simulation.'})
+        if not simulation and not data['answers']:
+            raise serializers.ValidationError({'answers': 'Provide at least one answer.'})
+        if not simulation and data.get('simulation_id'):
+            raise serializers.ValidationError({'simulation_id': 'Only valid in simulation mode.'})
+        if not any(data.get(key) for key in ('exam_paper_id', 'course_id', 'department_id')):
+            raise serializers.ValidationError('Provide an exam paper, course, or department context.')
+        if data['mode'] == QuizAttempt.MODE_SELECTIVE and (not data.get('course_id') or not data['selected_topics']):
+            raise serializers.ValidationError('Selective practice requires a course and selected topics.')
+        return data
+
+
+class SubscriptionRequestInputSerializer(serializers.Serializer):
+    plan = serializers.CharField(max_length=20)
+    payment_method = serializers.CharField(max_length=20, required=False, allow_blank=True, allow_null=True)
+    payment_reference = serializers.CharField(max_length=50, required=False, allow_blank=True)
+    paid_from = serializers.CharField(max_length=50, required=False, allow_blank=True)
+
+    def validate_payment_method(self, value):
+        return (value or SubscriptionRequest.PAYMENT_TELEBIRR).strip().lower()
 
 
 class StudentSerializer(serializers.ModelSerializer):
@@ -258,6 +324,8 @@ class QuizAttemptSerializer(serializers.ModelSerializer):
             'total_questions',
             'percentage',
             'passed',
+            'gradable_total',
+            'pending_count',
             'mode',
             'completed_at',
         ]

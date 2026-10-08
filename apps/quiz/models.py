@@ -1,3 +1,5 @@
+from uuid import uuid4
+
 from django.core.validators import MinValueValidator
 from django.db import models
 
@@ -273,8 +275,7 @@ class Question(models.Model):
 
     @property
     def is_auto_gradable(self):
-        """Essay questions cannot be auto-graded."""
-        return self.question_type != self.TYPE_ESSAY
+        return self.question_type in (self.TYPE_MCQ, self.TYPE_TRUE_FALSE, self.TYPE_FILL_BLANK)
 
     @property
     def has_five_options(self):
@@ -353,6 +354,8 @@ class QuizAttempt(models.Model):
     )
     score = models.IntegerField()
     total_questions = models.IntegerField()
+    gradable_total = models.PositiveIntegerField(null=True, blank=True)
+    pending_count = models.PositiveIntegerField(default=0)
     answers = models.JSONField(
         default=dict,
         help_text='Format: {question_id: selected_option} e.g. {"12": "a", "13": "c"}',
@@ -388,10 +391,27 @@ class QuizAttempt(models.Model):
 
     @property
     def percentage(self):
-        if not self.total_questions or not self.score:
+        denominator = self.total_questions if self.gradable_total is None else self.gradable_total
+        if not denominator or not self.score:
             return 0
-        return round((self.score / self.total_questions) * 100, 1)
+        return round((self.score / denominator) * 100, 1)
 
     @property
     def passed(self):
         return self.percentage >= 50
+
+
+class QuizSimulation(models.Model):
+    """One issued paper snapshot; completion creates one ordinary QuizAttempt."""
+
+    id = models.UUIDField(primary_key=True, default=uuid4, editable=False)
+    student = models.ForeignKey('accounts.Student', on_delete=models.CASCADE)
+    exam_paper = models.ForeignKey(ExamPaper, on_delete=models.CASCADE)
+    question_snapshot = models.JSONField(default=list)
+    created_at = models.DateTimeField(auto_now_add=True)
+    expires_at = models.DateTimeField()
+    completed_at = models.DateTimeField(null=True, blank=True)
+    attempt = models.OneToOneField(QuizAttempt, null=True, blank=True, on_delete=models.SET_NULL)
+
+    class Meta:
+        indexes = [models.Index(fields=['student', 'exam_paper', 'expires_at'], name='simulation_student_paper_idx')]

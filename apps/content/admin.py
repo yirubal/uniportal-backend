@@ -3,6 +3,7 @@ from django.contrib.admin import SimpleListFilter
 from django.contrib import messages
 from django.urls import path, reverse
 from django.utils.html import format_html
+from django.db import transaction
 from unfold.admin import ModelAdmin, TabularInline
 
 from . import views_admin
@@ -306,21 +307,23 @@ class FileInboxAdmin(ModelAdmin):
                 original_caption    = item.telegram_caption,
             )
             try:
-                placeholder_course = Course.objects.get(pk=1)
-                copy_inbox_file_to_resource(item, resource)
-                resource.save()
-                resource.courses.add(placeholder_course)
+                with transaction.atomic():
+                    item = FileInbox.objects.select_for_update().get(pk=item.pk)
+                    if item.assigned_resource_id:
+                        continue
+                    copy_inbox_file_to_resource(item, resource)
+                    resource.save()
+                    item.assigned_resource = resource
+                    item.save(update_fields=['assigned_resource'])
+                    clear_inbox_file(item, protected_file_name=resource.file.name)
             except Exception as exc:
                 failed += 1
                 self.message_user(
                     request,
-                    f'Could not copy file for {item.original_filename}: {exc}',
+                    f'Could not create resource for {item.original_filename}: {exc}',
                     level=messages.ERROR,
                 )
                 continue
-            item.assigned_resource = resource
-            item.save(update_fields=['assigned_resource'])
-            clear_inbox_file(item, protected_file_name=resource.file.name)
             created += 1
 
         self.message_user(

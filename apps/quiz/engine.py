@@ -1,5 +1,6 @@
 import random
 import logging
+from django.db import connection
 from apps.quiz.models import Question, QuizAttempt, ExamPaper
 
 logger = logging.getLogger(__name__)
@@ -31,12 +32,15 @@ def get_practice_questions(
     )
 
     if topic:
-        questions = questions.filter(topic_tags__contains=topic)
+        if connection.features.supports_json_field_contains:
+            questions = questions.filter(topic_tags__contains=[topic])
+        else:
+            questions = [question for question in questions if topic in (question.topic_tags or [])]
 
     if limit and not is_premium:
         limit = min(limit, 5)
 
-    questions = list(questions)
+    questions = list(questions[:500])
     random.shuffle(questions)
     if limit:
         return questions[:limit]
@@ -105,7 +109,7 @@ def get_simulation_questions(
         logger.warning(f'Exam {exam_paper_id} is not ready')
         return None
 
-    return list(exam.questions.filter(is_active=True).order_by('id'))
+    return list(exam.questions.filter(is_active=True).select_related('chapter').order_by('id')[:501])
 
 
 def get_topic_questions(
@@ -120,7 +124,6 @@ def get_topic_questions(
     """
     questions = Question.objects.filter(
         is_active=True,
-        topic_tags__contains=topic,
         exam_paper__department_id=department_id,
         exam_paper__exam_type__in=[
             ExamPaper.TYPE_EXIT_REAL,
@@ -132,7 +135,11 @@ def get_topic_questions(
     if not is_premium:
         limit = min(limit, 5)
 
-    questions = list(questions)
+    if connection.features.supports_json_field_contains:
+        questions = questions.filter(topic_tags__contains=[topic])
+        questions = list(questions)
+    else:
+        questions = [question for question in questions if topic in (question.topic_tags or [])]
     random.shuffle(questions)
     return questions[:limit]
 
@@ -162,7 +169,6 @@ def calculate_score(
     for question_id, question in questions_map.items():
         selected = answers_map.get(question_id, '')
         q_type = question.question_type
-        auto_gradable = question.is_auto_gradable  # False for essay
 
         is_correct = False
         is_pending = False  # True for essay/matching — needs manual review
@@ -259,6 +265,8 @@ def get_topics_with_low_score(detailed_answers: dict) -> list[dict]:
     topic_scores = {}
 
     for answer_data in detailed_answers.values():
+        if answer_data.get('is_pending') or answer_data.get('question_type') in (Question.TYPE_ESSAY, Question.TYPE_MATCHING):
+            continue
         is_correct = answer_data.get('is_correct', False)
         topics = answer_data.get('topic_tags', [])
 
@@ -293,7 +301,7 @@ def get_performance_summary(student) -> dict:
     """
     attempts = QuizAttempt.objects.filter(
         student=student,
-    ).order_by('-completed_at')
+    ).select_related('exam_paper').order_by('-completed_at')
 
     total_attempts = attempts.count()
 
@@ -320,42 +328,27 @@ def get_performance_summary(student) -> dict:
         for a in attempts[:30]
     ]
 
-    # Weak topics — from recent attempts' wrong answers
+    # Use historical feedback, never today's edited/deleted question bank.
     weak_topics = set()
     for attempt in attempts[:20]:
-        if isinstance(attempt.answers, dict):
-            for question_id, selected in attempt.answers.items():
-                try:
-                    q = Question.objects.get(id=question_id)
-                    if (
-                        q.is_auto_gradable and
-                        q.correct_option and
-                        selected != q.correct_option
-                    ):
-                        for tag in (q.topic_tags or []):
-                            weak_topics.add(tag)
-                except Question.DoesNotExist:
-                    pass
+        for topic in get_topics_with_low_score(attempt.detailed_answers or {}):
+            weak_topics.add(topic['topic'])
 
     # Attempts breakdown by exam paper
-    from django.db.models import Count, Avg
-    by_paper = (
-        attempts
-        .filter(exam_paper__isnull=False)
-        .values('exam_paper__title', 'exam_paper__exam_type')
-        .annotate(total=Count('id'), average=Avg('score'))
-        .order_by('-total')[:10]
-    )
-
-    attempts_by_paper = [
-        {
-            'paper_title': item['exam_paper__title'],
-            'exam_type':   item['exam_paper__exam_type'],
-            'attempts':    item['total'],
-            'average':     round(float(item['average'] or 0), 1),
-        }
-        for item in by_paper
-    ]
+    by_paper = {}
+    for attempt in attempts:
+        if attempt.exam_paper_id:
+            paper = attempt.exam_paper
+            item = by_paper.setdefault(paper.pk, {
+                'paper_title': paper.title, 'exam_type': paper.exam_type,
+                'attempts': 0, 'sum_percentages': 0,
+            })
+            item['attempts'] += 1
+            item['sum_percentages'] += attempt.percentage
+    attempts_by_paper = []
+    for item in sorted(by_paper.values(), key=lambda row: row['attempts'], reverse=True)[:10]:
+        item['average'] = round(item.pop('sum_percentages') / item['attempts'], 1)
+        attempts_by_paper.append(item)
 
     return {
         'total_attempts':    total_attempts,

@@ -1,6 +1,9 @@
 import shutil
 import tempfile
 from unittest.mock import patch
+from django.contrib import admin
+from django.contrib.auth import get_user_model
+from django.test import RequestFactory
 
 from django.core.cache import cache
 from django.core.files.uploadedfile import SimpleUploadedFile
@@ -13,6 +16,7 @@ from apps.bot.tasks import (
     _cleanup_assigned_inbox_duplicates_if_due,
 )
 from apps.content.models import Course, FileInbox, Resource
+from apps.content.admin import FileInboxAdmin
 from apps.content.services import clear_inbox_file, copy_inbox_file_to_resource
 
 
@@ -241,3 +245,23 @@ class ResourceFileStorageTests(TestCase):
         self.assertEqual(inbox_item.file.name, inbox_file_name)
         self.assertTrue(resource.file.storage.exists(inbox_file_name))
         self.assertTrue(resource.file.storage.exists(resource.file.name))
+
+    def test_admin_creates_pending_resource_without_placeholder_course(self):
+        self.course.delete()
+        inbox_item = self.create_inbox_item()
+        original_key = inbox_item.file.name
+        request = RequestFactory().post('/admin/content/fileinbox/')
+        request.user = get_user_model().objects.create_superuser(username='content-admin')
+        model_admin = FileInboxAdmin(FileInbox, admin.site)
+        with patch.object(model_admin, 'message_user'):
+            model_admin.publish_as_resource(request, FileInbox.objects.filter(pk=inbox_item.pk))
+            model_admin.publish_as_resource(request, FileInbox.objects.filter(pk=inbox_item.pk))
+        resource = Resource.objects.get()
+        inbox_item.refresh_from_db()
+        self.assertEqual(resource.status, Resource.STATUS_PENDING)
+        self.assertFalse(resource.courses.exists())
+        self.assertEqual(resource.file.name, original_key)
+        self.assertEqual(inbox_item.assigned_resource_id, resource.pk)
+        self.assertEqual(inbox_item.file.name, '')
+        with resource.file.open('rb') as handle:
+            self.assertEqual(handle.read(), b'%PDF-1.4 source')

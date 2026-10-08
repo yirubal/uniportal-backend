@@ -151,6 +151,14 @@ class SubscriptionRequestTests(APITestCase):
         self.assertEqual(response.data['error'], 'INVALID_PAYMENT_REFERENCE')
         self.assertEqual(SubscriptionRequest.objects.count(), 0)
 
+    def test_malformed_subscription_fields_return_400(self):
+        for field in ('plan', 'payment_method', 'payment_reference', 'paid_from'):
+            with self.subTest(field=field):
+                data = {'plan': 'semester', 'payment_reference': 'TB123ABC', field: {'bad': 'shape'}}
+                response = self.client.post('/api/subscription/request/', data, format='json')
+                self.assertEqual(response.status_code, 400)
+        self.assertFalse(SubscriptionRequest.objects.exists())
+
     @patch('apps.accounts.notifications.notify_subscription_request_created')
     def test_post_returns_existing_pending_request_instead_of_duplicate(self, notify_created):
         with self.captureOnCommitCallbacks(execute=True):
@@ -206,7 +214,7 @@ class SubscriptionRequestTests(APITestCase):
         self.assertFalse(response.data['is_premium'])
         self.assertEqual(response.data['subscription_status'], Student.SUBSCRIPTION_FREE)
 
-    @patch('apps.accounts.admin.notify_subscription_approved')
+    @patch('apps.accounts.services.notify_subscription_approved')
     @patch('apps.accounts.admin.SubscriptionRequestAdmin.message_user')
     def test_admin_approval_updates_student_premium_status_for_profile(self, message_user, notify_approved):
         admin_user = get_user_model().objects.create_user(
@@ -224,10 +232,11 @@ class SubscriptionRequestTests(APITestCase):
         request = RequestFactory().post('/admin/accounts/subscriptionrequest/')
         request.user = admin_user
         model_admin = SubscriptionRequestAdmin(SubscriptionRequest, django_admin.site)
-        model_admin.approve_requests(
-            request,
-            SubscriptionRequest.objects.filter(id=sub_request.id),
-        )
+        with self.captureOnCommitCallbacks(execute=True):
+            model_admin.approve_requests(
+                request,
+                SubscriptionRequest.objects.filter(id=sub_request.id),
+            )
         response = self.client.get('/api/students/me/')
 
         self.student.refresh_from_db()
@@ -238,7 +247,7 @@ class SubscriptionRequestTests(APITestCase):
         self.assertEqual(response.data['subscription_status'], Student.SUBSCRIPTION_PREMIUM)
         notify_approved.assert_called_once_with(sub_request)
 
-    @patch('apps.accounts.admin.notify_subscription_rejected')
+    @patch('apps.accounts.services.notify_subscription_rejected')
     @patch('apps.accounts.admin.SubscriptionRequestAdmin.message_user')
     def test_admin_bulk_reject_updates_selected_subscription_requests(self, message_user, notify_rejected):
         other_student = Student.objects.create(
@@ -279,14 +288,16 @@ class SubscriptionRequestTests(APITestCase):
         request.user = get_user_model().objects.create_user(username='admin2')
         model_admin = SubscriptionRequestAdmin(SubscriptionRequest, django_admin.site)
 
-        model_admin.reject_requests(
-            request,
-            SubscriptionRequest.objects.filter(id__in=[
-                first_pending.id,
-                second_pending.id,
-                approved.id,
-            ]),
-        )
+        expiry_before = approved_student.subscription_expiry
+        with self.captureOnCommitCallbacks(execute=True):
+            model_admin.reject_requests(
+                request,
+                SubscriptionRequest.objects.filter(id__in=[
+                    first_pending.id,
+                    second_pending.id,
+                    approved.id,
+                ]),
+            )
 
         first_pending.refresh_from_db()
         second_pending.refresh_from_db()
@@ -294,10 +305,10 @@ class SubscriptionRequestTests(APITestCase):
         approved_student.refresh_from_db()
         self.assertEqual(first_pending.status, SubscriptionRequest.STATUS_REJECTED)
         self.assertEqual(second_pending.status, SubscriptionRequest.STATUS_REJECTED)
-        self.assertEqual(approved.status, SubscriptionRequest.STATUS_REJECTED)
-        self.assertEqual(approved_student.subscription_status, Student.SUBSCRIPTION_FREE)
-        self.assertIsNone(approved_student.subscription_expiry)
-        self.assertEqual(notify_rejected.call_count, 3)
+        self.assertEqual(approved.status, SubscriptionRequest.STATUS_APPROVED)
+        self.assertEqual(approved_student.subscription_status, Student.SUBSCRIPTION_PREMIUM)
+        self.assertEqual(approved_student.subscription_expiry, expiry_before)
+        self.assertEqual(notify_rejected.call_count, 2)
         message_user.assert_called_once()
 
     @patch('apps.accounts.notifications.send_telegram_message')
