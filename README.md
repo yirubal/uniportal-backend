@@ -1,7 +1,9 @@
 # UniPortal Backend
 
-> Django + DRF backend powering the **Unity University Telegram Mini App**.  
-> Students access study materials, practice quizzes, and exit exam prep through a Telegram Mini App. This backend handles all data, file processing, authentication, and the Telegram bot.
+> Django + DRF backend powering the **Unity University Telegram Mini App**.
+> Students access study materials, practice quizzes, exit exam prep, and their
+> exam schedule through a Telegram Mini App. This backend handles all data,
+> file processing, authentication, payments, and the Telegram bot.
 
 ---
 
@@ -12,213 +14,208 @@
 | Framework | Django 6 + Django REST Framework |
 | Database | PostgreSQL (SQLite for local dev) |
 | File Storage | Local filesystem (dev) → Cloudflare R2 (production) |
-| File Processing | pdfplumber, pytesseract, python-docx |
-| Telegram Bot | python-telegram-bot |
+| File Processing | pdfplumber, pytesseract (OCR), python-docx |
+| AI | Google Gemini (question extraction from documents) |
+| Telegram Bot | python-telegram-bot (webhook mode) |
 | Admin Panel | Django Admin + django-unfold |
-| Auth | Telegram initData HMAC validation (JWT tokens) |
+| Auth | Telegram initData HMAC validation → JWT |
+| API Docs | drf-spectacular (Swagger / ReDoc) |
 
 ---
 
-## 🗺️ System Architecture
+## 🗺️ Architecture
 
-![UniPortal Backend Architecture](docs/architecture.jpg)
+```mermaid
+flowchart LR
+    MA[Telegram Mini App] -- "initData → JWT, REST" --> API
+    CH[University channel] --> TG[Telegram Bot API]
+    TG -- webhook --> WH
 
+    subgraph Web["Django web process (Gunicorn)"]
+        API[DRF API /api/]
+        WH["/api/telegram/webhook/"] --> BOT[Bot handlers]
+        ADM[Admin /admin/]
+    end
 
+    API --> DB[(PostgreSQL / SQLite)]
+    BOT --> DB
+    ADM --> DB
+    API --> FS[(Media: local / R2)]
+    BOT --> FS
+    ADM -- extract questions --> AI[Gemini]
+```
+
+- **One web process** serves the API, the admin, and the Telegram webhook.
+- **Bot updates arrive by webhook**; `run_bot` only recovers stuck inbox items.
+- **Content pipeline:** channel file → `FileInbox` → text extraction → admin
+  publishes a `Resource` and/or extracts quiz questions with Gemini.
+
+See **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** for the full design:
+apps and models, auth, downloads, quiz scoring, subscriptions, exam lookup,
+the API surface, and operational commands.
+
+---
 
 ## 🚀 Running Locally
 
 ### Prerequisites
 
+- Python **3.12+** (required by Django 6)
+- `pip` and `venv`
+- Optional, only needed for OCR on scanned PDFs/images:
+  `tesseract-ocr` and `poppler-utils`
+  ```bash
+  sudo apt install tesseract-ocr poppler-utils   # Debian / Ubuntu / WSL
+  brew install tesseract poppler                 # macOS
+  ```
 
-- Python 3.12+ (required by Django 6)
-- `pip`
-- SQLite is the default for local development; PostgreSQL is optional.
+SQLite is used by default, so no database server is needed.
 
----
-
-### 1. Clone & enter the project
+### Quick start
 
 ```bash
+# 1. Clone
 git clone <repo-url>
 cd uniportal-backend
-```
 
-### 2. Create & activate a virtual environment
+# 2. Virtual environment
+python3 -m venv venv
+source venv/bin/activate          # Windows: venv\Scripts\activate
 
-```bash
-python -m venv venv
-source venv/bin/activate        # Linux / macOS
-# venv\Scripts\activate         # Windows
-```
-
-### 3. Install dependencies
-
-```bash
+# 3. Dependencies
 pip install -r requirements.txt
+
+# 4. Environment file (won't overwrite an existing .env)
+cp -n .env.example .env
 ```
 
-### 4. Set up environment variables
-
-```bash
-cp -n .env.example .env  # preserve an existing .env
-```
-
-Then open `.env` and update the following key values for local development:
+Edit `.env` — the minimum for local development:
 
 ```env
 DEBUG=True
-DJANGO_SETTINGS_MODULE=config.settings.dev
 SECRET_KEY=any-local-secret-key-here
-
-# Use SQLite locally (no PostgreSQL needed)
-# Leave DATABASE_URL unset — base.py falls back to SQLite.
-# DB_* variables are used by Docker settings, not local dev settings.
-
-# Telegram (optional for local API testing without the bot)
+# Leave DATABASE_URL unset → SQLite (db.sqlite3). DB_* values are only used by Docker.
+# Optional — only needed for real Telegram auth / bot features:
 TELEGRAM_BOT_TOKEN=your-bot-token
+# Optional — only needed for AI question extraction in the admin:
+GEMINI_API_KEY=your-gemini-key
 ```
 
-### 5. Apply database migrations
+> `manage.py` defaults to `config.settings.dev`, so the
+> `DJANGO_SETTINGS_MODULE` line in `.env` does not affect local commands.
 
 ```bash
+# 5. Database
 python manage.py migrate
-```
 
-### 6. Create a superuser (for the admin panel)
+# 6. (Optional) Seed departments, courses, plans and site settings
+python manage.py seed_data
 
-```bash
+# 7. Admin user
 python manage.py createsuperuser
-```
 
-### 7. Start the development server
-
-```bash
+# 8. Run
 python manage.py runserver
 ```
 
-The API will be available at: **http://127.0.0.1:8000/**  
-Admin panel: **http://127.0.0.1:8000/admin/**  
-API docs (Swagger): **http://127.0.0.1:8000/api/docs/**  
-Health check: **http://127.0.0.1:8000/health/**
+| URL | What |
+|---|---|
+| http://127.0.0.1:8000/admin/ | Admin panel |
+| http://127.0.0.1:8000/api/docs/ | Swagger API docs |
+| http://127.0.0.1:8000/api/redoc/ | ReDoc API docs |
+| http://127.0.0.1:8000/health/ | Health check |
 
-The root URL (`/`) has no page and returns 404. This repository contains the
-backend and admin panel; the Telegram Mini App frontend runs separately.
-Student API authentication requires valid Telegram initData and a real bot
-token. You can use the admin login and health check without running the bot.
+The root URL (`/`) has no page and returns 404. The Mini App frontend lives in
+a separate repository.
 
-If `venv/` and `.env` are already configured, start with:
+### Daily workflow
+
+Once `venv/` and `.env` exist:
 
 ```bash
 source venv/bin/activate
-python manage.py migrate --settings=config.settings.dev
-python manage.py runserver 127.0.0.1:8000 --settings=config.settings.dev
+python manage.py migrate
+python manage.py runserver
 ```
 
----
+### Calling the API without Telegram
 
-### 8. (Optional) Run the Telegram bot
-
-Open a **second terminal**, activate the venv, then:
+In `DEBUG` mode you can get a JWT without real Telegram initData:
 
 ```bash
-python manage.py run_bot
+curl -s -X POST http://127.0.0.1:8000/api/auth/telegram/ \
+  -H "Content-Type: application/json" \
+  -d '{"dev_mode": true, "telegram_id": 999999, "first_name": "Dev"}'
 ```
 
-> The bot and the Django server run as separate processes. In production, both are managed by the `Procfile`.
+Use the returned token on other endpoints:
+
+```bash
+TOKEN=<token from above>
+curl -s http://127.0.0.1:8000/api/students/me/ -H "Authorization: Bearer $TOKEN"
+curl -s http://127.0.0.1:8000/api/departments/ -H "Authorization: Bearer $TOKEN"
+```
+
+### Testing the Telegram bot locally (optional)
+
+The bot runs in **webhook mode**, so Telegram must be able to reach your
+machine. Expose the dev server with a tunnel (e.g. `ngrok http 8000` or
+`cloudflared tunnel --url http://localhost:8000`), then:
+
+```env
+# .env
+TELEGRAM_BOT_TOKEN=your-test-bot-token
+TELEGRAM_WEBHOOK_URL=https://<your-tunnel-host>/api/telegram/webhook/
+TELEGRAM_WEBHOOK_SECRET=any-random-string
+```
+
+```bash
+# Add the tunnel host to ALLOWED_HOSTS in config/settings/dev.py if needed
+python manage.py runserver
+python manage.py setup_webhook          # register the webhook
+python manage.py setup_webhook --delete # remove it when done
+```
+
+> Use a separate test bot — registering a webhook replaces the one set for
+> production on the same bot token.
+
+### Running tests
+
+```bash
+python manage.py test                  # all apps
+python manage.py test apps.quiz        # one app
+```
 
 ---
 
 ## 🐳 Running with Docker
 
-Docker Compose spins up **3 services** defined in [`docker-compose.yml`](docker-compose.yml):
+Docker Compose defines **3 services** in [`docker-compose.yml`](docker-compose.yml):
 
 | Service | Container | Description |
 |---|---|---|
 | `postgres` | `uniportal-postgres` | PostgreSQL 15 database |
-| `django` | `uniportal-backend` | Gunicorn (runs migrations + static files on start) |
-| `bot` | `uniportal-bot` | Telegram bot (`maintenance` profile — opt-in only) |
-
-> **Note:** The `bot` service uses the `maintenance` Docker profile, so it does **not** start automatically with `docker-compose up`. You have to enable it explicitly (see below).
-
----
-
-### Prerequisites
-
-- Docker & Docker Compose installed
-
----
-
-### 1. Set up environment variables
+| `django` | `uniportal-backend` | Gunicorn on port 8000; runs migrations and `collectstatic` on start |
+| `bot` | `uniportal-bot` | Runs `run_bot` (inbox recovery); `maintenance` profile, opt-in only |
 
 ```bash
-cp .env.example .env
+cp -n .env.example .env        # set SECRET_KEY, DB_PASSWORD, TELEGRAM_BOT_TOKEN
+docker compose up --build -d   # postgres + django
+docker compose --profile maintenance up -d bot   # optional: inbox recovery
 ```
 
-Key values to set for Docker:
+API and admin: http://localhost:8000/ and http://localhost:8000/admin/
 
-```env
-DJANGO_SETTINGS_MODULE=config.settings.docker   # already set in compose
-DEBUG=False
-SECRET_KEY=your-secret-key
-DB_PASSWORD=your-db-password
-TELEGRAM_BOT_TOKEN=your-bot-token
-USE_S3=False                                     # use local media volume
-```
-
-### 2. Build and start the main services
+Useful commands:
 
 ```bash
-docker-compose up --build
-```
-
-Or run in detached (background) mode:
-
-```bash
-docker-compose up --build -d
-```
-
-- **API**: http://localhost:8000/
-- **Admin panel**: http://localhost:8000/admin/
-
-### 3. (Optional) Also start the Telegram bot
-
-The bot service uses the `maintenance` profile and must be started explicitly:
-
-```bash
-docker-compose --profile maintenance up
-```
-
-Or to add the bot alongside the main services:
-
-```bash
-docker-compose --profile maintenance up --build -d
-```
-
----
-
-### Useful Docker Commands
-
-```bash
-# View running containers
-docker-compose ps
-
-# View live logs from all services
-docker-compose logs -f
-
-# View logs from a specific service
-docker-compose logs -f django
-docker-compose logs -f bot
-
-# Run a Django management command inside the container
-docker-compose exec django python manage.py createsuperuser
-docker-compose exec django python manage.py migrate
-docker-compose exec django python manage.py shell
-
-# Stop all services
-docker-compose down
-
-# Stop and remove volumes (resets the database!)
-docker-compose down -v
+docker compose ps
+docker compose logs -f django
+docker compose exec django python manage.py createsuperuser
+docker compose exec django python manage.py seed_data
+docker compose exec django python manage.py shell
+docker compose down        # stop
+docker compose down -v     # stop and DELETE the database volume
 ```
 
 ---
@@ -227,51 +224,65 @@ docker-compose down -v
 
 ```
 uniportal-backend/
-├── config/                  ← Django project settings
-│   └── settings/
-│       ├── base.py          ← Shared settings
-│       ├── dev.py           ← Local development overrides
-│       ├── docker.py        ← Docker / staging settings
-│       └── prod.py          ← Production settings
+├── config/
+│   ├── settings/
+│   │   ├── base.py          ← Shared settings (reads .env)
+│   │   ├── dev.py           ← Local development (manage.py default)
+│   │   ├── docker.py        ← Docker / staging
+│   │   └── prod.py          ← Production
+│   └── urls.py              ← /admin/, /api/, /api/docs/, /health/
 ├── apps/
-│   ├── accounts/            ← Student profiles, Telegram auth
-│   ├── content/             ← Departments, courses, resources
-│   ├── quiz/                ← Questions, attempts, scoring
-│   ├── bot/                 ← Telegram bot & file harvesting
-│   └── api/                 ← All DRF endpoints
-├── manage.py
-├── requirements.txt
-├── Procfile                 ← Production process definitions
-├── docker-compose.yml
+│   ├── accounts/            ← Students, subscriptions, payments, broadcasts
+│   ├── content/             ← Departments, courses, resources, file inbox
+│   ├── quiz/                ← Questions, exam papers, chapters, scoring engine
+│   ├── exams/               ← Exam schedule PDFs → student exam lookup
+│   ├── bot/                 ← Telegram handlers, file harvesting, OCR, Gemini
+│   └── api/                 ← DRF views, auth middleware, permissions
+├── docs/
+│   └── ARCHITECTURE.md      ← System design
+├── templates/               ← Admin template overrides
+├── Dockerfile / docker-compose.yml
+├── Procfile                 ← web (Gunicorn) + worker (run_bot) processes
 └── .env.example             ← Environment variable template
 ```
 
 ---
 
-## Useful Management Commands
+## Management Commands
 
 | Command | Description |
 |---|---|
-| `python manage.py runserver` | Start local dev server |
-| `python manage.py migrate` | Apply database migrations |
-| `python manage.py makemigrations` | Create new migrations |
-| `python manage.py createsuperuser` | Create admin user |
-| `python manage.py run_bot` | Start the Telegram bot process |
-| `python manage.py shell` | Open Django interactive shell |
+| `runserver` / `migrate` / `createsuperuser` / `shell` | Standard Django |
+| `seed_data` | Seed departments, courses, plans, site settings |
+| `setup_webhook [--delete]` | Register / remove the Telegram webhook |
+| `run_bot` | Recover stuck or failed inbox items |
+| `harvest_channel` | Back-fill historical channel files into the inbox |
+| `check_subscriptions` | Expire lapsed premium subscriptions (schedule daily) |
+| `send_exam_notifications` | Send exam countdown messages (schedule daily) |
+| `process_exam_pdfs` | Process pending exam schedule/attendance PDFs |
+| `import_student_exams` | Import student exam rows from CSV |
+| `import_course_with_chapters` / `import_questions_with_chapters` / `import_exit_exam_questions` | Bulk question imports from Excel |
+
+Run any of them with `python manage.py <command> --help` for options.
 
 ---
 
-## Environment Variables Reference
+## Environment Variables
 
-See [`.env.example`](.env.example) for the full list. Key variables:
+See [`.env.example`](.env.example) for the full list.
 
-| Variable | Description |
-|---|---|
-| `SECRET_KEY` | Django secret key |
-| `DEBUG` | `True` for local dev |
-| `DJANGO_SETTINGS_MODULE` | Use `config.settings.dev` locally |
-| `TELEGRAM_BOT_TOKEN` | From @BotFather |
-| `TELEGRAM_CHANNEL_ID` | Channel the bot monitors |
-| `GROQ_API_KEY` / `GEMINI_API_KEY` | AI APIs for question extraction |
-| `DB_*` | PostgreSQL connection (not needed for SQLite) |
-| `USE_S3` / `R2_*` | Cloudflare R2 storage (set `USE_S3=False` locally) |
+| Variable | Needed for | Description |
+|---|---|---|
+| `SECRET_KEY` | always | Django secret key |
+| `DEBUG` | always | `True` for local dev |
+| `DATABASE_URL` | optional | Database URL; unset → SQLite |
+| `DB_*` | Docker | PostgreSQL connection for compose |
+| `TELEGRAM_BOT_TOKEN` | auth, bot | From @BotFather; used to verify initData |
+| `TELEGRAM_CHANNEL_ID` | bot | Channel the bot harvests files from |
+| `TELEGRAM_OFFICIAL_CHANNEL_ID` / `TELEGRAM_CHANNEL_LINK` | auth | Channel students must join; unset → no check |
+| `TELEGRAM_ADMIN_CHAT_ID` | payments | Where new subscription requests are announced |
+| `TELEGRAM_WEBHOOK_URL` / `TELEGRAM_WEBHOOK_SECRET` | bot | Webhook registration and verification |
+| `MINI_APP_URL` | bot | URL opened by the bot's "Open App" button |
+| `GEMINI_API_KEY` | admin | AI question extraction |
+| `USE_S3` / `R2_*` | production | Cloudflare R2 media storage (`False` locally) |
+| `MAX_OCR_FILE_SIZE_MB` | optional | Skip OCR for larger files (default 5) |
