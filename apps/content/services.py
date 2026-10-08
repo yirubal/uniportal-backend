@@ -2,7 +2,7 @@ from pathlib import Path
 
 from django.core.files import File
 
-from .models import FileInbox
+from .models import FileInbox, Resource
 
 
 def create_inbox_item_from_local_file(
@@ -78,16 +78,19 @@ def copy_inbox_file_to_resource(inbox_item, resource):
 def clear_inbox_file(inbox_item, *, protected_file_name=None):
     """
     Clears the inbox file reference.
-    If the inbox file path matches the protected_file_name (i.e. the
-    resource is using the same file), only the DB reference is cleared —
-    the actual R2 file is preserved.
+    Preserve files referenced by any resource or another inbox item. The
+    explicit protected name also covers a resource not yet saved to the DB.
     """
     file_name = inbox_item.file.name
     if not file_name:
         return False
 
-    if protected_file_name and file_name == protected_file_name:
-        # Resource is using this file — only clear DB reference
+    is_referenced = (
+        file_name == protected_file_name
+        or Resource.objects.filter(file=file_name).exists()
+        or FileInbox.objects.filter(file=file_name).exclude(pk=inbox_item.pk).exists()
+    )
+    if is_referenced:
         inbox_item.file.name = ''
         inbox_item.save(update_fields=['file'])
         return True
@@ -167,7 +170,8 @@ def cleanup_assigned_inbox_duplicates(*, dry_run=False, limit=None):
         if dry_run:
             stats['cleaned'] += 1
             messages.append(
-                f'Would delete duplicate inbox file for inbox {inbox_item.id}: {inbox_item.file.name}'
+                f'Would clear duplicate inbox reference for inbox {inbox_item.id}: '
+                f'{inbox_item.file.name}; stored file deleted only if unreferenced'
             )
             continue
 
@@ -178,7 +182,8 @@ def cleanup_assigned_inbox_duplicates(*, dry_run=False, limit=None):
             ):
                 stats['cleaned'] += 1
                 messages.append(
-                    f'Deleted duplicate inbox file for inbox {inbox_item.id}'
+                    f'Cleared duplicate inbox reference for inbox {inbox_item.id}; '
+                    'stored file deleted only if unreferenced'
                 )
         except Exception as exc:
             stats['failed'] += 1

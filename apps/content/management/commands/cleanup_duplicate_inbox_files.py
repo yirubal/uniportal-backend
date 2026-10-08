@@ -4,7 +4,7 @@ from apps.content.services import cleanup_assigned_inbox_duplicates
 
 
 class Command(BaseCommand):
-    help = 'Deletes duplicate inbox files after their assigned Resource file exists.'
+    help = 'Clears assigned inbox references, deleting only unreferenced duplicate files.'
 
     def add_arguments(self, parser):
         parser.add_argument(

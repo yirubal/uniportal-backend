@@ -1,5 +1,4 @@
 from django.core.management.base import BaseCommand
-from django.db import connections
 
 
 class Command(BaseCommand):
@@ -16,7 +15,6 @@ class Command(BaseCommand):
         total = len(pending_upload_ids)
         if total == 0:
             self.stdout.write('No pending exam PDF uploads.')
-            connections.close_all()
             return
 
         self.stdout.write(f'Processing {total} pending exam PDF upload(s)...')
@@ -70,7 +68,8 @@ class Command(BaseCommand):
                 failed += 1
                 self.stdout.write(self.style.ERROR(f'Failed #{upload.pk}: {error}'))
 
-        connections.close_all()
+        # The CLI or background-thread caller owns connection cleanup. Closing
+        # here would abort an enclosing transaction when called via call_command.
         self.stdout.write(
             self.style.SUCCESS(
                 f'Done. Processed={processed}, failed={failed}, skipped={skipped}.'

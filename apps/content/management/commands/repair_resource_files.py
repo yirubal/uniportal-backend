@@ -13,7 +13,7 @@ from apps.content.services import (
 
 
 class Command(BaseCommand):
-    help = 'Copies existing FileInbox files into their assigned Resource files.'
+    help = 'Repairs Resource references using existing inbox files without copying stored objects.'
 
     def add_arguments(self, parser):
         parser.add_argument(
@@ -40,7 +40,7 @@ class Command(BaseCommand):
                     if dry_run:
                         cleaned += 1
                         self.stdout.write(
-                            f'Would delete duplicate inbox file for resource {resource.id}: '
+                            f'Would clear inbox file reference for resource {resource.id}: '
                             f'{resource.inbox_source.file.name}'
                         )
                     elif clear_inbox_file(
@@ -50,7 +50,7 @@ class Command(BaseCommand):
                         cleaned += 1
                         self.stdout.write(
                             self.style.SUCCESS(
-                                f'Deleted duplicate inbox file for resource {resource.id}'
+                                f'Cleared inbox file reference for resource {resource.id}'
                             )
                         )
                 already_ok += 1

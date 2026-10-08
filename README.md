@@ -182,9 +182,21 @@ python manage.py setup_webhook --delete # remove it when done
 ### Running tests
 
 ```bash
-python manage.py test                  # all apps
-python manage.py test apps.quiz        # one app
+python manage.py test --settings=config.settings.test                  # all apps
+python manage.py test apps.quiz --settings=config.settings.test        # one app
+python manage.py check --settings=config.settings.test
+python manage.py makemigrations --check --dry-run --settings=config.settings.test
 ```
+
+Test settings use isolated temporary media, in-memory SQLite by default, and no
+real external-service credentials. Set `DATABASE_URL` to a disposable PostgreSQL
+database to run against PostgreSQL. CI runs both databases and a synthetic backup
+restore check. See [Phase 1 baseline](docs/PHASE_1_BASELINE.md) for verification,
+Railway measurements, and backup procedures.
+
+The app is in a **free adoption period**. Paid access enforcement is deferred.
+Some legacy premium gates remain in the backend; their inventory is documented
+in the baseline. The phased plan is in [improvemnts.md](improvemnts.md).
 
 ---
 
