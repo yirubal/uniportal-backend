@@ -1,6 +1,6 @@
 # UniPortal improvement roadmap
 
-Created: 2026-10-08. Status: Phases 1–2 repository work verified; production checks pending.
+Created: 2026-10-08. Status: Phases 1–3 repository work implemented; production checks pending.
 
 ## Product direction
 
@@ -150,28 +150,28 @@ Reuse `FileInbox` and `ExamPDFUpload` where appropriate. Add small durable recor
 for webhook acceptance and notification/AI work only where existing records
 cannot represent the required lifecycle.
 
-- [ ] Save and deduplicate accepted Telegram updates before returning success.
+- [x] Save and deduplicate accepted Telegram updates before returning success.
   Acknowledge only after persistence succeeds; do not discard failures to avoid
   retries.
-- [ ] Move file download/extraction, exam PDF processing, AI extraction,
+- [x] Move file download/extraction, exam PDF processing, AI extraction,
   broadcasts, and payment notifications out of web requests and daemon threads.
-- [ ] Claim pending work atomically. Store claim time, retry count, next retry
+- [x] Claim pending work atomically. Store claim time, retry count, next retry
   time, and the last error where needed.
-- [ ] Recover only stale claims. Use bounded retries with backoff, and leave
+- [x] Recover only stale claims. Use bounded retries with backoff, and leave
   permanently invalid files visible for administrator review.
-- [ ] Replace the current recovery-only `run_bot` deployment role with a clearly
+- [x] Replace the current recovery-only `run_bot` deployment role with a clearly
   named worker command; keep one-off recovery commands explicit.
-- [ ] Replace OCR signal alarms with supported subprocess/library timeouts.
+- [x] Replace OCR signal alarms with supported subprocess/library timeouts.
   Bound page rendering, total processing time, and concurrent extraction.
-- [ ] Report empty, skipped, and partially extracted documents accurately.
-- [ ] Use unique temporary download paths, sanitize supplied filenames, and
+- [x] Report empty, skipped, and partially extracted documents accurately.
+- [x] Use unique temporary download paths, sanitize supplied filenames, and
   remove temporary files in `finally`.
-- [ ] Handle Telegram rate limits and retry delivery failures. Persist broadcast
+- [x] Handle Telegram rate limits and retry delivery failures. Persist broadcast
   progress so a restart does not resend every delivered message.
-- [ ] Cache completed AI extraction by source content and extraction version;
+- [x] Cache completed AI extraction by source content and extraction version;
   bound input/output size, validate generated questions, and avoid repeated paid
   extraction for identical inputs. Keep human review before publication.
-- [ ] Schedule periodic commands explicitly and document their ownership.
+- [x] Schedule periodic commands explicitly and document their ownership.
 
 **Completion checks:** Webhook acceptance is quick and durable; killing and
 restarting the worker recovers unfinished work; duplicate updates do not create
@@ -183,6 +183,15 @@ Primary files: `apps/api/views.py`, `apps/bot/application.py`,
 `apps/bot/downloader.py`, `apps/bot/extractor.py`, `apps/exams/admin.py`,
 `apps/exams/management/commands/process_exam_pdfs.py`,
 `apps/accounts/notifications.py`, `Dockerfile`, `docker-compose.yml`, `Procfile`.
+
+**2026-10-08 progress:** Durable PostgreSQL work records and a single worker
+replace webhook processing and admin/daemon-thread work. PostgreSQL passes all
+134 tests, followed by 36 focused worker/exam checks; SQLite passes 128 of
+135 with seven skipped. Backup/restore and actual child
+interruption/recovery drills pass. Real OCR smoke execution is pending hosted CI
+because local Tesseract is unavailable. See [Phase 3 background work](docs/PHASE_3_BACKGROUND_WORK.md)
+for limits, delivery semantics, model configuration, and Railway rollout. The
+live worker, scheduler, and provider smoke checks remain pending.
 
 ## Phase 4 — Reduce file-delivery and memory costs
 
@@ -343,7 +352,7 @@ roadmap rather than implementing an outdated assumption.
 |---|---|---|
 | 1 — Baseline | Repository work verified; production checks pending | 92 PostgreSQL tests; SQLite 90 passed / 2 skipped; synthetic restore passed. See docs/PHASE_1_BASELINE.md. |
 | 2 — Correctness | Repository work verified; rollout pending | 113 PostgreSQL tests pass; SQLite 108 passed / 5 skipped; checks and synthetic restore recorded in docs/PHASE_2_CORRECTNESS.md. |
-| 3 — Background processing | Not started | |
+| 3 — Background processing | Repository implementation verified; rollout and OCR smoke pending | 134 PostgreSQL tests + 36 final focused checks; SQLite 128 passed / 7 skipped; recovery and restore drills pass. See docs/PHASE_3_BACKGROUND_WORK.md. |
 | 4 — File delivery | Not started | |
 | 5 — Database and API efficiency | Not started | |
 | 6 — Code and production operation | Not started | |

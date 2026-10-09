@@ -14,10 +14,12 @@ def create_inbox_item_from_local_file(
     posted_date,
     processing_status=FileInbox.STATUS_UNPROCESSED,
     processing_error='',
+    telegram_chat_id=0,
 ):
     inbox_item = FileInbox(
         original_filename=original_filename,
         telegram_message_id=telegram_message_id,
+        telegram_chat_id=telegram_chat_id,
         telegram_caption=telegram_caption,
         posted_date=posted_date,
         processing_status=processing_status,

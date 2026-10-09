@@ -1,8 +1,6 @@
-import asyncio
 import mimetypes
 import logging
 import re
-import threading
 from pathlib import Path
 from urllib.parse import quote, unquote
 
@@ -51,21 +49,6 @@ logger = logging.getLogger(__name__)
 RESOURCE_DOWNLOAD_TOKEN_MAX_AGE = 900
 RESOURCE_DOWNLOAD_TOKEN_SALT = 'apps.api.resource-download'
 PAYMENT_REFERENCE_RE = re.compile(r'^[A-Z0-9]{6,50}$')
-_telegram_webhook_loop = None
-_telegram_webhook_thread = None
-_telegram_webhook_loop_lock = threading.Lock()
-
-
-def _run_telegram_webhook_loop(loop):
-    asyncio.set_event_loop(loop)
-
-    def keepalive():
-        loop.call_later(0.25, keepalive)
-
-    loop.call_soon(keepalive)
-    loop.run_forever()
-
-
 # ─── AUTH ─────────────────────────────────────────────────────────────────────
 
 class TelegramAuthView(APIView):
@@ -141,29 +124,6 @@ class TelegramWebhookView(APIView):
     permission_classes = []
     authentication_classes = []
 
-    @staticmethod
-    def get_event_loop():
-        global _telegram_webhook_loop, _telegram_webhook_thread
-
-        with _telegram_webhook_loop_lock:
-            thread_dead = (
-                _telegram_webhook_thread is None
-                or not _telegram_webhook_thread.is_alive()
-            )
-            if (
-                _telegram_webhook_loop is None
-                or _telegram_webhook_loop.is_closed()
-                or thread_dead
-            ):
-                _telegram_webhook_loop = asyncio.new_event_loop()
-                _telegram_webhook_thread = threading.Thread(
-                    target=_run_telegram_webhook_loop,
-                    args=(_telegram_webhook_loop,),
-                    daemon=True,
-                )
-                _telegram_webhook_thread.start()
-            return _telegram_webhook_loop
-
     def post(self, request):
         secret = settings.TELEGRAM_WEBHOOK_SECRET
         if secret:
@@ -175,21 +135,18 @@ class TelegramWebhookView(APIView):
         if not settings.TELEGRAM_BOT_TOKEN:
             return Response({'error': 'Bot not configured'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
+        from apps.bot.models import TelegramUpdate
+        payload = request.data
+        if (not isinstance(payload, dict) or isinstance(payload.get('update_id'), bool)
+                or not isinstance(payload.get('update_id'), int)
+                or not 0 <= payload['update_id'] <= 9223372036854775807):
+            return Response({'error': 'A valid update_id is required.'}, status=400)
         try:
-            from apps.bot.application import process_telegram_update
-
-            loop = self.get_event_loop()
-            future = asyncio.run_coroutine_threadsafe(
-                process_telegram_update(request.data),
-                loop,
-            )
-            future.result(timeout=30)
-            return Response({'ok': True})
+            TelegramUpdate.objects.get_or_create(update_id=payload['update_id'], defaults={'payload': payload})
         except Exception:
-            logger.exception('Webhook processing error')
-            # Telegram retries non-200 responses aggressively. Processing errors are
-            # logged, but the request is acknowledged to avoid retry storms.
-            return Response({'ok': True})
+            logger.exception('Webhook persistence failed')
+            return Response({'error': 'Temporarily unable to accept update.'}, status=503)
+        return Response({'ok': True})
 
 
 
@@ -1040,7 +997,6 @@ class SubscriptionRequestView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        created = False
         try:
             with transaction.atomic():
                 Student.objects.select_for_update().get(pk=request.student.pk)
@@ -1064,7 +1020,7 @@ class SubscriptionRequestView(APIView):
                         amount=plan.price,
                         status=SubscriptionRequest.STATUS_PENDING,
                     )
-                    created = True
+                    _notify_subscription_request_created(sub_request)
         except IntegrityError:
             sub_request = SubscriptionRequest.objects.filter(
                 student=request.student,
@@ -1072,9 +1028,6 @@ class SubscriptionRequestView(APIView):
             ).select_related('plan').first()
             if sub_request is None:
                 raise
-
-        if created:
-            transaction.on_commit(lambda: _notify_subscription_request_created(sub_request), robust=True)
 
         return _build_payment_response(sub_request, sub_request.plan)
 
@@ -1129,14 +1082,8 @@ def _notify_subscription_request_created(sub_request):
 
     notify_subscription_request_created(sub_request)
 
-    try:
-        send_admin_notification(_build_admin_subscription_request_message(sub_request))
-    except Exception as exc:
-        logger.warning(
-            'Admin subscription notification failed for request %s: %s',
-            sub_request.reference,
-            exc,
-        )
+    send_admin_notification(_build_admin_subscription_request_message(sub_request),
+                            deduplication_key=f'payment:{sub_request.pk}:pending:admin')
 
 
 def _build_admin_subscription_request_message(sub_request):

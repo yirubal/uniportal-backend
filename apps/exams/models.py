@@ -1,3 +1,4 @@
+from django.utils import timezone
 from django.db import models, transaction
 
 
@@ -158,6 +159,11 @@ class ExamPDFUpload(models.Model):
     records_created = models.IntegerField(default=0)
     error_message = models.TextField(blank=True)
     uploaded_at = models.DateTimeField(auto_now_add=True)
+
+    attempt_count = models.PositiveIntegerField(default=0)
+    claimed_at = models.DateTimeField(null=True, blank=True)
+    claim_token = models.UUIDField(null=True, blank=True, editable=False)
+    next_attempt_at = models.DateTimeField(default=timezone.now, db_index=True)
 
     class Meta:
         ordering = ['-uploaded_at']

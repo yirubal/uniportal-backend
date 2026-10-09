@@ -369,3 +369,14 @@ LOGGING = {
         },
     },
 }
+
+# A single worker bounds memory; subprocess deadlines stay below claim expiry.
+WORKER_TASK_TIMEOUT_SECONDS = 300
+WORKER_CLAIM_TIMEOUT_SECONDS = 900
+WORKER_MAX_ATTEMPTS = 5
+EXTRACTION_MAX_PAGES = 100
+EXTRACTION_TIMEOUT_SECONDS = 240
+OCR_MAX_FILE_BYTES = 5 * 1024 * 1024
+AI_MAX_INPUT_CHARS = 40000
+AI_MAX_QUESTIONS = 500
+GEMINI_MODEL = os.environ.get('GEMINI_MODEL', 'gemini-3.1-flash-lite')

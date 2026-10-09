@@ -21,7 +21,7 @@ class PaymentCorrectnessTests(TestCase):
         self.admin_user = get_user_model().objects.create_user(username='payment-admin')
 
     @patch('apps.accounts.services.notify_subscription_approved')
-    def test_approval_extends_existing_expiry_once_and_notifies_after_commit(self, notify):
+    def test_approval_extends_existing_expiry_once_and_queues_delivery_once(self, notify):
         expiry = timezone.now() + timedelta(days=10)
         self.student.subscription_status = 'premium'
         self.student.subscription_expiry = expiry
@@ -29,7 +29,7 @@ class PaymentCorrectnessTests(TestCase):
         with self.captureOnCommitCallbacks(execute=True):
             self.assertTrue(approve_subscription_request(self.request.pk, self.admin_user))
             self.assertFalse(approve_subscription_request(self.request.pk, self.admin_user))
-            notify.assert_not_called()
+            notify.assert_called_once()
         self.student.refresh_from_db()
         self.request.refresh_from_db()
         self.assertEqual(self.student.subscription_expiry, expiry + timedelta(days=30))
@@ -49,22 +49,27 @@ class PaymentCorrectnessTests(TestCase):
         self.assertEqual(self.request.status, 'pending')
         notify.assert_not_called()
 
-    @patch('apps.accounts.services.notify_subscription_approved', side_effect=RuntimeError('Telegram unavailable'))
-    def test_notification_failure_does_not_undo_approval(self, notify):
-        with self.assertLogs('django', level='ERROR'):
-            with self.captureOnCommitCallbacks(execute=True):
-                self.assertTrue(approve_subscription_request(self.request.pk, self.admin_user))
+    def test_delivery_failure_does_not_undo_approval(self):
+        from apps.bot.models import NotificationDelivery
+        from apps.bot.worker import claim_work, process_claimed_work
+        approve_subscription_request(self.request.pk, self.admin_user)
+        delivery = NotificationDelivery.objects.get()
+        with patch('apps.bot.worker.deliver_notification', side_effect=RuntimeError('Telegram unavailable')):
+            process_claimed_work('notification', *claim_work('notification'))
         self.request.refresh_from_db()
         self.student.refresh_from_db()
+        delivery.refresh_from_db()
         self.assertEqual(self.request.status, 'approved')
         self.assertTrue(self.student.is_premium)
+        self.assertEqual(delivery.status, 'pending')
+        self.assertEqual(delivery.attempt_count, 1)
 
     @patch('apps.accounts.services.notify_subscription_rejected')
-    def test_pending_rejection_is_once_only_and_notifies_after_commit(self, notify):
+    def test_pending_rejection_is_once_only_and_queues_delivery_once(self, notify):
         with self.captureOnCommitCallbacks(execute=True):
             self.assertTrue(reject_subscription_request(self.request.pk))
             self.assertFalse(reject_subscription_request(self.request.pk))
-            notify.assert_not_called()
+            notify.assert_called_once()
         self.request.refresh_from_db()
         self.student.refresh_from_db()
         self.assertEqual(self.request.status, 'rejected')

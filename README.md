@@ -46,7 +46,7 @@ flowchart LR
 ```
 
 - **One web process** serves the API, the admin, and the Telegram webhook.
-- **Bot updates arrive by webhook**; `run_bot` only recovers stuck inbox items.
+- **Bot updates arrive by webhook** and are persisted for `run_worker`; `run_bot` only recovers stale claims.
 - **Content pipeline:** channel file → `FileInbox` → text extraction → admin
   publishes a `Resource` and/or extracts quiz questions with Gemini.
 
@@ -172,6 +172,7 @@ TELEGRAM_WEBHOOK_SECRET=any-random-string
 ```bash
 # Add the tunnel host to ALLOWED_HOSTS in config/settings/dev.py if needed
 python manage.py runserver
+python manage.py run_worker             # run in a separate terminal
 python manage.py setup_webhook          # register the webhook
 python manage.py setup_webhook --delete # remove it when done
 ```
@@ -190,7 +191,7 @@ python manage.py makemigrations --check --dry-run --settings=config.settings.tes
 
 Test settings use isolated temporary media, in-memory SQLite by default, and no
 real external-service credentials. Set `DATABASE_URL` to a disposable PostgreSQL
-database to run against PostgreSQL. CI runs both databases and a synthetic backup
+database to run against PostgreSQL. CI runs both databases, worker recovery/OCR, and a synthetic backup
 restore check. See [Phase 1 baseline](docs/PHASE_1_BASELINE.md) for verification,
 Railway measurements, and backup procedures.
 
@@ -199,6 +200,8 @@ Some legacy premium gates remain in the backend; their inventory is documented
 in the baseline. The phased plan is in [improvemnts.md](improvemnts.md).
 Phase 2 quiz/payment changes, simulation headers, migrations, and rollout checks
 are documented in [Phase 2 correctness](docs/PHASE_2_CORRECTNESS.md).
+The durable worker and Railway rollout are documented in
+[Phase 3 background work](docs/PHASE_3_BACKGROUND_WORK.md).
 
 ---
 
@@ -210,12 +213,11 @@ Docker Compose defines **3 services** in [`docker-compose.yml`](docker-compose.y
 |---|---|---|
 | `postgres` | `uniportal-postgres` | PostgreSQL 15 database |
 | `django` | `uniportal-backend` | Gunicorn on port 8000; runs migrations and `collectstatic` on start |
-| `bot` | `uniportal-bot` | Runs `run_bot` (inbox recovery); `maintenance` profile, opt-in only |
+| `worker` | `uniportal-worker` | Runs `run_worker`, processing durable work with concurrency one |
 
 ```bash
 cp -n .env.example .env        # set SECRET_KEY, DB_PASSWORD, TELEGRAM_BOT_TOKEN
-docker compose up --build -d   # postgres + django
-docker compose --profile maintenance up -d bot   # optional: inbox recovery
+docker compose up --build -d   # postgres + django + worker
 ```
 
 API and admin: http://localhost:8000/ and http://localhost:8000/admin/
@@ -256,7 +258,7 @@ uniportal-backend/
 │   └── ARCHITECTURE.md      ← System design
 ├── templates/               ← Admin template overrides
 ├── Dockerfile / docker-compose.yml
-├── Procfile                 ← web (Gunicorn) + worker (run_bot) processes
+├── Procfile                 ← web (Gunicorn) + worker (run_worker) processes
 └── .env.example             ← Environment variable template
 ```
 
@@ -269,10 +271,12 @@ uniportal-backend/
 | `runserver` / `migrate` / `createsuperuser` / `shell` | Standard Django |
 | `seed_data` | Seed departments, courses, plans, site settings |
 | `setup_webhook [--delete]` | Register / remove the Telegram webhook |
-| `run_bot` | Recover stuck or failed inbox items |
+| `run_worker` | Continuously process durable work; use one replica |
+| `run_bot` | One-off stale claim recovery; failed records require review |
+| `run_maintenance` | Daily subscription expiry, queued exam reminders, bounded inbox cleanup |
 | `harvest_channel` | Back-fill historical channel files into the inbox |
 | `check_subscriptions` | Expire lapsed premium subscriptions (schedule daily) |
-| `send_exam_notifications` | Send exam countdown messages (schedule daily) |
+| `send_exam_notifications` | Queue exam countdown messages (schedule daily) |
 | `process_exam_pdfs` | Process pending exam schedule/attendance PDFs |
 | `import_student_exams` | Import student exam rows from CSV |
 | `import_course_with_chapters` / `import_questions_with_chapters` / `import_exit_exam_questions` | Bulk question imports from Excel |
@@ -300,3 +304,6 @@ See [`.env.example`](.env.example) for the full list.
 | `GEMINI_API_KEY` | admin | AI question extraction |
 | `USE_S3` / `R2_*` | production | Cloudflare R2 media storage (`False` locally) |
 | `MAX_OCR_FILE_SIZE_MB` | optional | Skip OCR for larger files (default 5) |
+
+`GEMINI_MODEL` configures the extraction model and cache version. See the Phase 3
+rollout document before enabling the worker in Railway.

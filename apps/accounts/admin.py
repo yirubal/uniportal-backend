@@ -7,7 +7,7 @@ from unfold.admin import ModelAdmin
 from django.shortcuts import render, redirect
 
 from .models import Student, SubscriptionPlan, SubscriptionRequest, SiteSettings, BroadcastMessage
-from .notifications import broadcast_to_all_students
+from .notifications import queue_broadcast
 from .services import approve_subscription_request, reject_subscription_request
 
 
@@ -114,33 +114,12 @@ class StudentAdmin(ModelAdmin):
                 messages.error(request, 'Message cannot be empty.')
                 return redirect('admin:accounts_broadcast')
 
-            total, success, failed = broadcast_to_all_students(
-                message=message,
-                parse_mode=parse_mode or None,
-            )
-
-            # Save log
-            BroadcastMessage.objects.create(
-                message=message,
-                parse_mode=parse_mode,
-                sent_by=request.user,
-                total_users=total,
-                success_count=success,
-                failed_count=failed,
-            )
-
-            if failed == 0:
-                self.message_user(
-                    request,
-                    f'✅ Broadcast sent to {success} student(s) successfully.',
-                    messages.SUCCESS,
-                )
-            else:
-                self.message_user(
-                    request,
-                    f'⚠️ Sent to {success}/{total} student(s). {failed} delivery failure(s).',
-                    messages.WARNING,
-                )
+            try:
+                broadcast = queue_broadcast(message, parse_mode, request.user)
+            except ValueError as exc:
+                messages.error(request, str(exc))
+                return redirect('admin:accounts_broadcast')
+            self.message_user(request, f'Broadcast queued for {broadcast.total_users} student(s). Delivery progress is saved.', messages.SUCCESS)
             return redirect('admin:accounts_broadcast')
 
         # GET — show form + recent history
@@ -295,7 +274,7 @@ class SubscriptionRequestAdmin(ModelAdmin):
             self.message_user(
                 request,
                 f'✅ Approved and activated premium for {activated} student(s). '
-                f'Telegram notifications scheduled after commit.',
+                f'Telegram notifications queued for the worker.',
                 messages.SUCCESS,
             )
         already_done = len(selected_ids) - activated
@@ -315,7 +294,7 @@ class SubscriptionRequestAdmin(ModelAdmin):
             request,
             f'Rejected {rejected} pending request(s); skipped {skipped} already processed request(s). '
             'Approved payments and their granted access are preserved. '
-            'Notifications are scheduled after commit.',
+            'Notifications are queued for the worker.',
             messages.SUCCESS if rejected else messages.WARNING,
         )
 
@@ -353,7 +332,7 @@ class SubscriptionRequestAdmin(ModelAdmin):
             obj.refresh_from_db()
             self.message_user(
                 request,
-                'Pending request rejected; notification scheduled after commit.' if rejected
+                'Pending request rejected; notification queued for the worker.' if rejected
                 else 'Only pending payments can be rejected. Approved payments are preserved.',
                 messages.SUCCESS if rejected else messages.WARNING,
             )

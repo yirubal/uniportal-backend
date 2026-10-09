@@ -220,7 +220,7 @@ class Command(BaseCommand):
             from apps.content.models import FileInbox
 
             existing_item = await sync_to_async(
-                lambda: FileInbox.objects.filter(telegram_message_id=current_id).first()
+                lambda: FileInbox.objects.filter(telegram_message_id=current_id, telegram_chat_id__in=[int(channel), 0]).first()
             )()
 
             if existing_item and not redownload_missing:
@@ -255,51 +255,36 @@ class Command(BaseCommand):
             self.stdout.write(f'  [{current_id}] Downloading: {filename}...')
 
             from apps.bot.downloader import download_file
-            file_path = await download_file(bot, file_id, filename)
-
-            if not file_path:
-                self.stdout.write(self.style.WARNING(f'  [{current_id}] Failed to download {filename}'))
-                await sync_to_async(FileInbox.objects.create)(
-                    file='',
-                    original_filename=filename,
-                    telegram_message_id=current_id,
-                    telegram_caption=forwarded.caption or '',
-                    posted_date=forwarded.date or timezone.now(),
-                    processing_status=FileInbox.STATUS_FAILED,
-                    processing_error='Failed to download during harvest',
-                )
+            from apps.content.services import create_inbox_item_from_local_file, save_local_file_to_inbox_item
+            from pathlib import Path
+            file_path = None
+            try:
+                file_path = await download_file(bot, file_id, filename)
+                if existing_item:
+                    existing_item.telegram_chat_id = int(channel)
+                    existing_item.attempt_count = 0
+                    existing_item.next_attempt_at = timezone.now()
+                    existing_item.claimed_at = None
+                    existing_item.claim_token = None
+                    await sync_to_async(save_local_file_to_inbox_item)(
+                        existing_item, file_path=file_path, original_filename=filename,
+                        telegram_caption=forwarded.caption or '', posted_date=forwarded.date or timezone.now(),
+                    )
+                else:
+                    await sync_to_async(create_inbox_item_from_local_file)(
+                        file_path=file_path, original_filename=filename, telegram_message_id=current_id,
+                        telegram_chat_id=int(channel), telegram_caption=forwarded.caption or '',
+                        posted_date=forwarded.date or timezone.now(),
+                    )
+            except Exception:
+                self.stdout.write(self.style.WARNING(f'  [{current_id}] Harvest failed; retry this range explicitly.'))
                 failed += 1
                 current_id += 1
                 await asyncio.sleep(delay)
                 continue
-
-            # ── Save to FileInbox ─────────────────────────────────────────────
-            from apps.content.services import (
-                create_inbox_item_from_local_file,
-                save_local_file_to_inbox_item,
-            )
-            if existing_item:
-                inbox_item = await sync_to_async(save_local_file_to_inbox_item)(
-                    existing_item,
-                    file_path=file_path,
-                    original_filename=filename,
-                    telegram_caption=forwarded.caption or '',
-                    posted_date=forwarded.date or timezone.now(),
-                    processing_status=FileInbox.STATUS_UNPROCESSED,
-                    processing_error='',
-                )
-            else:
-                inbox_item = await sync_to_async(create_inbox_item_from_local_file)(
-                    file_path=file_path,
-                    original_filename=filename,
-                    telegram_message_id=current_id,
-                    telegram_caption=forwarded.caption or '',
-                    posted_date=forwarded.date or timezone.now(),
-                    processing_status=FileInbox.STATUS_UNPROCESSED,  # ← fixed (was STATUS_FAILED)
-                )
-
-            from apps.bot.tasks import process_inbox_item
-            await process_inbox_item(inbox_item.id)
+            finally:
+                if file_path:
+                    Path(file_path).unlink(missing_ok=True)
 
             self.stdout.write(self.style.SUCCESS(f'  [{current_id}] ✅ Saved: {filename}'))
             downloaded += 1

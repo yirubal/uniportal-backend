@@ -2,76 +2,13 @@ from django.core.management.base import BaseCommand
 
 
 class Command(BaseCommand):
-    help = 'Processes pending exam PDF uploads.'
+    help = 'One-off processing of eligible exam uploads with worker claiming/retries.'
 
     def handle(self, *args, **options):
-        from apps.exams.models import ExamPDFUpload
-        from apps.exams.services import process_attendance_pdf, process_schedule_pdf
-
-        pending_upload_ids = list(ExamPDFUpload.objects.filter(
-            status=ExamPDFUpload.STATUS_PENDING,
-        ).order_by('uploaded_at').values_list('pk', flat=True))
-
-        total = len(pending_upload_ids)
-        if total == 0:
-            self.stdout.write('No pending exam PDF uploads.')
-            return
-
-        self.stdout.write(f'Processing {total} pending exam PDF upload(s)...')
-
-        processed = 0
-        failed = 0
-        skipped = 0
-
-        for upload_id in pending_upload_ids:
-            claimed = ExamPDFUpload.objects.filter(
-                pk=upload_id,
-                status=ExamPDFUpload.STATUS_PENDING,
-            ).update(
-                status=ExamPDFUpload.STATUS_PROCESSING,
-                error_message='',
-            )
-            if not claimed:
-                skipped += 1
-                continue
-
-            upload = ExamPDFUpload.objects.get(pk=upload_id)
-            self.stdout.write(f'Processing #{upload.pk}: {upload.original_name}')
-
-            try:
-                if upload.pdf_type == ExamPDFUpload.TYPE_SCHEDULE:
-                    success, created, error = process_schedule_pdf(upload)
-                elif upload.pdf_type == ExamPDFUpload.TYPE_ATTENDANCE:
-                    success, created, error = process_attendance_pdf(upload)
-                else:
-                    raise ValueError(f'Unsupported PDF type: {upload.pdf_type}')
-            except Exception as exc:
-                success = False
-                created = 0
-                error = str(exc)
-
-            upload.refresh_from_db()
-            if upload.status == ExamPDFUpload.STATUS_PROCESSING:
-                upload.status = (
-                    ExamPDFUpload.STATUS_PROCESSED if success else ExamPDFUpload.STATUS_FAILED
-                )
-                upload.records_created = created if success else 0
-                upload.error_message = '' if success else error
-                upload.save(update_fields=['status', 'records_created', 'error_message'])
-
-            if success:
-                processed += 1
-                self.stdout.write(
-                    self.style.SUCCESS(f'Processed #{upload.pk}: {created} record(s) created')
-                )
-            else:
-                failed += 1
-                self.stdout.write(self.style.ERROR(f'Failed #{upload.pk}: {error}'))
-
-        # The CLI or background-thread caller owns connection cleanup. Closing
-        # here would abort an enclosing transaction when called via call_command.
-        self.stdout.write(
-            self.style.SUCCESS(
-                f'Done. Processed={processed}, failed={failed}, skipped={skipped}.'
-            )
-        )
+        from apps.bot.worker import claim_work, run_claimed_subprocess, recover_stale_claims
+        recover_stale_claims('exam')
+        count = 0
+        while claim := claim_work('exam'):
+            run_claimed_subprocess('exam', *claim)
+            count += 1
+        self.stdout.write(f'Processed {count} eligible exam PDF upload(s).')

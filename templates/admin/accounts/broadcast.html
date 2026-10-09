@@ -168,7 +168,7 @@
           <tr class="bg-base-50 dark:bg-base-800">
             <th
               class="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wide text-base-500 dark:text-base-400">
-              Sent at</th>
+              Started at</th>
             <th
               class="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wide text-base-500 dark:text-base-400">
               By</th>
@@ -189,7 +189,9 @@
             <td class="px-5 py-3 text-base-700 dark:text-base-200 group-hover:text-primary-600 dark:group-hover:text-primary-400 max-w-xs truncate transition-colors">{{ b.message|truncatechars:80 }}
             </td>
             <td class="px-5 py-3">
-              {% if b.failed_count == 0 %}
+              {% if b.pending_count %}
+              <span class="text-xs text-base-500">{{ b.success_count }} / {{ b.total_users }} delivered; {{ b.pending_count }} remaining; {{ b.failed_count }} failed</span>
+              {% elif b.failed_count == 0 %}
               <span class="inline-flex items-center gap-1 text-xs font-medium text-green-600 dark:text-green-400">
                 <span class="material-symbols-outlined text-sm">check_circle</span>
                 {{ b.success_count }} / {{ b.total_users }}
@@ -234,7 +236,7 @@
       <button type="button" onclick="document.getElementById('broadcastForm').submit()"
         class="px-5 py-2 text-sm font-semibold bg-primary-600 hover:bg-primary-700 text-white rounded-default transition-colors flex items-center gap-2">
         <span class="material-symbols-outlined text-base">send</span>
-        Yes, Send Now
+        Yes, Start Broadcast
       </button>
     </div>
   </div>

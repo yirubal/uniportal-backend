@@ -1,3 +1,4 @@
+from django.utils import timezone
 from django.db import models
 
 
@@ -232,7 +233,8 @@ class FileInbox(models.Model):
 
     file = models.FileField(upload_to='inbox/%Y/%m/', blank=True)
     original_filename = models.CharField(max_length=500)
-    telegram_message_id = models.BigIntegerField(unique=True)
+    telegram_message_id = models.BigIntegerField()
+    telegram_chat_id = models.BigIntegerField(default=0)
     telegram_caption = models.TextField(
         blank=True,
         help_text='Caption from the original Telegram message',
@@ -243,6 +245,7 @@ class FileInbox(models.Model):
         choices=STATUS_CHOICES,
         default=STATUS_UNPROCESSED,
     )
+    extraction_outcome = models.CharField(max_length=15, blank=True)
     extracted_text = models.TextField(blank=True)
     processing_error = models.TextField(blank=True)
     assigned_resource = models.OneToOneField(
@@ -254,7 +257,13 @@ class FileInbox(models.Model):
     )
     created_at = models.DateTimeField(auto_now_add=True)
 
+    attempt_count = models.PositiveIntegerField(default=0)
+    claimed_at = models.DateTimeField(null=True, blank=True)
+    claim_token = models.UUIDField(null=True, blank=True, editable=False)
+    next_attempt_at = models.DateTimeField(default=timezone.now, db_index=True)
+
     class Meta:
+        constraints = [models.UniqueConstraint(fields=['telegram_chat_id', 'telegram_message_id'], name='inbox_chat_message_unique')]
         verbose_name = 'File Inbox'
         verbose_name_plural = 'File Inbox'
         ordering = ['-posted_date']

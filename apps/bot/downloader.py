@@ -1,68 +1,29 @@
 import os
-import logging
+import tempfile
 from pathlib import Path
-from django.conf import settings
-
-logger = logging.getLogger(__name__)
-
-# Where downloaded files are saved
-INBOX_DIR = Path(settings.MEDIA_ROOT) / 'inbox'
 
 
-def ensure_inbox_dir():
-    """Create inbox directory if it doesn't exist."""
-    INBOX_DIR.mkdir(parents=True, exist_ok=True)
+def safe_filename(filename):
+    return Path(str(filename).replace('\\', '/')).name[:240] or 'document'
 
 
-async def download_file(bot, file_id: str, filename: str) -> str | None:
-    """
-    Downloads a file from Telegram and saves it to the inbox directory.
-    Returns the full file path if successful, None if failed.
-    """
+async def download_file(bot, file_id, filename):
+    """Return a unique temporary path; the caller removes it in finally."""
+    suffix = Path(safe_filename(filename)).suffix
+    descriptor, path = tempfile.mkstemp(prefix='uniportal-telegram-', suffix=suffix)
+    os.close(descriptor)
     try:
-        ensure_inbox_dir()
-
-        # Get file info from Telegram
         file = await bot.get_file(file_id)
-
-        # Build save path
-        save_path = INBOX_DIR / filename
-
-        # Handle duplicate filenames
-        counter = 1
-        stem = Path(filename).stem
-        suffix = Path(filename).suffix
-        while save_path.exists():
-            save_path = INBOX_DIR / f'{stem}_{counter}{suffix}'
-            counter += 1
-
-        # Download the file
-        await file.download_to_drive(str(save_path))
-
-        logger.info(f'Downloaded file: {save_path}')
-        return str(save_path)
-
-    except Exception as e:
-        logger.error(f'Failed to download file {filename}: {e}')
-        return None
+        await file.download_to_drive(path)
+        return path
+    except BaseException:
+        Path(path).unlink(missing_ok=True)
+        raise
 
 
-def get_file_info(message) -> tuple[str, str] | tuple[None, None]:
-    """
-    Extracts file_id and filename from a Telegram message.
-    Handles documents, photos.
-    Returns (file_id, filename) or (None, None) if no file.
-    """
+def get_file_info(message):
     if message.document:
-        file_id = message.document.file_id
-        filename = message.document.file_name or f'document_{message.message_id}'
-        return file_id, filename
-
+        return message.document.file_id, safe_filename(message.document.file_name or f'document_{message.message_id}')
     if message.photo:
-        # Photos come as multiple sizes — get the largest
-        photo = message.photo[-1]
-        file_id = photo.file_id
-        filename = f'photo_{message.message_id}.jpg'
-        return file_id, filename
-
+        return message.photo[-1].file_id, f'photo_{message.message_id}.jpg'
     return None, None

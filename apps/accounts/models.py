@@ -337,6 +337,10 @@ class BroadcastMessage(models.Model):
         verbose_name_plural = 'Broadcast Messages'
         ordering            = ['-sent_at']
 
+    @property
+    def pending_count(self):
+        return max(0, self.total_users - self.success_count - self.failed_count)
+
     def __str__(self):
         preview = self.message[:60] + '…' if len(self.message) > 60 else self.message
         return f'Broadcast [{self.sent_at.strftime("%Y-%m-%d %H:%M")}]: {preview}'

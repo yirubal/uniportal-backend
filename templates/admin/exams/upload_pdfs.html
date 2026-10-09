@@ -138,7 +138,7 @@
         <span class="material-symbols-outlined text-base">cloud_upload</span>
         Upload &amp; Queue PDFs
       </button>
-      <p class="text-sm text-base-400 dark:text-base-500">Files stay pending until you start processing.</p>
+      <p class="text-sm text-base-400 dark:text-base-500">Uploaded files are processed automatically. Status updates while work is pending.</p>
     </div>
   </form>
 
@@ -259,7 +259,7 @@
       });
     }
 
-    if (window.sessionStorage.getItem('examPdfProcessingStarted') === '1' || {{ processing_count }} > 0) {
+    if (window.sessionStorage.getItem('examPdfProcessingStarted') === '1' || {{ processing_count }} > 0 || {{ pending_count }} > 0) {
       processingStarted = true;
       pollStatus();
     }

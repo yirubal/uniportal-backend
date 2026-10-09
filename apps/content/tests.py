@@ -5,16 +5,12 @@ from django.contrib import admin
 from django.contrib.auth import get_user_model
 from django.test import RequestFactory
 
-from django.core.cache import cache
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.core.management import call_command
 from django.test import TestCase, override_settings
 from django.utils import timezone
 
-from apps.bot.tasks import (
-    INBOX_DUPLICATE_CLEANUP_CACHE_KEY,
-    _cleanup_assigned_inbox_duplicates_if_due,
-)
+
 from apps.content.models import Course, FileInbox, Resource
 from apps.content.admin import FileInboxAdmin
 from apps.content.services import clear_inbox_file, copy_inbox_file_to_resource
@@ -28,7 +24,6 @@ class ResourceFileStorageTests(TestCase):
         self.course = Course.objects.create(name='Global Trends', code='GT101')
 
     def tearDown(self):
-        cache.delete(INBOX_DUPLICATE_CLEANUP_CACHE_KEY)
         self.settings_override.disable()
         shutil.rmtree(self.media_root, ignore_errors=True)
 
@@ -139,7 +134,7 @@ class ResourceFileStorageTests(TestCase):
         self.assertTrue(resource.file.storage.exists(inbox_file_name))
         self.assertTrue(resource.file.storage.exists(resource.file.name))
 
-    def test_periodic_cleanup_preserves_shared_file_and_runs_once_when_due(self):
+    def test_scheduled_cleanup_preserves_shared_file(self):
         assigned_inbox = self.create_inbox_item()
         assigned_file_name = assigned_inbox.file.name
         resource = Resource(
@@ -154,15 +149,11 @@ class ResourceFileStorageTests(TestCase):
         assigned_inbox.assigned_resource = resource
         assigned_inbox.save(update_fields=['assigned_resource'])
 
-        _cleanup_assigned_inbox_duplicates_if_due()
+        call_command('cleanup_duplicate_inbox_files', verbosity=0)
 
         assigned_inbox.refresh_from_db()
         self.assertEqual(assigned_inbox.file.name, '')
         self.assertTrue(resource.file.storage.exists(assigned_file_name))
-        self.assertTrue(cache.get(INBOX_DUPLICATE_CLEANUP_CACHE_KEY))
-        with patch('apps.content.services.cleanup_assigned_inbox_duplicates') as cleanup:
-            _cleanup_assigned_inbox_duplicates_if_due()
-        cleanup.assert_not_called()
 
     def create_separate_resource_file(self, inbox_item):
         resource = Resource.objects.create(

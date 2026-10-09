@@ -51,9 +51,12 @@ jobs:
         run: python manage.py makemigrations --check --dry-run
       - name: Run tests
         run: python manage.py test --noinput
-      - name: Install PostgreSQL backup tools
+      - name: Install worker and PostgreSQL tools
         if: matrix.database == 'postgres'
-        run: sudo apt-get update && sudo apt-get install -y postgresql-client
+        run: sudo apt-get update && sudo apt-get install -y postgresql-client tesseract-ocr poppler-utils
       - name: Verify synthetic database and media backup restore
         if: matrix.database == 'postgres'
         run: python scripts/check_backup_restore.py
+      - name: Verify interrupted worker recovery
+        if: matrix.database == 'postgres'
+        run: python scripts/check_worker_recovery.py --require-ocr

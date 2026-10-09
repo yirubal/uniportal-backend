@@ -1,6 +1,5 @@
 import json
 import logging
-import time
 from django.conf import settings
 
 logger = logging.getLogger(__name__)
@@ -63,168 +62,62 @@ Text to extract from:
 """
 
 
-def extract_questions_from_text(raw_text: str) -> list[dict]:
-    """
-    Sends raw extracted text to Gemini AI and returns structured
-    list of question dicts supporting mcq, true_false, fill_blank,
-    matching, and essay types.
-    For large texts processes in chunks of 8000 chars.
-    """
+EXTRACTION_VERSION = 'questions-v2'
+
+
+def validate_questions(questions):
+    if not isinstance(questions, list) or len(questions) > settings.AI_MAX_QUESTIONS:
+        raise ValueError('AI output must be a bounded question list.')
+    valid_types = {'mcq', 'true_false', 'fill_blank', 'matching', 'essay'}
+    cleaned = []
+    for row in questions:
+        if not isinstance(row, dict) or row.get('question_type') not in valid_types:
+            raise ValueError('AI returned an invalid question type/shape.')
+        result = {'question_type': row['question_type']}
+        for field, limit in [('question', 20000), ('correct_option', 100), ('explanation', 10000),
+                             *[(f'option_{letter}', 500) for letter in 'abcde']]:
+            value = row.get(field, '')
+            if not isinstance(value, str) or len(value) > limit:
+                raise ValueError(f'AI returned an invalid {field}.')
+            result[field] = value.strip()
+        if not result['question']:
+            raise ValueError('AI returned an empty question.')
+        if result['question_type'] in {'mcq', 'true_false'}:
+            correct = result['correct_option'].lower()
+            if correct and (correct not in 'abcde' or len(correct) != 1 or not result[f'option_{correct}']):
+                raise ValueError('AI returned an answer without a matching option.')
+            result['correct_option'] = correct
+        cleaned.append(result)
+    return cleaned
+
+
+def extract_questions_from_text(raw_text):
     if not raw_text or len(raw_text.strip()) < 50:
-        logger.warning('Text too short for question extraction')
-        return []
+        raise ValueError('Text too short for question extraction.')
+    if len(raw_text) > settings.AI_MAX_INPUT_CHARS:
+        raise ValueError('AI input exceeds the configured size limit; split the document.')
+    questions = []
+    for start in range(0, len(raw_text), 8000):
+        questions.extend(_extract_from_chunk(settings.GEMINI_API_KEY, raw_text[start:start + 8000]))
+    return validate_questions(questions)
 
-    api_key = settings.GEMINI_API_KEY
+
+def _extract_from_chunk(api_key, text_chunk):
     if not api_key:
-        logger.error('GEMINI_API_KEY not configured')
-        return []
-
-    chunk_size = 8000
-    chunks = [
-        raw_text[i:i + chunk_size]
-        for i in range(0, len(raw_text), chunk_size)
-    ]
-
-    logger.info(f'Processing {len(chunks)} chunk(s) from {len(raw_text)} chars')
-
-    all_questions = []
-    for chunk_index, chunk in enumerate(chunks):
-        logger.info(f'Processing chunk {chunk_index + 1} of {len(chunks)}')
-
-        if chunk_index > 0:
-            time.sleep(3)
-
-        questions = _extract_from_chunk(api_key, chunk)
-        all_questions.extend(questions)
-
-    logger.info(f'Total extracted: {len(all_questions)} questions')
-    return all_questions
-
-
-def _extract_from_chunk(api_key: str, text_chunk: str) -> list[dict]:
+        raise RuntimeError('GEMINI_API_KEY is not configured.')
+    from google import genai
+    from google.genai import types
+    client = genai.Client(api_key=api_key, http_options=types.HttpOptions(timeout=60000))
+    response = client.models.generate_content(
+        model=settings.GEMINI_MODEL, contents=EXTRACTION_PROMPT + text_chunk,
+        config=types.GenerateContentConfig(temperature=0.1, max_output_tokens=8000,
+                                           response_mime_type='application/json'),
+    )
+    content = response.text or ''
+    if len(content) > 1000000:
+        raise ValueError('AI response exceeds the output limit.')
+    # Incomplete JSON is a visible failure; never publish a silently truncated set.
     try:
-        from google import genai
-        from google.genai import types
-
-        client = genai.Client(api_key=api_key)
-
-        response = client.models.generate_content(
-            model='gemini-2.0-flash-lite',
-            contents=EXTRACTION_PROMPT + text_chunk,
-            config=types.GenerateContentConfig(
-                temperature=0.1,
-                max_output_tokens=8000,
-            )
-        )
-
-        content = response.text.strip()
-        logger.info(f'AI response (first 200 chars): {content[:200]}')
-
-        # Strip markdown code fences if present
-        if '```' in content:
-            parts = content.split('```')
-            for part in parts:
-                if part.startswith('json'):
-                    content = part[4:].strip()
-                    break
-                elif part.strip().startswith('['):
-                    content = part.strip()
-                    break
-
-        content = content.strip()
-
-        # Fix truncated JSON
-        if not content.endswith(']'):
-            last_complete = content.rfind('},')
-            if last_complete != -1:
-                content = content[:last_complete + 1] + ']'
-                logger.warning('Fixed truncated JSON response')
-            else:
-                logger.error('Could not fix truncated JSON')
-                return []
-
-        questions = json.loads(content)
-
-        if not isinstance(questions, list):
-            logger.error('AI returned non-list response')
-            return []
-
-        valid_questions = []
-        valid_types = {'mcq', 'true_false', 'fill_blank', 'matching', 'essay'}
-
-        for q in questions:
-            if not q.get('question', '').strip():
-                logger.warning(f'Skipping question with no text: {q}')
-                continue
-
-            q_type = q.get('question_type', '').strip().lower()
-            if q_type not in valid_types:
-                q_type = _guess_type(q)
-                logger.warning(f'Unknown type "{q.get("question_type")}", guessed "{q_type}"')
-            q['question_type'] = q_type
-
-            for opt in ['option_a', 'option_b', 'option_c', 'option_d', 'option_e']:
-                if opt not in q:
-                    q[opt] = ''
-                q[opt] = (q[opt] or '').strip()
-
-            correct = q.get('correct_option', '')
-
-            if q_type in ('mcq', 'true_false'):
-                correct = str(correct).lower().strip()
-                if correct not in ['a', 'b', 'c', 'd', 'e']:
-                    correct = ''
-            elif q_type == 'fill_blank':
-                correct = str(correct).strip()
-            elif q_type in ('matching', 'essay'):
-                correct = ''
-
-            q['correct_option'] = correct
-
-            if q_type == 'true_false':
-                q['option_a'] = 'True'
-                q['option_b'] = 'False'
-                q['option_c'] = ''
-                q['option_d'] = ''
-                q['option_e'] = ''
-
-            if 'explanation' not in q:
-                q['explanation'] = ''
-            q['explanation'] = (q['explanation'] or '').strip()
-
-            valid_questions.append(q)
-
-        logger.info(f'Valid questions from chunk: {len(valid_questions)}')
-        _log_type_summary(valid_questions)
-        return valid_questions
-
-    except json.JSONDecodeError as e:
-        logger.error(f'JSON parse error: {e}')
-        return []
-    except Exception as e:
-        logger.error(f'Chunk extraction failed: {e}')
-        return []
-
-
-def _guess_type(q: dict) -> str:
-    text = q.get('question', '').lower()
-    option_a = q.get('option_a', '').lower().strip()
-
-    if option_a in ('true', 'false'):
-        return 'true_false'
-    if '___' in text or '____' in text or 'fill in' in text:
-        return 'fill_blank'
-    if any(word in text for word in ('explain', 'discuss', 'describe', 'write', 'elaborate', 'analyze')):
-        return 'essay'
-    if q.get('option_a') and '→' in q.get('option_a', ''):
-        return 'matching'
-    if q.get('option_a') and q.get('option_b'):
-        return 'mcq'
-    return 'essay'
-
-
-def _log_type_summary(questions: list[dict]):
-    from collections import Counter
-    counts = Counter(q.get('question_type') for q in questions)
-    summary = ', '.join(f'{t}: {c}' for t, c in sorted(counts.items()))
-    logger.info(f'Question types — {summary}')
+        return validate_questions(json.loads(content))
+    except json.JSONDecodeError as exc:
+        raise ValueError('AI returned incomplete or invalid JSON; manual review required.') from exc

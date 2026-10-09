@@ -10,55 +10,24 @@ flows. For setup instructions see the [README](../README.md).
 
 ```mermaid
 flowchart LR
-    subgraph Telegram
-        MA[Mini App<br/>student UI]
-        TG[Telegram Bot API]
-        CH[University channel]
-    end
-
-    subgraph Backend["Django web process (Gunicorn)"]
-        MW[TelegramAuthMiddleware<br/>JWT → request.student]
-        API[DRF API<br/>/api/...]
-        WH[Webhook view<br/>/api/telegram/webhook/]
-        BOT[python-telegram-bot<br/>Application + handlers]
-        ADM[Django Admin<br/>django-unfold]
-        PROC[Text extraction<br/>pdfplumber / Tesseract / docx]
-    end
-
-    DB[(PostgreSQL<br/>SQLite in dev)]
-    FS[(Media storage<br/>local disk / Cloudflare R2)]
-    AI[Google Gemini]
-
-    MA -- "initData → JWT, REST calls" --> MW --> API
-    CH -- channel_post --> TG
-    TG -- "webhook POST" --> WH --> BOT
-    BOT -- "messages, notifications" --> TG
-    BOT --> PROC
-    API --> DB
-    API --> FS
-    BOT --> DB
-    BOT --> FS
-    ADM --> DB
-    ADM --> FS
-    ADM -- "extract questions" --> AI
+    MA[Mini App] --> WEB[Django web and admin]
+    TG[Telegram] --> WH[Webhook persistence]
+    WH --> DB[(PostgreSQL work and application records)]
+    WEB --> DB
+    W[One durable worker] --> DB
+    W --> T[Telegram delivery]
+    W --> E[OCR and Gemini]
+    W --> R[(Local media or R2)]
+    WEB --> R
 ```
 
-**Key points**
-
-- **One web process does everything.** Gunicorn serves the REST API, the
-  admin, and the Telegram webhook. Bot updates are not polled; Telegram
-  POSTs them to `/api/telegram/webhook/`, and `TelegramWebhookView` runs the
-  async bot handlers on a dedicated background event loop thread
-  (`apps/api/views.py`).
-- **The bot Application is built at startup** in `apps/bot/apps.py`
-  (`BotConfig.ready`) so the first webhook request is fast. Management
-  commands such as `migrate` and `test` skip this.
-- **`run_bot` no longer polls.** It only runs inbox recovery (re-processing
-  stuck or failed `FileInbox` items). The Procfile `worker` entry and the
-  Docker `bot` service (`maintenance` profile) exist for that.
-- **No background task queue.** File processing runs inline in the bot
-  handler; periodic jobs are management commands meant to be run by cron or
-  the hosting platform's scheduler.
+Webhook acceptance persists a unique update before returning success. Web and
+admin requests queue work; `run_worker` executes one bounded child at a time.
+Existing inbox and exam-upload records hold processing work. Telegram update,
+notification, and AI records hold the remaining durable work. Failed jobs remain
+visible, retries are bounded, and only stale claims are recovered. `run_bot` is
+one-off recovery. See [Phase 3](PHASE_3_BACKGROUND_WORK.md) for deployment, limits,
+and verification status.
 
 ---
 
@@ -70,7 +39,7 @@ flowchart LR
 | `content` | Academic catalogue and downloadable materials | `Department`, `Course`, `CoursePlacement`, `Resource`, `FileInbox` |
 | `quiz` | Question bank, past papers, scoring | `ExamPaper`, `Chapter`, `Question`, `QuizAttempt`, `QuizSimulation` |
 | `exams` | Real exam schedule lookup from university PDFs | `ExamTerm`, `ExamSession`, `ExamScheduleEntry`, `StudentExam`, `ExamPDFUpload`, `ExamNotificationLog` |
-| `bot` | Telegram handlers, channel file harvesting, text extraction, AI question extraction | — |
+| `bot` | Durable worker, Telegram handling, extraction and delivery | `TelegramUpdate`, `NotificationDelivery`, `QuestionExtraction` |
 | `api` | All REST endpoints, auth middleware, permissions, throttles | — |
 
 ### Data model (simplified)
@@ -135,19 +104,24 @@ sequenceDiagram
 
 ```mermaid
 flowchart LR
-    A[File posted in<br/>university channel] --> B[handle_channel_post<br/>apps/bot/handlers.py]
+    A[File posted in university channel] --> U[Webhook persists TelegramUpdate]
+    U --> B[Worker runs handle_channel_post]
     B --> C[Download file<br/>→ FileInbox row]
-    C --> D[process_inbox_item<br/>apps/bot/tasks.py]
+    C --> Q[Worker claims FileInbox]
+    Q --> D[process_inbox_item<br/>apps/bot/tasks.py]
     D --> E[extract_text<br/>pdfplumber → OCR fallback,<br/>images, docx]
     E --> F[FileInbox: processed<br/>+ extracted_text]
     F --> G{Admin review}
     G -- publish --> H[Resource<br/>linked to courses]
-    G -- extract questions --> I[Gemini<br/>apps/bot/extractor.py]
-    I --> J[Question rows]
+    G -- queue extraction --> AIQ[QuestionExtraction record]
+    AIQ --> I[Worker calls Gemini<br/>apps/bot/extractor.py]
+    I --> J[Inactive question drafts for review]
     X[Excel templates] -- import commands /<br/>admin import --> J
 ```
 
-- Files larger than `MAX_OCR_FILE_SIZE_MB` (default 5) skip text extraction.
+- Digital PDFs are parsed before OCR. Scanned PDFs above 5 MiB, PDFs above
+  100 pages, empty results, and unsupported files require review; partial OCR
+  is recorded explicitly. See Phase 3 for deadlines and retry semantics.
 - `harvest_channel` back-fills historical channel files into `FileInbox`.
 
 ### 3.3 Resource downloads
@@ -192,7 +166,8 @@ sequenceDiagram
     S->>API: GET /api/subscription/plans/
     S->>API: POST /api/subscription/request/<br/>(plan, telebirr|cbe, payment reference)
     API->>API: create pending SubscriptionRequest (UNI- + 16 hex characters)
-    API->>B: notify after commit
+    API->>API: persist NotificationDelivery in transaction
+    API->>B: worker delivers after commit
     A->>A: verify payment, "approve" admin action
     A->>API: approve_subscription_request (atomic locks)
     B->>S: confirmation message
@@ -200,7 +175,7 @@ sequenceDiagram
 
 - Only pending payments can be approved or rejected. Repeated approval does
   not extend access again; approved payments and renewals cannot be rejected.
-- Payment notifications run after commit; durable retry delivery is Phase 3 work.
+- Payment delivery intents commit with the payment; the worker delivers with bounded retries.
 - `Student.is_premium` = status is premium **and** expiry is in the future.
 - `check_subscriptions` expires lapsed subscriptions; run it on a schedule.
 
@@ -213,7 +188,7 @@ sequenceDiagram
    course names and codes.
 3. Students search `GET /api/exams/lookup/?query=<student id or name>`
    against the active term.
-4. `send_exam_notifications` sends countdown reminders through the bot.
+4. `send_exam_notifications` queues countdown reminders for durable worker delivery.
 
 ---
 
@@ -261,7 +236,9 @@ Media goes to `media/` locally, or to Cloudflare R2 when `USE_S3=True`.
 | `send_exam_notifications` | Exam countdown messages to students |
 | `process_exam_pdfs` | Process pending exam PDF uploads |
 | `import_student_exams` | Import student exam rows from CSV |
-| `run_bot` | Recover stuck/failed inbox items |
+| `run_worker` | Process durable work continuously with one child at a time |
+| `run_bot` | One-off recovery of stale claims |
+| `run_maintenance` | Daily subscription expiry, queued reminders, and bounded cleanup |
 | `setup_webhook [--delete]` | Register or remove the Telegram webhook |
 | `harvest_channel` | Back-fill historical channel files |
 | `seed_data` | Seed departments, courses, plans, site settings |

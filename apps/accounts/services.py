@@ -24,7 +24,7 @@ def approve_subscription_request(request_id, admin_user):
         sub_request.activated_by = admin_user
         sub_request.activated_at = timezone.now()
         sub_request.save(update_fields=['status', 'activated_by', 'activated_at', 'updated_at'])
-        transaction.on_commit(lambda: notify_subscription_approved(sub_request), robust=True)
+        notify_subscription_approved(sub_request)
     return True
 
 
@@ -36,5 +36,5 @@ def reject_subscription_request(request_id):
             return False
         sub_request.status = SubscriptionRequest.STATUS_REJECTED
         sub_request.save(update_fields=['status', 'updated_at'])
-        transaction.on_commit(lambda: notify_subscription_rejected(sub_request), robust=True)
+        notify_subscription_rejected(sub_request)
     return True

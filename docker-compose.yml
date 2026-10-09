@@ -37,6 +37,7 @@ x-django-env: &django-env
   MINI_APP_URL: ${MINI_APP_URL:-http://localhost:3000}
   GROQ_API_KEY: ${GROQ_API_KEY:-test-key}
   GEMINI_API_KEY: ${GEMINI_API_KEY:-test-key}
+  GEMINI_MODEL: ${GEMINI_MODEL:-gemini-3.1-flash-lite}
   GOOGLE_API_KEY: ${GOOGLE_API_KEY:-test-key}
   GUNICORN_WORKERS: ${GUNICORN_WORKERS:-4}
 
@@ -84,20 +85,25 @@ services:
       - uniportal-network
     restart: unless-stopped
 
-  bot:
+  worker:
     build: .
-    container_name: uniportal-bot
-    command: python manage.py run_bot
-    profiles:
-      - maintenance
+    container_name: uniportal-worker
+    command: python manage.py run_worker
+    healthcheck:
+      disable: true
+    volumes:
+      - media_volume:/app/media
+      - logs_volume:/app/logs
     environment:
       <<: *django-env
     depends_on:
+      django:
+        condition: service_healthy
       postgres:
         condition: service_healthy
     networks:
       - uniportal-network
-    restart: "no"
+    restart: unless-stopped
 
 volumes:
   postgres_data:
