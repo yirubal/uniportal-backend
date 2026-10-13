@@ -1,0 +1,10 @@
+{
+  "$schema": "https://railway.com/railway.schema.json",
+  "build": {"builder": "DOCKERFILE"},
+  "deploy": {
+    "startCommand": "gunicorn config.wsgi:application -c gunicorn.conf.py",
+    "preDeployCommand": ["python manage.py migrate --noinput"],
+    "healthcheckPath": "/health/",
+    "healthcheckTimeout": 60
+  }
+}

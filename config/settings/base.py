@@ -6,7 +6,8 @@ from datetime import timedelta
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 
 env = environ.Env(DEBUG=(bool, False))
-environ.Env.read_env(BASE_DIR / '.env')
+if env.bool('READ_DOT_ENV', default=True):
+    environ.Env.read_env(BASE_DIR / '.env')
 
 # ── Core ──────────────────────────────────────────────────────────────────────
 SECRET_KEY = env('SECRET_KEY')
@@ -43,6 +44,7 @@ INSTALLED_APPS = [
 
 # ── Middleware ────────────────────────────────────────────────────────────────
 MIDDLEWARE = [
+    'apps.api.middleware.RequestLogMiddleware',
     'django.middleware.security.SecurityMiddleware',
     'corsheaders.middleware.CorsMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
@@ -99,7 +101,7 @@ MEDIA_URL   = '/media/'
 MEDIA_ROOT  = BASE_DIR / 'media'
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
-CORS_EXPOSE_HEADERS = ['X-Quiz-Simulation-ID']
+CORS_EXPOSE_HEADERS = ['X-Quiz-Simulation-ID', 'X-Request-ID']
 
 # ── REST Framework ────────────────────────────────────────────────────────────
 REST_FRAMEWORK = {

@@ -51,6 +51,9 @@ jobs:
         run: python manage.py makemigrations --check --dry-run
       - name: Run tests
         run: python manage.py test --noinput
+      - name: Build static assets without production credentials
+        if: matrix.database == 'sqlite'
+        run: python manage.py collectstatic --noinput --clear --settings=config.settings.build
       - name: Install worker and PostgreSQL tools
         if: matrix.database == 'postgres'
         run: sudo apt-get update && sudo apt-get install -y postgresql-client tesseract-ocr poppler-utils

@@ -33,16 +33,19 @@ flowchart LR
 
     subgraph Web["Django web process (Gunicorn)"]
         API[DRF API /api/]
-        WH["/api/telegram/webhook/"] --> BOT[Bot handlers]
+        WH["/api/telegram/webhook/"] --> UPD[Persist update]
         ADM[Admin /admin/]
     end
 
+    UPD --> WORKER[Separate durable worker]
+    WORKER --> BOT[Bot handlers]
     API --> DB[(PostgreSQL / SQLite)]
     BOT --> DB
     ADM --> DB
     API --> FS[(Media: local / R2)]
     BOT --> FS
-    ADM -- extract questions --> AI[Gemini]
+    ADM -- queue extraction --> WORKER
+    WORKER --> AI[Gemini]
 ```
 
 - **One web process** serves the API, the admin, and the Telegram webhook.
@@ -207,17 +210,18 @@ The durable worker and Railway rollout are documented in
 
 ## 🐳 Running with Docker
 
-Docker Compose defines **3 services** in [`docker-compose.yml`](docker-compose.yml):
+Docker Compose defines **4 services** in [`docker-compose.yml`](docker-compose.yml):
 
 | Service | Container | Description |
 |---|---|---|
 | `postgres` | `uniportal-postgres` | PostgreSQL 15 database |
-| `django` | `uniportal-backend` | Gunicorn on port 8000; runs migrations and `collectstatic` on start |
+| `release` | one-shot | Runs migrations once before the web starts |
+| `django` | `uniportal-backend` | Gunicorn on port 8000; static assets are already in the image |
 | `worker` | `uniportal-worker` | Runs `run_worker`, processing durable work with concurrency one |
 
 ```bash
 cp -n .env.example .env        # set SECRET_KEY, DB_PASSWORD, TELEGRAM_BOT_TOKEN
-docker compose up --build -d   # postgres + django + worker
+docker compose up --build -d   # postgres + release + django + worker
 ```
 
 API and admin: http://localhost:8000/ and http://localhost:8000/admin/
@@ -315,3 +319,27 @@ handling, retention commands, migrations, and pending live checks.
 [Phase 5 database/API work](docs/PHASE_5_DATABASE_API.md) documents opt-in
 pagination, import identity/correction rules, shared auth/payment throttles,
 measured indexes, and migration/proxy rollout requirements.
+
+## Production operation (Phase 6)
+
+The web and Docker settings now share production defaults, requiring a strong
+secret, bot token, webhook secret and numeric source channel. Secure cookies are
+mandatory with DEBUG=False. `.env.example` is for local development only.
+Private R2 storage remains the production default.
+
+Static assets build into the Docker image. Web startup only runs Gunicorn;
+`railway.json` owns the migration pre-deploy command. Set worker and maintenance service config-file paths to
+`/railway-worker.json` and `/railway-maintenance.json`, with no migration command
+or HTTP health check. See [Phase 6 rollout](docs/PHASE_6_OPERATIONS.md) before deploying,
+including proxy trust, health-check hosts and earlier migration conflicts.
+
+`/health/` executes a database query; `/live/` checks only the web process.
+`python manage.py check_operations` separately checks worker queues and local disk
+and can validate real-backup timestamps. It exits nonzero for unhealthy checks.
+Request and job IDs appear in console logs without signed URLs or document bodies.
+Alert delivery and real production backups remain rollout work.
+
+Views live in `apps/api/views/{auth,students,catalog,resources,quiz,exams,subscriptions}.py`.
+URLs and student response contracts remain stable. Seven-day access tokens are
+retained until the deployed frontend’s reauthentication is verified. No additional
+paid-access enforcement has been added.

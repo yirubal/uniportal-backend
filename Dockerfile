@@ -23,8 +23,6 @@ WORKDIR /app
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
-    imagemagick \
-    libmagic1 \
     libpq5 \
     poppler-utils \
     postgresql-client \
@@ -39,6 +37,8 @@ ENV PYTHONUNBUFFERED=1 \
 
 COPY . .
 
+RUN python manage.py collectstatic --noinput --clear --settings=config.settings.build
+
 RUN mkdir -p /app/logs /app/media /app/staticfiles && \
     useradd -m -u 1000 appuser && \
     chown -R appuser:appuser /app
@@ -49,4 +49,4 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
 
 EXPOSE 8000
 
-CMD ["sh", "-c", "python manage.py migrate --noinput && python manage.py collectstatic --noinput --clear && gunicorn config.wsgi:application --bind 0.0.0.0:${PORT:-8000} --workers ${GUNICORN_WORKERS:-4} --worker-class sync --worker-tmp-dir /dev/shm --access-logfile - --error-logfile -"]
+CMD ["gunicorn", "config.wsgi:application", "-c", "gunicorn.conf.py"]

@@ -256,3 +256,30 @@ validate before atomic batched writes and use database natural-key constraints.
 Login/payment rate histories share a PostgreSQL-backed Django cache; general
 student throttles remain process-local and approximate. See
 [Phase 5](PHASE_5_DATABASE_API.md) for contracts, benchmarks, and rollout status.
+
+## Production roles and code layout (Phase 6)
+
+HTTP views are explicit feature modules under `apps/api/views/`; `__init__.py`
+retains the existing public view imports. Domain behavior stays in accounts,
+content, quiz and exams functions. Production and Docker settings share
+`config/settings/production.py`; DEBUG is an explicit local-container opt-in.
+
+Docker prepares WhiteNoise manifest/compressed static assets at build time using
+credential-free build settings. The web pre-deploy/release role alone migrates.
+Web restart runs two sync Gunicorn workers by default; the separate durable worker
+keeps concurrency one. Database reuse is 60 seconds with health checks. A new
+queue server or connection pool is unnecessary without measured pressure.
+
+Telegram timestamps are mandatory with 24-hour freshness and 60-second future
+clock tolerance. Production requires a webhook secret and configured numeric
+source channel, enforced at ingress and again before worker downloads.
+Inbox deduplication remains `(chat_id, message_id)`.
+
+Readiness at `/health/` executes `SELECT 1`; `/live/` has no database dependency.
+`check_operations` reports queue counts/overdue work/stale claims, local disk use,
+and optional actual-backup timestamps outside the public health endpoints.
+Requests use UUID request IDs and jobs use kind/record/claim IDs. Console logging
+omits bodies, token-bearing URLs and raw HTTP-client traffic.
+
+See [Phase 6 operations](PHASE_6_OPERATIONS.md) for production environment changes,
+release ordering, rollback constraints and pending alert/traffic/cost verification.

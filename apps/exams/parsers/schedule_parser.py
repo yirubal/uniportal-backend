@@ -56,7 +56,7 @@ def parse_schedule_pdf(file_path: str) -> Optional[ParsedSchedule]:
                 if text:
                     pages_text.append(_normalize_schedule_text(text))
     except Exception as exc:
-        logger.error('Failed to read schedule PDF: %s', exc)
+        logger.error('Failed to read schedule PDF (%s)', type(exc).__name__)
         return None
 
     full_text = '\n'.join(pages_text)

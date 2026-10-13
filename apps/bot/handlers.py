@@ -26,7 +26,7 @@ async def check_channel_membership(bot, user_id: int) -> bool:
         member = await bot.get_chat_member(chat_id=channel_id, user_id=user_id)
         return member.status in ('member', 'administrator', 'creator')
     except Exception as exc:
-        logger.warning('Async channel membership check failed for %s: %s', user_id, exc)
+        logger.warning('Async channel membership check failed (%s)', type(exc).__name__)
         return True  # Fail open — never block due to API error
 
 
@@ -97,8 +97,8 @@ async def handle_channel_post(update: Update, context: ContextTypes.DEFAULT_TYPE
     from .downloader import safe_filename
 
     source = str(getattr(settings, 'TELEGRAM_CHANNEL_ID', '')).strip()
-    if source and str(message.chat_id) != source:
-        logger.warning('Ignoring document from unconfigured source channel %s', message.chat_id)
+    if not source or str(message.chat_id) != source:
+        logger.warning('Ignoring document from unconfigured source channel')
         return
     already_exists = await sync_to_async(FileInbox.objects.filter(
         telegram_chat_id=message.chat_id, telegram_message_id=message.message_id,

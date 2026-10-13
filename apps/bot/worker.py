@@ -52,6 +52,7 @@ def claim_work(kind):
             'attempt_count': F('attempt_count') + 1,
         })
         if claimed:
+            logger.info('job_kind=%s job_id=%s claim_id=%s state=claimed', kind, pk, token)
             return pk, token
     return None
 
@@ -98,7 +99,8 @@ def fail_work(kind, pk, token, error, *, permanent=False, delay=None):
         if kind == 'notification':
             refresh_broadcast(row.broadcast_id)
             refresh_exam_reminder(row.exam_notification_id)
-    logger.warning('Work %s #%s %s (attempt %s)', kind, pk, 'failed' if terminal else 'retry scheduled', row.attempt_count)
+    logger.warning('job_kind=%s job_id=%s claim_id=%s state=%s attempt=%s',
+                   kind, pk, token, 'failed' if terminal else 'retry', row.attempt_count)
 
 
 def recover_stale_claims(kind=None):
@@ -175,6 +177,7 @@ def process_claimed_work(kind, pk, token):
         if kind == 'notification':
             refresh_broadcast(row.broadcast_id)
             refresh_exam_reminder(row.exam_notification_id)
+        logger.info('job_kind=%s job_id=%s claim_id=%s state=processed', kind, pk, token)
     except RetryLater as exc:
         if kind == 'notification':
             from .models import NotificationDelivery
@@ -189,7 +192,7 @@ def process_claimed_work(kind, pk, token):
     except Exception as exc:
         # Avoid persisting HTTP URLs that may contain bot/API credentials.
         fail_work(kind, pk, token, f'{type(exc).__name__}: processing failed; inspect worker logs.')
-        logger.error('Work %s #%s failed (%s)', kind, pk, type(exc).__name__)
+        logger.error('job_kind=%s job_id=%s claim_id=%s error_type=%s', kind, pk, token, type(exc).__name__)
 
 
 def deliver_notification(delivery):

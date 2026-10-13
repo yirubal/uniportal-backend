@@ -1,6 +1,6 @@
 # UniPortal improvement roadmap
 
-Created: 2026-10-08. Status: Phases 1–5 repository work implemented; production checks pending.
+Created: 2026-10-08. Status: Phases 1–6 repository work implemented; production checks pending.
 
 ## Product direction
 
@@ -293,34 +293,45 @@ Production latency/cost and live integration remain unverified.
 **Outcome:** Responsibilities are easy to locate, deployment is predictable, and
 the server is sized from evidence.
 
-- [ ] Split the large API view file into feature modules while preserving URLs
+- [x] Split the large API view file into feature modules while preserving URLs
   and response contracts. Keep views, serializers, and explicit domain functions
   easy to follow.
-- [ ] Remove unreachable duplicated extraction code and caller-stack inspection.
+- [x] Remove unreachable duplicated extraction code and caller-stack inspection.
   Payment authorization should be enforced by explicit code paths and state.
 - [ ] Consolidate production settings while keeping local development convenient.
   Require production secrets, remove known fallback secrets, and verify secure
   cookies and trusted reverse-proxy settings against the actual deployment.
-- [ ] Require the production webhook secret and restrict ingestion to configured
+- [x] Require the production webhook secret and restrict ingestion to configured
   source channels. Account for source chat IDs in deduplication if multiple
   channels are supported.
-- [ ] Require valid Telegram authentication timestamps, reject excessive future
+- [x] Require valid Telegram authentication timestamps, reject excessive future
   timestamps, and review token lifetime with frontend reauthentication behavior.
-- [ ] Run migrations once per release. Prepare static assets ahead of process
+- [x] Run migrations once per release. Prepare static assets ahead of process
   startup where practical, and document rollback limitations for migrations.
-- [ ] Configure database connection reuse consistently with worker concurrency.
+- [x] Configure database connection reuse consistently with worker concurrency.
   Add connection pooling only if measured connection pressure warrants it.
-- [ ] Make health checks execute a small database query; expose worker backlog
+- [x] Make health checks execute a small database query; expose worker backlog
   and stale-job status separately from web liveness.
 - [ ] Add request/job identifiers and alerts for sustained API errors, worker
   failures, backlog growth, disk usage, and failed backups. Keep logs bounded and
   avoid logging tokens or unnecessary student/document content.
-- [ ] Review dependency pins and remove packages only after checking usage.
+- [x] Review dependency pins and remove packages only after checking usage.
   Keep security updates and supported versions deliberate.
 - [ ] Tune Gunicorn worker count and background concurrency using realistic
   traffic and extraction workloads. Compare costs and latency with Phase 1.
-- [ ] Update `README.md`, `PROJECT.md`, and `docs/ARCHITECTURE.md` to reflect the
+- [x] Update `README.md`, `PROJECT.md`, and `docs/ARCHITECTURE.md` to reflect the
   implemented deployment and remove obsolete descriptions.
+
+Repository details, verification and deployment instructions:
+[Phase 6 operations](docs/PHASE_6_OPERATIONS.md),
+[dependency audit](docs/PHASE_6_DEPENDENCY_AUDIT.json), and
+[synthetic web comparison](docs/PHASE_6_WEB_BENCHMARK.json).
+The shared production settings and secure cookie defaults are implemented;
+actual proxy/TLS verification remains pending. Request/job IDs, sanitized console
+logs and read-only queue/disk/backup checks are implemented; connecting an alert
+receiver remains pending. A local worker-count comparison supports documenting
+the memory/latency tradeoff; production traffic, OCR memory and bills still need
+measurement before final sizing or verified savings. No paid gates were added.
 
 **Completion checks:** Deployment checks pass with actual production settings;
 restart/deploy and restore procedures work; code is simpler to navigate; latency,
@@ -375,5 +386,5 @@ roadmap rather than implementing an outdated assumption.
 | 3 — Background processing | Repository implementation verified; rollout and OCR smoke pending | 134 PostgreSQL tests + 36 final focused checks; SQLite 128 passed / 7 skipped; recovery and restore drills pass. See docs/PHASE_3_BACKGROUND_WORK.md. |
 | 4 — File delivery | Repository implementation verified; live integration and measurements pending | 144 PostgreSQL tests; SQLite 137 passed / 7 skipped; restore/checks pass. See docs/PHASE_4_FILE_DELIVERY.md. |
 | 5 — Database and API efficiency | Repository implementation verified; rollout pending | 165 distinct PostgreSQL cases; SQLite 157 passed / 8 skipped; query plans and restore pass. See docs/PHASE_5_DATABASE_API.md. |
-| 6 — Code and production operation | Not started | |
+| 6 — Code and production operation | Repository implementation verified; Docker image and production operation pending | 182 PostgreSQL tests; SQLite 174 passed / 8 skipped; security dependency audit, static build, restore and worker recovery pass. Full Docker build interrupted; WSL Docker integration unavailable on resume. See docs/PHASE_6_OPERATIONS.md. |
 | Monetization readiness | Deferred by owner | Free adoption period |

@@ -1,253 +1,74 @@
-# Unity University Student Portal — Backend
+# UniPortal project reference
 
-## What This Is
-A Django + DRF backend powering the Unity University Telegram Mini App.
-Students access organized study materials, practice quizzes, and exit exam
-preparation through a Telegram Mini App. This backend handles all data,
-file processing, authentication, and the Telegram bot.
+UniPortal serves study materials, quizzes, exam schedules and Telegram student
+accounts for Unity University. The app is in its free adoption period; changes
+must preserve current access. Monetization enforcement is deferred in
+[improvemnts.md](improvemnts.md).
 
----
+The backend stays a Django monolith with PostgreSQL, Django Admin, private R2
+media and one durable worker. Railway Hobby is the current hosting plan. Actual
+service memory, traffic, monthly usage and production backups remain unverified.
 
-## Tech Stack
-- **Framework:** Django + Django REST Framework
-- **Database:** PostgreSQL
-- **File Storage:** Local filesystem (dev) → Cloudflare R2 (production)
-- **File Processing:** pdfplumber, pytesseract, python-docx
-- **Telegram Bot:** python-telegram-bot
-- **Admin Panel:** Django Admin + django-unfold
-- **Auth:** Telegram initData HMAC validation (no passwords)
-- **Task Queue:** Django Q or Celery (for async file processing)
+| Area | Responsibilities |
+|---|---|
+| `apps/accounts` | Students, subscription state transitions, notification intents |
+| `apps/content` | Courses, resources, file inbox, upload validation and signed delivery |
+| `apps/quiz` | Questions, selection, scoring, persisted simulations and attempts |
+| `apps/exams` | Terms, sessions, validated atomic imports and reminder intents |
+| `apps/bot` | Durable work claiming, Telegram handling, extraction and delivery |
+| `apps/api/views` | HTTP feature modules: auth, students, catalog, resources, quiz, exams, subscriptions |
 
----
+Views handle requests and serializers validate contracts. Concrete domain
+functions in the owning app implement business rules. No generic repository,
+service framework, broker, Redis or connection pool is introduced.
 
-## Repository Structure
-```
-backend/
-│
-├── config/                  ← Django project settings
-│   ├── settings/
-│   │   ├── base.py
-│   │   ├── development.py
-│   │   └── production.py
-│   ├── urls.py
-│   └── wsgi.py
-│
-├── apps/
-│   ├── accounts/            ← Student profiles, Telegram auth
-│   ├── content/             ← Departments, courses, resources
-│   ├── quiz/                ← Questions, attempts, scoring
-│   ├── bot/                 ← Telegram bot, file harvesting
-│   └── api/                 ← All DRF endpoints
-│
-├── scripts/
-│   └── harvest_history.py   ← One-time script to pull old channel files
-│
-├── requirements.txt
-├── .env.example
-├── manage.py
-└── PROJECT.md               ← This file
-```
+Telegram login verifies HMAC, requires an authentication timestamp within 24 hours
+and allows at most 60 seconds of future clock skew. Seven-day access tokens are
+retained until deployed frontend reauthentication is verified. Each protected
+request loads an active student. Existing personal-record ownership and paper
+access checks remain in place. General throttles use student IDs; low-frequency
+auth/payment histories are shared in PostgreSQL.
 
----
+Webhook requests authenticate using a required production secret and persist
+updates before acknowledging. Channel documents are accepted only from the
+configured numeric source channel. Inbox deduplication uses chat and message IDs.
+The worker claims database records and executes one bounded subprocess at a time.
+Notifications commit with their business transactions; external delivery is at
+least once. Extraction is page/time bounded and paid AI chunks are reused.
 
-## Django Apps — Responsibilities
+Published resource links expire after 15 minutes and point directly to private
+R2. Local storage uses signed streamed responses. File validation checks size,
+extension and signatures; orphan audits are report only. Live R2 CORS and mobile
+download behavior still need verification.
 
-### accounts/
-- Student model (telegram_id, name, username, subscription_status, expiry_date)
-- Telegram initData validation logic
-- Subscription status checking
-- Daily quota tracking (free tier limits)
+Quiz simulations persist their question snapshot and can be submitted once.
+Pending essays are excluded from the gradable denominator. Performance summaries
+aggregate in SQL. Lists retain their existing formats with opt-in pagination;
+large lists require pagination explicitly. Exam imports validate before writing,
+lock the term, and batch inserts/corrections using database uniqueness rules.
 
-### content/
-- Department, Year, Semester, Course models
-- Resource model (file, extracted_text, access_level, status)
-- FileInbox model (harvested files pending admin triage)
-- File processing pipeline (PDF/image → extracted text)
+Production and Docker share `config/settings/production.py`. Containers build
+static assets ahead of startup. Only the web release/pre-deploy role migrates;
+web and worker restarts do not. Railway web uses `railway.json`; the worker must
+select `railway-worker.json` and clear inherited web deployment overrides.
+The web defaults to two sync Gunicorn workers; background concurrency stays one.
+Production connections are reused for 60 seconds with health checks.
 
-### quiz/
-- Question model (text, options, correct answer, explanation)
-- ExamPaper model (groups questions into a full past exam by year)
-- QuizAttempt model (student, score, answers, timestamp)
-- Scoring logic
+`/live/` checks the web process without querying the database. `/health/` executes
+`SELECT 1`. `check_operations` reports queue counts, stale claims, disk use and
+optional real-backup timestamps separately. Request/claim IDs support log
+correlation; logs omit signed URLs, tokens and document bodies. Alert delivery
+and production restore drills still require operational setup.
 
-### bot/
-- Telegram bot process (runs alongside Django)
-- Channel monitoring and file harvesting
-- Student entry point (sends Mini App button)
-- Notification sender (payment confirmed, new content alerts)
+Run isolated checks with:
 
-### api/
-- All DRF ViewSets and serializers
-- URL routing for all endpoints
-- Permission classes (IsAuthenticated, IsPremium, FreeQuotaCheck)
-- Download endpoint with logging
-
----
-
-## Core Models Summary
-
-```
-Student
-  telegram_id (unique)
-  first_name, last_name, username
-  subscription_status  [free | premium]
-  subscription_expiry
-  downloads_today
-  last_download_reset
-
-Department
-  name
-  code (e.g. CS, BA)
-
-Course
-  name
-  department → FK
-  year  [1-5]
-  semester  [1 | 2]
-  code
-
-Resource
-  title
-  file  (FileField)
-  file_type  [lecture_note | worksheet | past_exam | exit_exam]
-  extracted_text  (TextField)
-  access_level  [free | premium]
-  status  [pending | published | rejected]
-  course → FK
-  telegram_message_id
-  original_caption
-  upload_date
-  downloads_count
-
-FileInbox
-  file
-  original_filename
-  telegram_message_id
-  telegram_caption
-  posted_date
-  processing_status  [unprocessed | processed | failed]
-  extracted_text
-  assigned_to → FK Resource (nullable)
-
-Question
-  text
-  option_a, option_b, option_c, option_d
-  correct_option  [a | b | c | d]
-  explanation
-  course → FK
-  exam_paper → FK (nullable)
-  difficulty  [easy | medium | hard]
-  year_source  (e.g. "2022")
-  access_level  [free | premium]
-
-ExamPaper
-  title
-  course → FK
-  exam_type  [final | exit]
-  year
-  duration_minutes
-  total_questions
-  access_level  [free | premium]
-
-QuizAttempt
-  student → FK
-  course → FK (nullable)
-  exam_paper → FK (nullable)
-  score
-  total_questions
-  answers  (JSONField)
-  completed_at
-  mode  [practice | simulation | topic]
+```bash
+venv/bin/python manage.py check --settings=config.settings.test
+venv/bin/python manage.py makemigrations --check --dry-run --settings=config.settings.test
+venv/bin/python manage.py test --settings=config.settings.test --noinput
 ```
 
----
-
-## Access Control Rules
-
-| Action | Free User | Premium User |
-|---|---|---|
-| Browse resource titles | ✅ | ✅ |
-| Download files | ❌ | ✅ |
-| View file content | First page only | Full |
-| Quiz questions/day | 5 max | Unlimited |
-| Past exams (last 2 years) | ❌ | ✅ |
-| Exit exam archive | ❌ | ✅ |
-| Exit exam simulation | ❌ | ✅ |
-| Performance tracker | ❌ | ✅ |
-
----
-
-## Authentication Flow
-
-```
-Mini App sends Telegram initData (POST /api/auth/telegram/)
-  → Django parses initData
-  → Verifies HMAC-SHA256 signature using BOT_TOKEN
-  → Checks timestamp not older than 24 hours
-  → Extracts telegram_user_id
-  → Creates or fetches Student record
-  → Returns JWT token
-  → All future requests use Authorization: Bearer <token>
-```
-
----
-
-## File Pipeline Flow
-
-```
-1. Bot receives file from Telegram channel
-2. Bot downloads file to server
-3. File saved to FileInbox with status=unprocessed
-4. Processing task triggered:
-   - PDF (digital) → pdfplumber
-   - PDF (scanned) → pytesseract
-   - Image → pytesseract
-   - DOCX → python-docx
-5. Extracted text saved to FileInbox
-6. Status → processed
-7. Admin sees file in Django Admin inbox
-8. Admin triages: Tag & Publish / Reject
-9. If published → Resource record created, file live for students
-```
-
----
-
-## Environment Variables (.env)
-```
-SECRET_KEY=
-DEBUG=True
-DATABASE_URL=postgresql://user:pass@localhost:5432/unity_uni
-TELEGRAM_BOT_TOKEN=
-TELEGRAM_CHANNEL_ID=
-CLOUDFLARE_R2_ACCESS_KEY=
-CLOUDFLARE_R2_SECRET_KEY=
-CLOUDFLARE_R2_BUCKET=
-CLOUDFLARE_R2_ENDPOINT=
-OPENAI_API_KEY=        ← for question extraction AI parsing
-ALLOWED_HOSTS=
-CORS_ALLOWED_ORIGINS=
-```
-
----
-
-## Current Phase
-**Phase 1 — Foundation**
-
-## Progress
-- [ ] Phase 1: Foundation
-- [ ] Phase 2: File Pipeline & Bot
-- [ ] Phase 3: API Layer
-- [ ] Phase 4: Quiz System
-- [ ] Phase 5: Access Control & Subscriptions
-- [ ] Phase 6: Admin Polish & Launch Prep
-
----
-
-## Key Decisions Log
-- Django Admin used for admin panel (not custom React)
-- python-telegram-bot for bot (not Telegraf — staying in Python)
-- JWT tokens for API auth (not sessions — Mini App is stateless)
-- AI parsing (OpenAI/Claude API) used to structure raw OCR text into MCQ JSON
-- Manual Telebirr payment activation for now (no Chapa — no TIN yet)
-- Files never sent directly to free users — server enforces access at API level
-- Watermark overlay handled by frontend using student data from API
+CI also runs PostgreSQL tests, a synthetic backup/restore and real OCR worker
+recovery. See [README.md](README.md), [architecture](docs/ARCHITECTURE.md),
+[Phase 5](docs/PHASE_5_DATABASE_API.md) for migration risks and benchmarks, and
+[Phase 6](docs/PHASE_6_OPERATIONS.md) for production configuration and rollout.

@@ -44,7 +44,7 @@ def extract_pdf(file_path):
             if not page_text.strip() and page.images:
                 image_only_pages += 1
             texts.append(page_text)
-            page.flush_cache()
+            page.close()
     text = '\n'.join(texts).strip()
     if len(text) >= 50:
         if image_only_pages:

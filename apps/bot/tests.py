@@ -58,7 +58,7 @@ class TelegramWebhookViewTests(TestCase):
     @override_settings(TELEGRAM_BOT_TOKEN='123:test-token', TELEGRAM_WEBHOOK_SECRET='')
     def test_returns_503_when_persistence_fails(self):
         with patch('apps.bot.models.TelegramUpdate.objects.get_or_create', side_effect=RuntimeError('Database down')):
-            with self.assertLogs('apps.api.views', level='ERROR'):
+            with self.assertLogs('apps.api.views.auth', level='ERROR'):
                 response = self.client.post('/api/telegram/webhook/', {'update_id': 123}, format='json')
         self.assertEqual(response.status_code, 503)
 

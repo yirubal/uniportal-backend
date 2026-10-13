@@ -28,7 +28,7 @@ def check_channel_membership_sync(user_id: int) -> bool:
         member_status = data.get('result', {}).get('status', 'left')
         return member_status in ('member', 'administrator', 'creator')
     except Exception as exc:
-        logger.warning('Channel membership check failed for user %s: %s — failing open', user_id, exc)
+        logger.warning('Channel membership check failed (%s); failing open', type(exc).__name__)
         return True  # Never block users due to API errors
 
 

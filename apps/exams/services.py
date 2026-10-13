@@ -105,7 +105,7 @@ def process_schedule_pdf(upload_record):
 
     except Exception as exc:
         error = str(exc)
-        logger.error('Schedule PDF processing failed: %s', error)
+        logger.error('Schedule PDF processing failed (%s), upload_id=%s', type(exc).__name__, upload_record.pk)
         upload_record.status = upload_record.STATUS_FAILED
         upload_record.error_message = error
         upload_record.save(update_fields=['status', 'error_message'])
@@ -180,7 +180,7 @@ def process_attendance_pdf(upload_record):
 
     except Exception as exc:
         error = str(exc)
-        logger.error('Attendance PDF failed: %s', error)
+        logger.error('Attendance PDF failed (%s), upload_id=%s', type(exc).__name__, upload_record.pk)
         upload_record.status = upload_record.STATUS_FAILED
         upload_record.error_message = error
         upload_record.save(update_fields=['status', 'error_message'])
