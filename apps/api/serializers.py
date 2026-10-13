@@ -136,8 +136,10 @@ class CoursePlacementSerializer(serializers.ModelSerializer):
 
 
 class ResourceSerializer(serializers.ModelSerializer):
+    access_level = serializers.SerializerMethodField()
     is_locked = serializers.SerializerMethodField()
     file_url = serializers.SerializerMethodField()
+    file_url_expires_in = serializers.SerializerMethodField()
     course_codes = serializers.SerializerMethodField()
     course_names = serializers.SerializerMethodField()
     file_type_display = serializers.CharField(
@@ -166,26 +168,29 @@ class ResourceSerializer(serializers.ModelSerializer):
             'downloads_count',
             'created_at',
             'is_locked',
-            'file_url',
+            'file_url', 'file_url_expires_in',
         ]
+
+    def get_access_level(self, obj):
+        # Student-facing effective access during the owner's free adoption period.
+        return Resource.ACCESS_FREE if obj.status == Resource.STATUS_PUBLISHED else obj.access_level
 
     def get_is_locked(self, obj) -> bool:
         request = self.context.get('request')
         if not request or not hasattr(request, 'student'):
             return True
-        if obj.access_level == Resource.ACCESS_FREE:
-            return False
-        return not request.student.is_premium
+        return False  # Published resources remain free during adoption.
 
     def get_file_url(self, obj) -> str | None:
+        from apps.content.delivery import resource_file_url
         request = self.context.get('request')
-        if not request or not hasattr(request, 'student'):
+        if not request or not getattr(request, 'student', None) or obj.status != Resource.STATUS_PUBLISHED:
             return None
-        if obj.access_level == Resource.ACCESS_PREMIUM and not request.student.is_premium:
-            return None
-        if obj.file:
-            return request.build_absolute_uri(obj.file.url)
-        return None
+        return resource_file_url(obj, request, inline=True)
+
+    def get_file_url_expires_in(self, obj):
+        from django.conf import settings
+        return settings.RESOURCE_LINK_TTL_SECONDS if obj.file else None
 
     def get_course_codes(self, obj) -> list[str]:
         return list(obj.courses.values_list('code', flat=True))

@@ -9,3 +9,4 @@ class Command(BaseCommand):
         call_command('check_subscriptions', stdout=self.stdout)
         call_command('send_exam_notifications', stdout=self.stdout)
         call_command('cleanup_duplicate_inbox_files', limit=100, stdout=self.stdout)
+        call_command('compact_completed_work', stdout=self.stdout)  # Report only; applying compaction is explicit.

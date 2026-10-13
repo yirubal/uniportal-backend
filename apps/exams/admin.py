@@ -145,6 +145,14 @@ class ExamTermAdmin(ModelAdmin):
 
             schedule_files = request.FILES.getlist('schedule_pdf')
             attendance_files = request.FILES.getlist('attendance_pdfs')
+            from django.core.exceptions import ValidationError
+            from apps.content.validators import validate_exam_pdf
+            try:
+                for upload_file in schedule_files + attendance_files:
+                    validate_exam_pdf(upload_file)
+            except ValidationError as exc:
+                messages.error(request, '; '.join(exc.messages))
+                return redirect(request.path)
             queued_count = 0
             skipped_count = 0
 

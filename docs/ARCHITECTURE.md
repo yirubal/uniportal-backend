@@ -126,13 +126,14 @@ flowchart LR
 
 ### 3.3 Resource downloads
 
-1. `GET /api/courses/{id}/resources/` lists published resources.
-2. `POST /api/resources/{id}/download/` checks access (premium resources
-   require `Student.is_premium`), increments counters, and returns a
-   **signed, expiring URL** (Django `signing`).
-3. `GET /api/resources/{id}/download/file/{token}/` verifies the signature
-   and streams the file from storage. The token is the credential, so this
-   endpoint needs no `Authorization` header.
+Authenticated students receive expiring R2 GET URLs for published resources,
+including resources classified as premium during the free adoption period.
+Resource serialization returns a signed inline preview; download POST returns
+an attachment URL, filename, and expiry. Django does not open R2 objects for
+issuance. Legacy signed backend URLs redirect to R2; local development continues
+to stream signed FileResponses. Counters measure issued download links.
+See [Phase 4](PHASE_4_FILE_DELIVERY.md) for limits, storage settings, CORS,
+frontend compatibility, and live checks.
 
 ### 3.4 Quizzes
 

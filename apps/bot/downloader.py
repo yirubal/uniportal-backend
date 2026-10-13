@@ -1,6 +1,7 @@
 import os
 import tempfile
 from pathlib import Path
+from django.conf import settings
 
 
 def safe_filename(filename):
@@ -14,7 +15,11 @@ async def download_file(bot, file_id, filename):
     os.close(descriptor)
     try:
         file = await bot.get_file(file_id)
+        if getattr(file, 'file_size', None) and file.file_size > settings.MAX_DOCUMENT_UPLOAD_BYTES:
+            raise ValueError('Telegram file exceeds the document size limit.')
         await file.download_to_drive(path)
+        if Path(path).stat().st_size > settings.MAX_DOCUMENT_UPLOAD_BYTES:
+            raise ValueError('Downloaded file exceeds the document size limit.')
         return path
     except BaseException:
         Path(path).unlink(missing_ok=True)

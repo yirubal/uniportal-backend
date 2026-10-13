@@ -125,9 +125,9 @@ if USE_S3:
         raise ValueError(f'Missing required R2 configuration: {", ".join(missing)}')
 
     AWS_S3_REGION_NAME = env('AWS_S3_REGION_NAME', default='auto')
-    AWS_DEFAULT_ACL = 'public-read'
+    AWS_DEFAULT_ACL = None
     AWS_S3_FILE_OVERWRITE = False
-    AWS_QUERYSTRING_AUTH = False
+    AWS_QUERYSTRING_AUTH = True
 
     STORAGES['default'] = {
         'BACKEND': 'storages.backends.s3boto3.S3Boto3Storage',
@@ -153,3 +153,9 @@ LOGGING['root']['handlers'] = ['console']
 LOGGING['root']['level'] = env('LOG_LEVEL', default='INFO')
 LOGGING['loggers']['django']['level'] = env('LOG_LEVEL', default='INFO')
 LOGGING['loggers']['apps']['level'] = env('APP_LOG_LEVEL', default='INFO')
+
+# Storage links (including admin file widgets) must use the signed S3 endpoint.
+AWS_S3_CUSTOM_DOMAIN = None
+AWS_S3_SIGNATURE_VERSION = "s3v4"
+AWS_QUERYSTRING_EXPIRE = RESOURCE_LINK_TTL_SECONDS
+AWS_S3_MAX_MEMORY_SIZE = FILE_UPLOAD_MAX_MEMORY_SIZE

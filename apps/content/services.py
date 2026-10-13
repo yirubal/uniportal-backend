@@ -51,10 +51,13 @@ def save_local_file_to_inbox_item(
     inbox_item.posted_date = posted_date
     inbox_item.processing_status = processing_status
     inbox_item.processing_error = processing_error
+    from .validators import validate_document_upload
     with open(file_path, 'rb') as handle:
+        incoming = File(handle, name=original_filename)
+        validate_document_upload(incoming)
         inbox_item.file.save(
             Path(original_filename).name,
-            File(handle),
+            incoming,
             save=False,
         )
     inbox_item.save()
@@ -87,11 +90,7 @@ def clear_inbox_file(inbox_item, *, protected_file_name=None):
     if not file_name:
         return False
 
-    is_referenced = (
-        file_name == protected_file_name
-        or Resource.objects.filter(file=file_name).exists()
-        or FileInbox.objects.filter(file=file_name).exclude(pk=inbox_item.pk).exists()
-    )
+    is_referenced = file_name == protected_file_name or file_is_referenced(file_name, excluding_inbox_id=inbox_item.pk)
     if is_referenced:
         inbox_item.file.name = ''
         inbox_item.save(update_fields=['file'])
@@ -194,3 +193,12 @@ def cleanup_assigned_inbox_duplicates(*, dry_run=False, limit=None):
             )
 
     return stats, messages
+
+
+def file_is_referenced(name, *, excluding_inbox_id=None):
+    from apps.exams.models import ExamPDFUpload
+    inboxes = FileInbox.objects.filter(file=name)
+    if excluding_inbox_id is not None:
+        inboxes = inboxes.exclude(pk=excluding_inbox_id)
+    return (Resource.objects.filter(file=name).exists() or inboxes.exists()
+            or ExamPDFUpload.objects.filter(file=name).exists())

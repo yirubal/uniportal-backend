@@ -1,5 +1,6 @@
 from django.utils import timezone
 from django.db import models, transaction
+from apps.content.validators import validate_exam_pdf
 
 
 class ExamTerm(models.Model):
@@ -152,7 +153,7 @@ class ExamPDFUpload(models.Model):
         blank=True,
     )
     pdf_type = models.CharField(max_length=15, choices=TYPE_CHOICES)
-    file = models.FileField(upload_to='exam_pdfs/%Y/%m/')
+    file = models.FileField(upload_to='exam_pdfs/%Y/%m/', validators=[validate_exam_pdf])
     original_name = models.CharField(max_length=500)
     content_hash = models.CharField(max_length=64, blank=True, db_index=True)
     status = models.CharField(max_length=15, choices=STATUS_CHOICES, default=STATUS_PENDING)

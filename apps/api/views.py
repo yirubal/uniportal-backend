@@ -1,15 +1,14 @@
 import mimetypes
 import logging
 import re
-from pathlib import Path
-from urllib.parse import quote, unquote
+from urllib.parse import unquote
 
 from botocore.exceptions import ClientError
 from django.core import signing
 from django.db import transaction
 from django.db.models import F
 from django.utils import timezone
-from django.http import FileResponse
+from django.http import FileResponse, HttpResponseRedirect
 from django.urls import reverse
 from django.utils.html import escape
 from rest_framework.views import APIView
@@ -21,6 +20,7 @@ from .throttles import AuthRateThrottle, SubscriptionRateThrottle
 
 from apps.accounts.models import Student
 from apps.accounts.auth import validate_telegram_init_data
+from apps.content.delivery import resource_file_url, resource_filename
 from apps.content.models import Department, Course, CoursePlacement, Resource
 from apps.exams.models import ExamTerm, StudentExam
 from apps.quiz.models import Chapter, ExamPaper, Question, QuizAttempt
@@ -46,7 +46,7 @@ from .permissions import IsTelegramAuthenticated, IsPremium, FreeQuotaNotExceede
 
 logger = logging.getLogger(__name__)
 
-RESOURCE_DOWNLOAD_TOKEN_MAX_AGE = 900
+RESOURCE_DOWNLOAD_TOKEN_MAX_AGE = settings.RESOURCE_LINK_TTL_SECONDS
 RESOURCE_DOWNLOAD_TOKEN_SALT = 'apps.api.resource-download'
 PAYMENT_REFERENCE_RE = re.compile(r'^[A-Z0-9]{6,50}$')
 # ─── AUTH ─────────────────────────────────────────────────────────────────────
@@ -286,32 +286,9 @@ class ResourceDownloadView(APIView):
 
         student = request.student
 
-        if resource.access_level == Resource.ACCESS_PREMIUM and not student.is_premium:
-            return Response(
-                {
-                    'error':            'INSUFFICIENT_ACCESS',
-                    'message':          'Upgrade to premium to download this resource.',
-                    'upgrade_required': True,
-                },
-                status=status.HTTP_403_FORBIDDEN,
-            )
-
-        token = signing.dumps(
-            {
-                'resource_id': resource.id,
-                'student_id': student.id,
-                'file_name': resource.file.name,
-            },
-            salt=RESOURCE_DOWNLOAD_TOKEN_SALT,
-        )
-        download_path = reverse(
-            'resource-download-file',
-            kwargs={
-                'resource_id': resource.id,
-                'token': quote(token, safe=''),
-            },
-        )
-        file_url = request.build_absolute_uri(download_path)
+        file_url = resource_file_url(resource, request)
+        if file_url is None:
+            return Response({'error': 'FILE_NOT_FOUND', 'message': 'Resource has no file.'}, status=404)
         with transaction.atomic():
             locked_student = Student.objects.select_for_update().get(pk=student.pk)
             today = timezone.localdate()
@@ -371,6 +348,11 @@ class ResourceDownloadFileView(APIView):
                 status=status.HTTP_403_FORBIDDEN,
             )
 
+        from storages.backends.s3 import S3Storage
+        if isinstance(resource.file.storage, S3Storage):
+            return HttpResponseRedirect(resource_file_url(resource, request,
+                                        inline=bool(payload.get('inline')), method=request.method))
+
         try:
             file_handle = resource.file.open('rb')
         except (ClientError, FileNotFoundError, ValueError):
@@ -384,7 +366,7 @@ class ResourceDownloadFileView(APIView):
         content_type, _ = mimetypes.guess_type(filename)
         response = FileResponse(
             file_handle,
-            as_attachment=True,
+            as_attachment=not bool(payload.get('inline')),
             filename=filename,
             content_type=content_type or 'application/octet-stream',
         )
@@ -393,7 +375,7 @@ class ResourceDownloadFileView(APIView):
 
 
 def _resource_download_filename(resource):
-    return Path(resource.file.name).name or f'resource-{resource.id}'
+    return resource_filename(resource)
 
 
 # ─── EXAM PAPERS ──────────────────────────────────────────────────────────────

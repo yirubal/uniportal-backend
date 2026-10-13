@@ -63,9 +63,10 @@ AWS_SECRET_ACCESS_KEY   = env('R2_SECRET_ACCESS_KEY')
 AWS_STORAGE_BUCKET_NAME = env('R2_BUCKET_NAME', default='uniportal-media')
 AWS_S3_ENDPOINT_URL     = f'https://{env("R2_ACCOUNT_ID")}.r2.cloudflarestorage.com'
 AWS_S3_REGION_NAME      = 'auto'
-AWS_DEFAULT_ACL         = 'public-read'
+AWS_DEFAULT_ACL         = None
 AWS_S3_FILE_OVERWRITE   = False
-AWS_QUERYSTRING_AUTH    = False  # public URLs without signatures
+AWS_QUERYSTRING_AUTH    = True
+AWS_QUERYSTRING_EXPIRE  = RESOURCE_LINK_TTL_SECONDS
 
 
 STORAGES = {
@@ -83,3 +84,8 @@ SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
 
 # Media URL points to R2
 MEDIA_URL = f'https://{env("R2_BUCKET_NAME", default="uniportal-media")}.{env("R2_ACCOUNT_ID")}.r2.cloudflarestorage.com/'
+# Storage links (including admin file widgets) must use the signed S3 endpoint.
+AWS_S3_CUSTOM_DOMAIN = None
+AWS_S3_SIGNATURE_VERSION = "s3v4"
+AWS_QUERYSTRING_EXPIRE = RESOURCE_LINK_TTL_SECONDS
+AWS_S3_MAX_MEMORY_SIZE = FILE_UPLOAD_MAX_MEMORY_SIZE

@@ -177,8 +177,8 @@ GEMINI_API_KEY       = env('GEMINI_API_KEY',       default='')
 
 # ── File uploads ──────────────────────────────────────────────────────────────
 # config/settings/base.py
-FILE_UPLOAD_MAX_MEMORY_SIZE = 100 * 1024 * 1024  # 100MB
-DATA_UPLOAD_MAX_MEMORY_SIZE = 100 * 1024 * 1024
+FILE_UPLOAD_MAX_MEMORY_SIZE = 1024 * 1024  # Spool larger files to disk.
+DATA_UPLOAD_MAX_MEMORY_SIZE = 2 * 1024 * 1024
 
 # ── Unfold Admin ──────────────────────────────────────────────────────────────
 UNFOLD = {
@@ -380,3 +380,9 @@ OCR_MAX_FILE_BYTES = 5 * 1024 * 1024
 AI_MAX_INPUT_CHARS = 40000
 AI_MAX_QUESTIONS = 500
 GEMINI_MODEL = os.environ.get('GEMINI_MODEL', 'gemini-3.1-flash-lite')
+
+RESOURCE_LINK_TTL_SECONDS = 900
+MAX_DOCUMENT_UPLOAD_BYTES = env.int('MAX_DOCUMENT_UPLOAD_BYTES', default=100 * 1024 * 1024)
+MAX_EXAM_PDF_UPLOAD_BYTES = env.int('MAX_EXAM_PDF_UPLOAD_BYTES', default=20 * 1024 * 1024)
+
+DATA_UPLOAD_MAX_NUMBER_FILES = 20

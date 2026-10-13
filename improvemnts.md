@@ -1,6 +1,6 @@
 # UniPortal improvement roadmap
 
-Created: 2026-10-08. Status: Phases 1–3 repository work implemented; production checks pending.
+Created: 2026-10-08. Status: Phases 1–4 repository work implemented; production checks pending.
 
 ## Product direction
 
@@ -199,21 +199,21 @@ live worker, scheduler, and provider smoke checks remain pending.
 fits the available memory budget.
 
 - [ ] Check actual R2 bucket visibility and the frontend's preview/download flow.
-- [ ] Return short-lived R2 presigned URLs for downloads, allowing current free
+- [x] Return short-lived R2 presigned URLs for downloads, allowing current free
   access under the adoption policy. Private storage is a delivery control, not
   permission to introduce a paywall.
-- [ ] Replace permanent object URLs in serializers where the frontend needs a
+- [x] Replace permanent object URLs in serializers where the frontend needs a
   controlled preview/download URL; coordinate this before changing visibility.
 - [ ] Preserve filenames, content types, link expiry handling, and browser CORS.
   Verify representative large files and mobile Telegram downloads.
-- [ ] Retain a working local-development download path.
-- [ ] Lower the in-memory upload threshold and add explicit size/type validation.
+- [x] Retain a working local-development download path.
+- [x] Lower the in-memory upload threshold and add explicit size/type validation.
   The memory threshold itself is not a maximum permitted file size.
-- [ ] Bound PDF page count/rendering and eliminate the unbounded all-page OCR
+- [x] Bound PDF page count/rendering and eliminate the unbounded all-page OCR
   fallback. Avoid treating a large digital PDF as necessarily expensive OCR.
-- [ ] Move legacy duplicate-file cleanup into scheduled maintenance rather than
+- [x] Move legacy duplicate-file cleanup into scheduled maintenance rather than
   running storage checks in the ingestion path.
-- [ ] Define safe orphan cleanup and retention for temporary files, failed
+- [x] Define safe orphan cleanup and retention for temporary files, failed
   uploads, and obsolete extraction data. Protect every referenced stored object.
 - [ ] Compare application bandwidth, memory, worker occupancy, and storage
   operations against the Phase 1 baseline.
@@ -228,6 +228,15 @@ directly: [Cloudflare documentation](https://developers.cloudflare.com/r2/api/s3
 Primary files: `apps/api/views.py`, `apps/api/serializers.py`,
 `apps/content/services.py`, `config/settings/base.py`,
 `config/settings/docker.py`, `config/settings/prod.py`.
+
+**2026-10-13 progress:** Owner confirms private R2 (public access disabled).
+R2 downloads/previews now use 15-minute signed URLs without opening file bytes;
+local and legacy links remain supported. Published resource access is free during
+adoption. Upload bounds, protected orphan auditing, and reviewed work compaction
+are implemented. See [Phase 4 file delivery](docs/PHASE_4_FILE_DELIVERY.md).
+PostgreSQL passes all 144 tests; SQLite passes 137 with seven skipped.
+Checks and a synthetic database/media restore pass. Actual frontend/mobile/CORS
+behavior, Phase 3 rollout, and measured Railway impact remain open.
 
 ## Phase 5 — Make database and API work proportional to demand
 
@@ -353,7 +362,7 @@ roadmap rather than implementing an outdated assumption.
 | 1 — Baseline | Repository work verified; production checks pending | 92 PostgreSQL tests; SQLite 90 passed / 2 skipped; synthetic restore passed. See docs/PHASE_1_BASELINE.md. |
 | 2 — Correctness | Repository work verified; rollout pending | 113 PostgreSQL tests pass; SQLite 108 passed / 5 skipped; checks and synthetic restore recorded in docs/PHASE_2_CORRECTNESS.md. |
 | 3 — Background processing | Repository implementation verified; rollout and OCR smoke pending | 134 PostgreSQL tests + 36 final focused checks; SQLite 128 passed / 7 skipped; recovery and restore drills pass. See docs/PHASE_3_BACKGROUND_WORK.md. |
-| 4 — File delivery | Not started | |
+| 4 — File delivery | Repository implementation verified; live integration and measurements pending | 144 PostgreSQL tests; SQLite 137 passed / 7 skipped; restore/checks pass. See docs/PHASE_4_FILE_DELIVERY.md. |
 | 5 — Database and API efficiency | Not started | |
 | 6 — Code and production operation | Not started | |
 | Monetization readiness | Deferred by owner | Free adoption period |

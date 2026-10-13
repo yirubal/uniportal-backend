@@ -454,15 +454,14 @@ class ResourceDownloadTests(APITestCase):
             b'%PDF-1.4 test file',
         )
 
-    def test_free_student_cannot_prepare_premium_resource_download(self):
+    def test_free_student_can_download_during_adoption(self):
         self.authenticate(self.free_student)
 
         response = self.client.post(f'/api/resources/{self.resource.id}/download/')
 
-        self.assertEqual(response.status_code, 403)
-        self.assertTrue(response.data['upgrade_required'])
+        self.assertEqual(response.status_code, 200)
 
         self.resource.refresh_from_db()
         self.free_student.refresh_from_db()
-        self.assertEqual(self.resource.downloads_count, 0)
-        self.assertEqual(self.free_student.downloads_today, 0)
+        self.assertEqual(self.resource.downloads_count, 1)
+        self.assertEqual(self.free_student.downloads_today, 1)

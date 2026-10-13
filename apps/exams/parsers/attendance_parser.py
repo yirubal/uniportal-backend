@@ -65,6 +65,9 @@ def _extract_pdf_text(file_path: str) -> str:
 
         pages = []
         with pdfplumber.open(file_path) as pdf:
+            from django.conf import settings
+            if len(pdf.pages) > settings.EXTRACTION_MAX_PAGES:
+                raise ValueError('Exam PDF exceeds the page limit; split the document.')
             for page in pdf.pages:
                 page_text = page.extract_text(layout=True) or page.extract_text()
                 if page_text and page_text.strip():
@@ -79,7 +82,12 @@ def _extract_pdf_text(file_path: str) -> str:
     try:
         from apps.bot.processor import extract_pdf_with_ocr
 
-        return extract_pdf_with_ocr(file_path)
+        result = extract_pdf_with_ocr(file_path)
+        if result.outcome != 'complete' or not result.text.strip():
+            raise ValueError(result.note or 'Attendance OCR incomplete; manual review required.')
+        return result.text
+    except ValueError:
+        raise
     except Exception as exc:
         logger.error('Attendance OCR fallback failed for %s: %s', file_path, exc)
         return ''

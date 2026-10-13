@@ -1,5 +1,6 @@
 from django.utils import timezone
 from django.db import models
+from .validators import validate_document_upload
 
 
 class Department(models.Model):
@@ -144,7 +145,7 @@ class Resource(models.Model):
     ]
 
     title = models.CharField(max_length=500)
-    file = models.FileField(upload_to='resources/%Y/%m/')
+    file = models.FileField(upload_to='resources/%Y/%m/', validators=[validate_document_upload])
     file_type = models.CharField(max_length=20, choices=TYPE_CHOICES)
     SOURCE_OFFICIAL = 'official'
     SOURCE_TEXTBOOK = 'textbook'
@@ -231,7 +232,7 @@ class FileInbox(models.Model):
         (STATUS_FAILED, 'Failed — processing error'),
     ]
 
-    file = models.FileField(upload_to='inbox/%Y/%m/', blank=True)
+    file = models.FileField(upload_to='inbox/%Y/%m/', blank=True, validators=[validate_document_upload])
     original_filename = models.CharField(max_length=500)
     telegram_message_id = models.BigIntegerField()
     telegram_chat_id = models.BigIntegerField(default=0)
