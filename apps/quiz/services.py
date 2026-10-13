@@ -67,7 +67,8 @@ def validate_quiz_context(data, questions):
         allowed_papers = allowed_papers.filter(
             Q(department_id=department_id) | Q(course__placements__department_id=department_id),
         )
-    allowed_ids = set(allowed_papers.values_list('pk', flat=True))
+    requested_ids = {question.exam_paper_id for question in questions}
+    allowed_ids = set(allowed_papers.filter(pk__in=requested_ids).values_list('pk', flat=True))
     if any(question.exam_paper_id not in allowed_ids for question in questions):
         raise ValidationError({'answers': 'Questions do not belong to the supplied quiz context.'})
     if data['mode'] == QuizAttempt.MODE_SELECTIVE:

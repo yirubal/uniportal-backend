@@ -336,7 +336,7 @@ class StudentExamAdmin(ModelAdmin):
 
 @admin.register(ExamPDFUpload)
 class ExamPDFUploadAdmin(ModelAdmin):
-    list_display = ['original_name', 'pdf_type', 'term', 'status', 'records_created', 'uploaded_at']
+    list_display = ['original_name', 'pdf_type', 'term', 'status', 'records_created', 'records_updated', 'uploaded_at']
     list_filter = ['term', 'status', 'pdf_type']
     change_list_template = 'admin/exams/exampdfupload/change_list.html'
     readonly_fields = [
@@ -346,7 +346,7 @@ class ExamPDFUploadAdmin(ModelAdmin):
         'file',
         'content_hash',
         'status',
-        'records_created',
+        'records_created', 'records_updated',
         'error_message',
         'uploaded_at', 'attempt_count', 'claimed_at', 'next_attempt_at',
     ]

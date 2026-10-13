@@ -1,6 +1,6 @@
 # UniPortal improvement roadmap
 
-Created: 2026-10-08. Status: Phases 1–4 repository work implemented; production checks pending.
+Created: 2026-10-08. Status: Phases 1–5 repository work implemented; production checks pending.
 
 ## Product direction
 
@@ -242,27 +242,27 @@ behavior, Phase 3 rollout, and measured Railway impact remain open.
 
 **Outcome:** Common endpoints avoid repeated queries and unbounded object loads.
 
-- [ ] Use prefetched course objects in resource serialization instead of
+- [x] Use prefetched course objects in resource serialization instead of
   `values_list()` queries on each resource.
-- [ ] Load related courses, departments, and chapters with the relevant queries.
+- [x] Load related courses, departments, and chapters with the relevant queries.
   Annotate question counts instead of recounting for each serialized object.
-- [ ] Add explicit pagination to growing list endpoints. Coordinate response
+- [x] Add explicit pagination to growing list endpoints. Coordinate response
   shape changes and incremental rollout with the frontend.
-- [ ] Bound question-selection requests without imposing paid daily allowances.
+- [x] Bound question-selection requests without imposing paid daily allowances.
   Filter in PostgreSQL and fetch only the selected full question records.
-- [ ] Make selective practice use database filtering; keep chapter and topic
+- [x] Make selective practice use database filtering; keep chapter and topic
   semantics explicit before changing their representation.
-- [ ] Aggregate performance in SQL and fetch only the required recent history.
+- [x] Aggregate performance in SQL and fetch only the required recent history.
   Avoid per-answer question lookups.
-- [ ] Parse and validate exam imports before writing. Add domain uniqueness
+- [x] Parse and validate exam imports before writing. Add domain uniqueness
   constraints, define correction/re-import behavior, and use bounded batch writes
   and transactions to prevent partial imports.
-- [ ] Review slow queries with PostgreSQL query plans. Add justified indexes and
+- [x] Review slow queries with PostgreSQL query plans. Add justified indexes and
   remove redundant indexes, rather than indexing every field.
-- [ ] Identify authenticated throttling by student ID. Review proxy/IP handling
+- [x] Identify authenticated throttling by student ID. Review proxy/IP handling
   for anonymous endpoints and make multi-worker limits consistent where required.
   Operational throttles remain separate from monetization quotas.
-- [ ] Cache small, frequently reused catalogue responses only if measurements
+- [x] Cache small, frequently reused catalogue responses only if measurements
   justify it. Define invalidation before adding a cache service.
 
 **Completion checks:** Query counts remain bounded as lists grow; list responses
@@ -276,6 +276,17 @@ use them as exact entitlement accounting:
 Primary files: `apps/api/views.py`, `apps/api/serializers.py`,
 `apps/api/throttles.py`, `apps/quiz/engine.py`, `apps/exams/services.py`,
 domain models and migrations.
+
+**2026-10-13 progress:** Prefetch reuse, related-object loading/count annotations,
+opt-in pagination with bounded legacy lists, SQL topic selection/performance,
+validated atomic PDF/CSV imports, identity constraints, and student-aware
+throttling are implemented. Auth/payment histories use the existing database;
+catalogue caching was not justified. Two indexes are supported by local query
+plans. Resource serialization stays at two queries for 3 or 30 rows. PostgreSQL
+verified 165 distinct tests; SQLite passes 157 with eight skipped. Restore and
+checks pass. See [Phase 5 database/API work](docs/PHASE_5_DATABASE_API.md) for
+synthetic measurements, migration conflicts, and frontend/proxy rollout.
+Production latency/cost and live integration remain unverified.
 
 ## Phase 6 — Simplify code and production operation
 
@@ -363,6 +374,6 @@ roadmap rather than implementing an outdated assumption.
 | 2 — Correctness | Repository work verified; rollout pending | 113 PostgreSQL tests pass; SQLite 108 passed / 5 skipped; checks and synthetic restore recorded in docs/PHASE_2_CORRECTNESS.md. |
 | 3 — Background processing | Repository implementation verified; rollout and OCR smoke pending | 134 PostgreSQL tests + 36 final focused checks; SQLite 128 passed / 7 skipped; recovery and restore drills pass. See docs/PHASE_3_BACKGROUND_WORK.md. |
 | 4 — File delivery | Repository implementation verified; live integration and measurements pending | 144 PostgreSQL tests; SQLite 137 passed / 7 skipped; restore/checks pass. See docs/PHASE_4_FILE_DELIVERY.md. |
-| 5 — Database and API efficiency | Not started | |
+| 5 — Database and API efficiency | Repository implementation verified; rollout pending | 165 distinct PostgreSQL cases; SQLite 157 passed / 8 skipped; query plans and restore pass. See docs/PHASE_5_DATABASE_API.md. |
 | 6 — Code and production operation | Not started | |
 | Monetization readiness | Deferred by owner | Free adoption period |

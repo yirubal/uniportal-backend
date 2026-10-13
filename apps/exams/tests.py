@@ -141,7 +141,9 @@ class ExamLookupApiTests(APITestCase):
             'room_code': 'J-2',
         }
         StudentExam.objects.create(**exam_data)
-        StudentExam.objects.create(**exam_data)
+        from django.db import IntegrityError, transaction
+        with self.assertRaises(IntegrityError), transaction.atomic():
+            StudentExam.objects.create(**exam_data)
 
         response = self.client.get('/api/exams/lookup/', {'student_id': '93372'})
 

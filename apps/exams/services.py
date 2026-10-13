@@ -3,6 +3,10 @@ import os
 import re
 import tempfile
 from difflib import SequenceMatcher
+from django.db import transaction
+from django.db.models import Min
+from .importing import (normalize_course_code as _normalize_course_code, validate_term,
+                        validate_session, validate_student_rows, write_student_rows, get_sessions)
 
 logger = logging.getLogger(__name__)
 
@@ -31,48 +35,70 @@ def process_schedule_pdf(upload_record):
         if not parsed:
             raise ValueError('Parser returned no data — check PDF format')
 
-        term, _ = ExamTerm.objects.get_or_create(
-            year=parsed.year,
-            term=parsed.term,
-            center=parsed.center or 'Addis Ababa',
-        )
-        _ensure_active_term(term)
-
-        if parsed.earliest_date:
-            term.exam_start_date = parsed.earliest_date
-            term.save(update_fields=['exam_start_date'])
-
-        upload_record.term = term
-        upload_record.save(update_fields=['term'])
-
-        created = 0
+        from .importing import session_specs
+        from django.core.exceptions import ValidationError
+        from django.conf import settings
+        validate_term(parsed.year, parsed.term, parsed.center or 'Addis Ababa')
+        specs = []
+        entries = {}
         for parsed_session in parsed.sessions:
-            session, _ = ExamSession.objects.get_or_create(
-                term=term,
-                session_number=parsed_session.session_number,
-                date=parsed_session.date,
-                defaults={
-                    'start_time': parsed_session.start_time,
-                    'end_time': parsed_session.end_time,
-                },
-            )
+            spec = validate_session(parsed_session.session_number, parsed_session.date,
+                                    parsed_session.start_time, parsed_session.end_time)
+            specs.append(spec)
+            if not parsed_session.entries:
+                raise ValueError('Session has no schedule entries.')
             for entry in parsed_session.entries:
-                _, was_created = ExamScheduleEntry.objects.get_or_create(
-                    session=session,
-                    course_code=entry.course_code,
-                    defaults={
-                        'course_name': entry.course_name,
-                        'total_students': entry.total_students,
-                        'rooms': ', '.join(entry.rooms),
-                    },
-                )
-                if was_created:
-                    created += 1
-
-        upload_record.status = upload_record.STATUS_PROCESSED
-        upload_record.records_created = created
-        upload_record.error_message = ''
-        upload_record.save(update_fields=['status', 'records_created', 'error_message'])
+                code = _normalize_course_code(entry.course_code)
+                values = {'course_name': entry.course_name.strip(), 'course_code': code,
+                          'total_students': entry.total_students, 'rooms': ', '.join(entry.rooms)}
+                try:
+                    for field, value in values.items():
+                        ExamScheduleEntry._meta.get_field(field).clean(value, None)
+                except ValidationError as exc:
+                    raise ValueError('; '.join(exc.messages)) from exc
+                if not 0 <= entry.total_students <= 2147483647:
+                    raise ValueError('Invalid schedule student count.')
+                key = (spec['session_number'], spec['date'], code)
+                if key in entries and entries[key] != values:
+                    raise ValueError('Conflicting course entries within the schedule.')
+                entries[key] = values
+                if len(entries) > settings.MAX_EXAM_IMPORT_ROWS:
+                    raise ValueError('Schedule import row limit exceeded.')
+        validated_sessions = session_specs(specs)
+        if not entries:
+            raise ValueError('Schedule contains no courses.')
+        if upload_record.term_id and (upload_record.term.year, upload_record.term.term, upload_record.term.center) != (
+                parsed.year, parsed.term, parsed.center or 'Addis Ababa'):
+            raise ValueError('Uploaded schedule does not match its selected term.')
+        with transaction.atomic():
+            term, _ = ExamTerm.objects.get_or_create(year=parsed.year, term=parsed.term, center=parsed.center or 'Addis Ababa')
+            ExamTerm.objects.select_for_update().get(pk=term.pk)
+            _ensure_active_term(term)
+            sessions = get_sessions(term, validated_sessions)
+            wanted_sessions = [row.pk for row in sessions.values()]
+            existing = {(row.session_id, row.course_code): row for row in ExamScheduleEntry.objects.filter(session_id__in=wanted_sessions)}
+            inserts, updates = [], []
+            for (number, exam_date, code), values in entries.items():
+                session = sessions[(number, exam_date)]
+                previous = existing.get((session.pk, code))
+                if previous is None:
+                    inserts.append(ExamScheduleEntry(session=session, **values))
+                elif any(getattr(previous, field) != value for field, value in values.items()):
+                    for field, value in values.items():
+                        setattr(previous, field, value)
+                    updates.append(previous)
+            ExamScheduleEntry.objects.bulk_create(inserts, batch_size=100)
+            ExamScheduleEntry.objects.bulk_update(updates, ['course_name', 'rooms', 'total_students'], batch_size=100)
+            created = len(inserts)
+            if parsed.earliest_date:
+                term.exam_start_date = ExamSession.objects.filter(term=term).aggregate(first=Min('date'))['first']
+                term.save(update_fields=['exam_start_date'])
+            upload_record.term = term
+            upload_record.status = upload_record.STATUS_PROCESSED
+            upload_record.records_created = created
+            upload_record.records_updated = len(updates)
+            upload_record.error_message = ''
+            upload_record.save(update_fields=['term', 'status', 'records_created', 'records_updated', 'error_message'])
 
         logger.info('Schedule PDF processed: %s schedule entries created', created)
         return True, created, ''
@@ -117,58 +143,39 @@ def process_attendance_pdf(upload_record):
             raise ValueError('Parser returned no data — check PDF format')
 
         first_block = parsed_blocks[0]
-        term, _ = ExamTerm.objects.get_or_create(
-            year=first_block.year,
-            term=first_block.term,
-            center='Addis Ababa',
-        )
-        _ensure_active_term(term)
-
-        upload_record.term = term
-        upload_record.save(update_fields=['term'])
-
-        created = 0
-        for parsed in parsed_blocks:
-            session, _ = ExamSession.objects.get_or_create(
-                term=term,
-                session_number=parsed.session_num,
-                date=parsed.exam_date,
-                defaults={
-                    'start_time': parsed.start_time,
-                    'end_time': parsed.end_time,
-                },
-            )
-            course_name, course_code = _resolve_attendance_course_details(
-                term=term,
-                session=session,
-                parsed=parsed,
-                original_name=upload_record.original_name,
-            )
-
-            for student in parsed.students:
-                _, was_created = StudentExam.objects.get_or_create(
-                    term=term,
-                    session=session,
-                    student_name=student.name,
-                    student_id=student.student_id,
-                    department=student.department,
-                    course_name=course_name,
-                    course_code=course_code,
-                    room_code=parsed.room_code,
-                )
-                if was_created:
-                    created += 1
-
-        logger.info(
-            'Processed %s: %s records across %s attendance block(s)',
-            upload_record.original_name,
-            created,
-            len(parsed_blocks),
-        )
-        upload_record.status = upload_record.STATUS_PROCESSED
-        upload_record.records_created = created
-        upload_record.error_message = ''
-        upload_record.save(update_fields=['status', 'records_created', 'error_message'])
+        center = upload_record.term.center if upload_record.term_id else 'Addis Ababa'
+        validate_term(first_block.year, first_block.term, center)
+        if any((block.year, block.term) != (first_block.year, first_block.term) for block in parsed_blocks):
+            raise ValueError('Attendance blocks refer to different terms.')
+        if upload_record.term_id and (upload_record.term.year, upload_record.term.term) != (first_block.year, first_block.term):
+            raise ValueError('Attendance PDF does not match its selected term.')
+        # Resolve read-only catalogue/schedule hints before creating any rows.
+        known_term = ExamTerm.objects.filter(year=first_block.year, term=first_block.term, center=center).first()
+        context_term = known_term or ExamTerm(year=first_block.year, term=first_block.term, center=center)
+        rows = []
+        for block in parsed_blocks:
+            if not block.students:
+                raise ValueError('Attendance block has no students.')
+            spec = validate_session(block.session_num, block.exam_date, block.start_time, block.end_time)
+            context_session = ExamSession(term=context_term, **spec)
+            name, code = _resolve_attendance_course_details(context_term, context_session, block, upload_record.original_name)
+            for student in block.students:
+                rows.append({**spec, 'student_name': student.name, 'student_id': student.student_id,
+                             'department': student.department, 'course_name': name,
+                             'course_code': code, 'room_code': block.room_code})
+        rows = validate_student_rows(rows)
+        with transaction.atomic():
+            term, _ = ExamTerm.objects.get_or_create(year=first_block.year, term=first_block.term, center=center)
+            ExamTerm.objects.select_for_update().get(pk=term.pk)
+            _ensure_active_term(term)
+            created, updated = write_student_rows(term, rows)
+            upload_record.term = term
+            upload_record.status = upload_record.STATUS_PROCESSED
+            upload_record.records_created = created
+            upload_record.records_updated = updated
+            upload_record.error_message = ''
+            upload_record.save(update_fields=['term', 'status', 'records_created', 'records_updated', 'error_message'])
+        logger.info('Attendance PDF processed: %s created, %s updated', created, updated)
         return True, created, ''
 
     except Exception as exc:
@@ -200,7 +207,7 @@ def _resolve_attendance_course_details(term, session, parsed, original_name):
 
     schedule_candidates = (
         ExamScheduleEntry.objects.filter(
-            session__term=term,
+            session__term_id=term.pk,
             session__date=session.date,
             session__session_number=session.session_number,
         )
@@ -338,12 +345,6 @@ def _normalize_course_label(value):
     return re.sub(r'\s+', ' ', normalized).strip()
 
 
-def _normalize_course_code(course_code):
-    compact = re.sub(r'\s+', '', course_code or '')
-    match = re.match(r'([A-Za-z]+)(\d{3,4}[A-Za-z]?)$', compact)
-    if not match:
-        return (course_code or '').strip()
-    return f'{match.group(1).upper()} {match.group(2).upper()}'
 
 
 def _extract_course_level(value):

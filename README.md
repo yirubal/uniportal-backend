@@ -311,3 +311,7 @@ rollout document before enabling the worker in Railway.
 Phase 4 returns expiring R2 links and enforces document-upload bounds. See
 [Phase 4 file delivery](docs/PHASE_4_FILE_DELIVERY.md) for CORS, frontend expiry
 handling, retention commands, migrations, and pending live checks.
+
+[Phase 5 database/API work](docs/PHASE_5_DATABASE_API.md) documents opt-in
+pagination, import identity/correction rules, shared auth/payment throttles,
+measured indexes, and migration/proxy rollout requirements.

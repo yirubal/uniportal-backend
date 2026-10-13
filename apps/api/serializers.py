@@ -193,10 +193,10 @@ class ResourceSerializer(serializers.ModelSerializer):
         return settings.RESOURCE_LINK_TTL_SECONDS if obj.file else None
 
     def get_course_codes(self, obj) -> list[str]:
-        return list(obj.courses.values_list('code', flat=True))
+        return [course.code for course in obj.courses.all()]
 
     def get_course_names(self, obj) -> list[str]:
-        return list(obj.courses.values_list('name', flat=True))
+        return [course.name for course in obj.courses.all()]
 
 
 class ChapterSerializer(serializers.ModelSerializer):
@@ -214,7 +214,7 @@ class ChapterSerializer(serializers.ModelSerializer):
         ]
 
     def get_question_count(self, obj) -> int:
-        return obj.questions.filter(is_active=True).count()
+        return obj.active_question_count if hasattr(obj, 'active_question_count') else obj.questions.filter(is_active=True).count()
 
 
 class QuestionSerializer(serializers.ModelSerializer):
@@ -318,7 +318,14 @@ class ExamPaperSerializer(serializers.ModelSerializer):
 class QuizAttemptSerializer(serializers.ModelSerializer):
     percentage = serializers.FloatField(read_only=True)
     passed = serializers.BooleanField(read_only=True)
-    exam_paper = ExamPaperSerializer(read_only=True)
+    exam_paper = serializers.SerializerMethodField()
+
+    def get_exam_paper(self, obj):
+        if obj.exam_paper_id is None:
+            return None
+        if hasattr(obj, 'active_question_count'):
+            obj.exam_paper.active_question_count = obj.active_question_count
+        return ExamPaperSerializer(obj.exam_paper, context=self.context).data
 
     class Meta:
         model = QuizAttempt
@@ -334,3 +341,25 @@ class QuizAttemptSerializer(serializers.ModelSerializer):
             'mode',
             'completed_at',
         ]
+
+
+class CourseFilterInputSerializer(serializers.Serializer):
+    program = serializers.ChoiceField(choices=CoursePlacement.PROGRAM_CHOICES, required=False)
+    year = serializers.IntegerField(min_value=1, max_value=20, required=False)
+    period = serializers.IntegerField(min_value=1, max_value=20, required=False)
+
+
+class ExamFilterInputSerializer(serializers.Serializer):
+    department = serializers.IntegerField(min_value=1, required=False)
+    course = serializers.IntegerField(min_value=1, required=False)
+    type = serializers.ChoiceField(choices=[*ExamPaper.TYPE_CHOICES, ('exit', 'Legacy exit exams')], required=False, allow_blank=True)
+
+
+class ResourceFilterInputSerializer(serializers.Serializer):
+    type = serializers.ChoiceField(choices=Resource.TYPE_CHOICES, required=False, allow_blank=True)
+    search = serializers.CharField(max_length=200, required=False, allow_blank=True)
+
+
+class TopicCountSerializer(serializers.Serializer):
+    topic = serializers.CharField()
+    count = serializers.IntegerField()

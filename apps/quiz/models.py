@@ -2,6 +2,8 @@ from uuid import uuid4
 
 from django.core.validators import MinValueValidator
 from django.db import models
+from django.contrib.postgres.indexes import GinIndex
+from .scoring import quiz_percentage
 
 
 class ExamPaper(models.Model):
@@ -79,6 +81,8 @@ class ExamPaper(models.Model):
 
     @property
     def total_questions(self):
+        if hasattr(self, 'active_question_count'):
+            return self.active_question_count
         return self.questions.filter(is_active=True).count()
 
     @property
@@ -247,6 +251,8 @@ class Question(models.Model):
         verbose_name = 'Question'
         verbose_name_plural = 'Questions'
         ordering = ['exam_paper', 'id']
+        indexes = [GinIndex(fields=['topic_tags'], opclasses=['jsonb_path_ops'],
+                            condition=models.Q(is_active=True), name='question_active_tags_gin')]
 
     def __str__(self):
         return f'[{self.get_question_type_display()}] {self.text[:80]}'
@@ -327,6 +333,7 @@ class QuizAttempt(models.Model):
         'accounts.Student',
         on_delete=models.CASCADE,
         related_name='quiz_attempts',
+        db_index=False,
     )
     exam_paper = models.ForeignKey(
         ExamPaper,
@@ -385,6 +392,7 @@ class QuizAttempt(models.Model):
         verbose_name = 'Quiz Attempt'
         verbose_name_plural = 'Quiz Attempts'
         ordering = ['-completed_at']
+        indexes = [models.Index(fields=['student', '-completed_at', '-id'], name='attempt_student_recent_idx')]
 
     def __str__(self):
         return f'{self.student} — {self.score}/{self.total_questions} ({self.mode})'
@@ -392,9 +400,7 @@ class QuizAttempt(models.Model):
     @property
     def percentage(self):
         denominator = self.total_questions if self.gradable_total is None else self.gradable_total
-        if not denominator or not self.score:
-            return 0
-        return round((self.score / denominator) * 100, 1)
+        return quiz_percentage(self.score, denominator)
 
     @property
     def passed(self):

@@ -25,6 +25,7 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
+    'django.contrib.postgres',
 
     # Third party
     'rest_framework',
@@ -110,8 +111,8 @@ REST_FRAMEWORK = {
     'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
     'PAGE_SIZE': 20,
     'DEFAULT_THROTTLE_CLASSES': [
-        'rest_framework.throttling.AnonRateThrottle',
-        'rest_framework.throttling.UserRateThrottle',
+        'apps.api.throttles.StudentAwareAnonThrottle',
+        'apps.api.throttles.StudentRateThrottle',
     ],
     'DEFAULT_THROTTLE_RATES': {
         'anon': '30/minute',
@@ -386,3 +387,19 @@ MAX_DOCUMENT_UPLOAD_BYTES = env.int('MAX_DOCUMENT_UPLOAD_BYTES', default=100 * 1
 MAX_EXAM_PDF_UPLOAD_BYTES = env.int('MAX_EXAM_PDF_UPLOAD_BYTES', default=20 * 1024 * 1024)
 
 DATA_UPLOAD_MAX_NUMBER_FILES = 20
+
+API_LEGACY_LIST_LIMIT = 500
+MAX_EXAM_IMPORT_ROWS = 20000
+
+# Only low-frequency auth/payment throttles need shared cross-worker histories.
+# General traffic uses cheap process-local, approximate availability limits.
+CACHES = {
+    'default': {'BACKEND': 'django.core.cache.backends.locmem.LocMemCache', 'LOCATION': 'uniportal-local'},
+    'throttles': {'BACKEND': 'django.core.cache.backends.db.DatabaseCache',
+                  'LOCATION': 'api_throttle_cache', 'KEY_PREFIX': 'uniportal-throttle',
+                  'OPTIONS': {'MAX_ENTRIES': 10000}},
+}
+REST_FRAMEWORK['NUM_PROXIES'] = env.int('THROTTLE_NUM_PROXIES', default=0)
+
+if REST_FRAMEWORK['NUM_PROXIES'] < 0:
+    raise ValueError('THROTTLE_NUM_PROXIES must be zero or a positive trusted-proxy count.')

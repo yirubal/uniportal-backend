@@ -245,3 +245,14 @@ Media goes to `media/` locally, or to Cloudflare R2 when `USE_S3=True`.
 | `seed_data` | Seed departments, courses, plans, site settings |
 | `import_course_with_chapters`, `import_questions_with_chapters`, `import_exit_exam_questions` | Bulk question imports from Excel |
 | `cleanup_duplicate_inbox_files`, `repair_resource_files`, `fix_duplicate_courses` | Storage and data maintenance |
+
+## Phase 5 query and import updates
+
+Growing API lists offer opt-in pagination; legacy arrays are bounded, and attempt
+history keeps its recent-20 contract. Resource relationships are prefetched,
+question counts are annotated, question selection loads bounded IDs/full records,
+and performance aggregates in SQL with bounded recent snapshots. Exam imports
+validate before atomic batched writes and use database natural-key constraints.
+Login/payment rate histories share a PostgreSQL-backed Django cache; general
+student throttles remain process-local and approximate. See
+[Phase 5](PHASE_5_DATABASE_API.md) for contracts, benchmarks, and rollout status.

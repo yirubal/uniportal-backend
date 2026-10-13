@@ -6,7 +6,7 @@ from urllib.parse import unquote
 from botocore.exceptions import ClientError
 from django.core import signing
 from django.db import transaction
-from django.db.models import F
+from django.db.models import F, Count, Q
 from django.utils import timezone
 from django.http import FileResponse, HttpResponseRedirect
 from django.urls import reverse
@@ -16,6 +16,7 @@ from rest_framework.response import Response
 from rest_framework import status
 from rest_framework.permissions import AllowAny
 from django.conf import settings
+from .pagination import list_response
 from .throttles import AuthRateThrottle, SubscriptionRateThrottle
 
 from apps.accounts.models import Student
@@ -41,6 +42,7 @@ from .serializers import (
     QuizSubmissionInputSerializer,
     SubscriptionRequestInputSerializer,
     MAX_QUIZ_QUESTIONS,
+    CourseFilterInputSerializer, ExamFilterInputSerializer, ResourceFilterInputSerializer, TopicCountSerializer,
 )
 from .permissions import IsTelegramAuthenticated, IsPremium, FreeQuotaNotExceeded
 
@@ -194,7 +196,7 @@ class DepartmentListView(APIView):
         departments = Department.objects.filter(is_active=True)
         if level:
             departments = departments.filter(level=level)
-        return Response(DepartmentSerializer(departments, many=True).data)
+        return list_response(departments.order_by('name', 'pk'), DepartmentSerializer, request)
 
 
 # ─── COURSES ──────────────────────────────────────────────────────────────────
@@ -203,9 +205,10 @@ class CourseListView(APIView):
     permission_classes = [IsTelegramAuthenticated]
 
     def get(self, request, department_id):
-        program = request.query_params.get('program')
-        year    = request.query_params.get('year')
-        period  = request.query_params.get('period')
+        inputs = CourseFilterInputSerializer(data=request.query_params)
+        inputs.is_valid(raise_exception=True)
+        params = inputs.validated_data
+        program, year, period = params.get('program'), params.get('year'), params.get('period')
 
         placements = CoursePlacement.objects.filter(
             department_id=department_id,
@@ -218,7 +221,7 @@ class CourseListView(APIView):
         if period:
             placements = placements.filter(period=period)
 
-        return Response(CoursePlacementSerializer(placements, many=True).data)
+        return list_response(placements.order_by('year', 'period', 'course__name', 'pk'), CoursePlacementSerializer, request)
 
 
 # ─── RESOURCES ────────────────────────────────────────────────────────────────
@@ -227,8 +230,10 @@ class ResourceListView(APIView):
     permission_classes = [IsTelegramAuthenticated]
 
     def get(self, request, course_id):
-        file_type = request.query_params.get('type')
-        search    = request.query_params.get('search')
+        inputs = ResourceFilterInputSerializer(data=request.query_params)
+        inputs.is_valid(raise_exception=True)
+        params = inputs.validated_data
+        file_type, search = params.get('type'), params.get('search')
 
         resources = Resource.objects.filter(
             courses=course_id,
@@ -245,9 +250,7 @@ class ResourceListView(APIView):
                 Q(extracted_text__icontains=search)
             )
 
-        return Response(
-            ResourceSerializer(resources, many=True, context={'request': request}).data
-        )
+        return list_response(resources.order_by('-created_at', '-pk'), ResourceSerializer, request)
 
 
 class ResourceDetailView(APIView):
@@ -384,11 +387,14 @@ class ExamPaperListView(APIView):
     permission_classes = [IsTelegramAuthenticated]
 
     def get(self, request):
-        exam_type     = request.query_params.get('type')
-        department_id = request.query_params.get('department')
-        course_id     = request.query_params.get('course')
+        inputs = ExamFilterInputSerializer(data=request.query_params)
+        inputs.is_valid(raise_exception=True)
+        params = inputs.validated_data
+        exam_type, department_id, course_id = params.get('type'), params.get('department'), params.get('course')
 
-        exams = ExamPaper.objects.filter(is_active=True)
+        exams = ExamPaper.objects.filter(is_active=True).select_related('course', 'department').annotate(
+            active_question_count=Count('questions', filter=Q(questions__is_active=True)),
+        )
 
         if exam_type:
             exams = exams.filter(exam_type=exam_type)
@@ -397,9 +403,7 @@ class ExamPaperListView(APIView):
         if course_id:
             exams = exams.filter(course_id=course_id)
 
-        return Response(
-            ExamPaperSerializer(exams, many=True, context={'request': request}).data
-        )
+        return list_response(exams.order_by('-year', '-pk'), ExamPaperSerializer, request)
 
 
 class ExamPaperQuestionsView(APIView):
@@ -483,7 +487,7 @@ class CourseTopicsView(APIView):
         chapter_counts = {}
         other_topics = set()
         all_topics = set()
-        for topic_list in questions.values_list('topic_tags', flat=True):
+        for topic_list in questions.values_list('topic_tags', flat=True).iterator(chunk_size=500):
             if not isinstance(topic_list, list) or not topic_list:
                 continue
 
@@ -544,17 +548,18 @@ class CourseChaptersView(APIView):
         chapters = Chapter.objects.filter(
             course=course,
             is_active=True,
-        ).order_by('order', 'number')
+        ).annotate(active_question_count=Count('questions', filter=Q(questions__is_active=True))).order_by('order', 'number', 'pk')
 
-        serializer = ChapterSerializer(chapters, many=True)
-
-        return Response({
-            'course_id': course.id,
-            'course_name': course.name,
-            'course_code': course.code,
-            'total_chapters': chapters.count(),
-            'chapters': serializer.data,
-        })
+        page = list_response(chapters, ChapterSerializer, request)
+        paginated = isinstance(page.data, dict)
+        data = {
+            'course_id': course.id, 'course_name': course.name, 'course_code': course.code,
+            'total_chapters': page.data['count'] if paginated else len(page.data),
+            'chapters': page.data['results'] if paginated else page.data,
+        }
+        if paginated:
+            data.update(next=page.data['next'], previous=page.data['previous'])
+        return Response(data)
 
 
 class SelectivePracticeView(APIView):
@@ -598,14 +603,10 @@ class SelectivePracticeView(APIView):
                 exam_paper__access_level=ExamPaper.ACCESS_FREE,
             )
 
-        filtered_questions = []
-        for question in base_queryset:
-            question_topics = question.topic_tags or []
-            if any(topic in question_topics for topic in normalized_topics):
-                filtered_questions.append(question)
-
-        total_filtered_count = len(filtered_questions)
-        filtered_questions = filtered_questions[:limit]
+        from apps.quiz.selection import filter_topic_tags
+        matching = filter_topic_tags(base_queryset, normalized_topics)
+        total_filtered_count = matching.count()
+        filtered_questions = list(matching.select_related('chapter')[:limit])
 
         if not filtered_questions:
             return Response(
@@ -767,7 +768,9 @@ class ExitExamTopicsView(APIView):
     permission_classes = [IsTelegramAuthenticated]
 
     def get(self, request):
-        department_id = request.query_params.get('department')
+        inputs = ExamFilterInputSerializer(data=request.query_params)
+        inputs.is_valid(raise_exception=True)
+        department_id = inputs.validated_data.get('department')
 
         questions = Question.objects.filter(
             is_active=True,
@@ -785,15 +788,15 @@ class ExitExamTopicsView(APIView):
             )
 
         topics = {}
-        for q in questions.exclude(topic_tags=[]):
-            for tag in (q.topic_tags or []):
+        for tags in questions.exclude(topic_tags=[]).values_list('topic_tags', flat=True).iterator(chunk_size=500):
+            for tag in (tags or []):
                 topics[tag] = topics.get(tag, 0) + 1
 
         result = [
             {'topic': topic, 'count': count}
             for topic, count in sorted(topics.items())
         ]
-        return Response(result)
+        return list_response(result, TopicCountSerializer, request)
 
 
 class TopicQuestionsView(APIView):
@@ -834,11 +837,16 @@ class QuizAttemptView(APIView):
         return Response(result, status=status.HTTP_201_CREATED)
 
     def get(self, request):
-        attempts = QuizAttempt.objects.filter(
-            student=request.student
-        ).select_related('exam_paper').order_by('-completed_at')[:20]
-
-        return Response(QuizAttemptSerializer(attempts, many=True).data)
+        attempts = QuizAttempt.objects.filter(student=request.student).defer(
+            'answers', 'detailed_answers', 'selected_topics',
+        ).select_related(
+            'exam_paper__course', 'exam_paper__department',
+        ).annotate(active_question_count=Count(
+            'exam_paper__questions', filter=Q(exam_paper__questions__is_active=True),
+        )).order_by('-completed_at', '-pk')
+        if 'page' not in request.query_params and 'page_size' not in request.query_params:
+            attempts = attempts[:20]  # Preserve the existing recent-history array.
+        return list_response(attempts, QuizAttemptSerializer, request, legacy_limit=20)
 
 
 class QuizFeedbackView(APIView):
