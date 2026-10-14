@@ -39,7 +39,7 @@ def validate_telegram_init_data(init_data: str) -> dict:
     Returns parsed user dict if valid.
     Raises ValueError if invalid or expired.
     """
-    if not init_data:
+    if not isinstance(init_data, str) or not init_data:
         raise ValueError('initData is empty')
 
     # If the entire initData string was encoded once by mistake, recover it.
@@ -47,19 +47,24 @@ def validate_telegram_init_data(init_data: str) -> dict:
     if '&' not in init_data and '%26' in init_data:
         init_data = unquote(init_data)
 
-    parsed = dict(parse_qsl(init_data, keep_blank_values=True, strict_parsing=False))
+    pairs = parse_qsl(init_data, keep_blank_values=True, strict_parsing=False)
+    parsed = dict(pairs)
+    if len(parsed) != len(pairs):
+        raise ValueError('Duplicate initData fields')
 
     # Extract hash — must not be included in data check string
     received_hash = parsed.pop('hash', None)
-    if not received_hash:
-        raise ValueError('Hash missing from initData')
+    if not received_hash or len(received_hash) != 64 or any(c not in '0123456789abcdef' for c in received_hash):
+        raise ValueError('A valid hash is required in initData')
 
-    # Check timestamp — reject if older than 24 hours
-    auth_date = parsed.get('auth_date')
-    if auth_date:
-        age = time.time() - int(auth_date)
-        if age > 86400:
-            raise ValueError('initData has expired')
+    auth_date = parsed.get('auth_date', '')
+    if not auth_date.isascii() or not auth_date.isdecimal() or len(auth_date) > 12 or int(auth_date) <= 0:
+        raise ValueError('A valid auth_date is required')
+    age = time.time() - int(auth_date)
+    if age > 86400:
+        raise ValueError('initData has expired')
+    if age < -60:
+        raise ValueError('initData timestamp is in the future')
 
     # Bot-token validation signs all received fields except hash. Telegram's
     # newer initData can also include "signature" for third-party validation;
@@ -79,10 +84,7 @@ def validate_telegram_init_data(init_data: str) -> dict:
     )
 
     if not is_valid:
-        logger.warning(
-            'Invalid Telegram initData signature. Parsed keys: %s',
-            sorted(parsed.keys()),
-        )
+        logger.warning('Invalid Telegram initData signature')
         raise ValueError('Invalid initData signature')
 
     # Parse user data
@@ -92,4 +94,11 @@ def validate_telegram_init_data(init_data: str) -> dict:
     except json.JSONDecodeError:
         raise ValueError('Invalid user data in initData')
 
+    if (not isinstance(user_data, dict) or isinstance(user_data.get('id'), bool)
+            or not isinstance(user_data.get('id'), int)
+            or not 0 < user_data['id'] <= 9223372036854775807):
+        raise ValueError('Invalid Telegram user ID')
+    for field in ('first_name', 'last_name', 'username'):
+        if field in user_data and (not isinstance(user_data[field], str) or len(user_data[field]) > 255):
+            raise ValueError('Invalid Telegram user data')
     return user_data

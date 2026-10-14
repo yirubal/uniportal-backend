@@ -1,13 +1,14 @@
 x-django-env: &django-env
-  DEBUG: ${DEBUG:-False}
-  SECRET_KEY: ${SECRET_KEY:-django-insecure-1234567890abcdefghijklmnopqrstuvwxyz}
+  DEBUG: ${DEBUG:-True}
+  SECRET_KEY: ${SECRET_KEY:?Set SECRET_KEY in .env}
   DJANGO_SETTINGS_MODULE: config.settings.docker
   ALLOWED_HOSTS: ${ALLOWED_HOSTS:-localhost,127.0.0.1,0.0.0.0}
   CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:3000,http://localhost:5173}
   CSRF_TRUSTED_ORIGINS: ${CSRF_TRUSTED_ORIGINS:-}
+  TRUST_PROXY_HTTPS: ${TRUST_PROXY_HTTPS:-False}
+  DB_CONN_MAX_AGE: ${DB_CONN_MAX_AGE:-60}
+  THROTTLE_NUM_PROXIES: ${THROTTLE_NUM_PROXIES:-0}
   SECURE_SSL_REDIRECT: ${SECURE_SSL_REDIRECT:-False}
-  SESSION_COOKIE_SECURE: ${SESSION_COOKIE_SECURE:-False}
-  CSRF_COOKIE_SECURE: ${CSRF_COOKIE_SECURE:-False}
   DATABASE_URL: postgresql://${DB_USER:-postgres}:${DB_PASSWORD:-postgres}@postgres:5432/${DB_NAME:-uniportal}
   DB_ENGINE: django.db.backends.postgresql
   DB_NAME: ${DB_NAME:-uniportal}
@@ -35,10 +36,11 @@ x-django-env: &django-env
   TELEGRAM_WEBHOOK_SECRET: ${TELEGRAM_WEBHOOK_SECRET:-}
   TELEGRAM_WEBHOOK_URL: ${TELEGRAM_WEBHOOK_URL:-}
   MINI_APP_URL: ${MINI_APP_URL:-http://localhost:3000}
-  GROQ_API_KEY: ${GROQ_API_KEY:-test-key}
-  GEMINI_API_KEY: ${GEMINI_API_KEY:-test-key}
-  GOOGLE_API_KEY: ${GOOGLE_API_KEY:-test-key}
-  GUNICORN_WORKERS: ${GUNICORN_WORKERS:-4}
+  GROQ_API_KEY: ${GROQ_API_KEY:-}
+  GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+  GEMINI_MODEL: ${GEMINI_MODEL:-gemini-3.1-flash-lite}
+  GOOGLE_API_KEY: ${GOOGLE_API_KEY:-}
+  GUNICORN_WORKERS: ${GUNICORN_WORKERS:-2}
 
 services:
   postgres:
@@ -61,35 +63,9 @@ services:
       - uniportal-network
     restart: unless-stopped
 
-  django:
+  release:
     build: .
-    container_name: uniportal-backend
-    command: >
-      sh -c "python manage.py migrate --noinput &&
-             python manage.py collectstatic --noinput --clear &&
-             gunicorn config.wsgi:application --bind 0.0.0.0:8000 --workers $${GUNICORN_WORKERS:-4} --worker-class sync --worker-tmp-dir /dev/shm --access-logfile - --error-logfile -"
-    environment:
-      <<: *django-env
-      PORT: 8000
-    volumes:
-      - static_volume:/app/staticfiles
-      - media_volume:/app/media
-      - logs_volume:/app/logs
-    ports:
-      - "8000:8000"
-    depends_on:
-      postgres:
-        condition: service_healthy
-    networks:
-      - uniportal-network
-    restart: unless-stopped
-
-  bot:
-    build: .
-    container_name: uniportal-bot
-    command: python manage.py run_bot
-    profiles:
-      - maintenance
+    command: python manage.py migrate --noinput
     environment:
       <<: *django-env
     depends_on:
@@ -98,12 +74,51 @@ services:
     networks:
       - uniportal-network
     restart: "no"
+    healthcheck:
+      disable: true
+
+  django:
+    build: .
+    container_name: uniportal-backend
+    command: gunicorn config.wsgi:application -c gunicorn.conf.py
+    environment:
+      <<: *django-env
+      PORT: 8000
+    volumes:
+      - media_volume:/app/media
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      release:
+        condition: service_completed_successfully
+    networks:
+      - uniportal-network
+    restart: unless-stopped
+
+  worker:
+    build: .
+    container_name: uniportal-worker
+    command: python manage.py run_worker
+    healthcheck:
+      disable: true
+    volumes:
+      - media_volume:/app/media
+    environment:
+      <<: *django-env
+    depends_on:
+      django:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    networks:
+      - uniportal-network
+    restart: unless-stopped
 
 volumes:
   postgres_data:
-  static_volume:
   media_volume:
-  logs_volume:
 
 networks:
   uniportal-network:

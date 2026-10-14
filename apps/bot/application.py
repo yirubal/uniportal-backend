@@ -1,12 +1,6 @@
-"""
-Singleton bot Application instance shared across webhook requests.
-
-The handlers are the same handlers previously registered by run_bot.py; only
-the update delivery mechanism changes from polling to webhook.
-"""
+"""Telegram handler application owned by the worker, never initialized by web."""
 
 import logging
-import threading
 
 from django.conf import settings
 from telegram import BotCommand, Update
@@ -19,47 +13,20 @@ BOT_COMMANDS = (
     BotCommand('status', 'Check your subscription'),
 )
 
-_application = None
-_initialized = False
-_initialize_lock = threading.Lock()
-
-
-def get_application():
-    """
-    Returns the singleton bot Application.
-    Creates it on first call.
-    """
-    global _application
-    if _application is None:
-        _application = _build_application()
-    return _application
-
-
-async def initialize_application():
-    """
-    Ensure the PTB Application is initialized before processing webhooks.
-    """
-    global _initialized
-
-    app = get_application()
-    if _initialized:
-        return app
-
-    with _initialize_lock:
-        if not _initialized:
-            await app.initialize()
-            _initialized = True
-
-    return app
-
-
 async def process_telegram_update(update_data):
-    """
-    Convert a Telegram webhook payload into an Update and process it.
-    """
-    app = await initialize_application()
-    update = Update.de_json(update_data, app.bot)
-    await app.process_update(update)
+    """One worker subprocess owns initialization, processing, and shutdown."""
+    app = _build_application()
+    errors = []
+
+    async def record_error(update, context):
+        errors.append(context.error)
+
+    app.add_error_handler(record_error)
+    async with app:
+        update = Update.de_json(update_data, app.bot)
+        await app.process_update(update)
+        if errors:
+            raise errors[0]
 
 
 async def set_visible_bot_commands(bot_or_application):

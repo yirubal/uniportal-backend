@@ -3,6 +3,7 @@ from django.contrib.admin import SimpleListFilter
 from django.contrib import messages
 from django.urls import path, reverse
 from django.utils.html import format_html
+from django.db import transaction
 from unfold.admin import ModelAdmin, TabularInline
 
 from . import views_admin
@@ -204,6 +205,15 @@ class ResourceAdmin(ModelAdmin):
         queryset.update(status=Resource.STATUS_REJECTED)
         self.message_user(request, f'{queryset.count()} resource(s) rejected.')
 
+    @admin.action(description='Retry failed text extraction after review')
+    def retry_failed_extraction(self, request, queryset):
+        from django.utils import timezone
+        count = queryset.filter(processing_status='failed', assigned_resource__isnull=True).exclude(file='').update(
+            processing_status='unprocessed', attempt_count=0, next_attempt_at=timezone.now(),
+            claimed_at=None, claim_token=None, processing_error='',
+        )
+        self.message_user(request, f'Queued {count} file(s) for extraction.')
+
     @admin.action(description='Mark selected as Free')
     def mark_as_free(self, request, queryset):
         queryset.update(access_level=Resource.ACCESS_FREE)
@@ -244,16 +254,16 @@ class FileInboxAdmin(ModelAdmin):
     readonly_fields = [
         'original_filename', 'telegram_message_id', 'telegram_caption',
         'posted_date', 'processing_status', 'extracted_text',
-        'processing_error', 'created_at',
+        'processing_error', 'extraction_outcome', 'attempt_count', 'claimed_at', 'next_attempt_at', 'telegram_chat_id', 'created_at',
     ]
-    actions       = ['mark_as_processed', 'publish_as_resource', 'extract_questions']
+    actions       = ['retry_failed_extraction', 'mark_as_processed', 'publish_as_resource', 'extract_questions']
     list_per_page = 25
     fieldsets = (
         ('File Info', {
-            'fields': ('file', 'original_filename', 'telegram_message_id', 'telegram_caption', 'posted_date')
+            'fields': ('file', 'original_filename', 'telegram_chat_id', 'telegram_message_id', 'telegram_caption', 'posted_date')
         }),
         ('Processing', {
-            'fields': ('processing_status', 'processing_error')
+            'fields': ('processing_status', 'processing_error', 'extraction_outcome', 'attempt_count', 'claimed_at', 'next_attempt_at')
         }),
         ('Extracted Text', {
             'fields': ('extracted_text',),
@@ -282,7 +292,7 @@ class FileInboxAdmin(ModelAdmin):
 
     @admin.action(description='Mark selected as processed')
     def mark_as_processed(self, request, queryset):
-        queryset.update(processing_status=FileInbox.STATUS_PROCESSED)
+        queryset.exclude(processing_status='processing').update(processing_status=FileInbox.STATUS_PROCESSED)
         self.message_user(request, f'{queryset.count()} item(s) marked as processed.')
 
     @admin.action(description='Publish selected as Resource — assign course after')
@@ -306,21 +316,23 @@ class FileInboxAdmin(ModelAdmin):
                 original_caption    = item.telegram_caption,
             )
             try:
-                placeholder_course = Course.objects.get(pk=1)
-                copy_inbox_file_to_resource(item, resource)
-                resource.save()
-                resource.courses.add(placeholder_course)
+                with transaction.atomic():
+                    item = FileInbox.objects.select_for_update().get(pk=item.pk)
+                    if item.assigned_resource_id:
+                        continue
+                    copy_inbox_file_to_resource(item, resource)
+                    resource.save()
+                    item.assigned_resource = resource
+                    item.save(update_fields=['assigned_resource'])
+                    clear_inbox_file(item, protected_file_name=resource.file.name)
             except Exception as exc:
                 failed += 1
                 self.message_user(
                     request,
-                    f'Could not copy file for {item.original_filename}: {exc}',
+                    f'Could not create resource for {item.original_filename}: {exc}',
                     level=messages.ERROR,
                 )
                 continue
-            item.assigned_resource = resource
-            item.save(update_fields=['assigned_resource'])
-            clear_inbox_file(item, protected_file_name=resource.file.name)
             created += 1
 
         self.message_user(
@@ -331,48 +343,12 @@ class FileInboxAdmin(ModelAdmin):
 
     @admin.action(description='Extract questions from selected files using AI')
     def extract_questions(self, request, queryset):
-        from apps.bot.extractor import extract_questions_from_text
-        from apps.quiz.models import Question
-
-        eligible = queryset.filter(
-            processing_status=FileInbox.STATUS_PROCESSED,
-        ).exclude(extracted_text='')
-
-        if not eligible.exists():
-            self.message_user(
-                request,
-                'No eligible files found. Files must be processed and have extracted text.',
-                level=messages.WARNING,
-            )
-            return
-
-        total_created = 0
-        for item in eligible:
-            questions_data = extract_questions_from_text(item.extracted_text)
-            if not questions_data:
-                self.message_user(request, f'No questions found in: {item.original_filename}', level=messages.WARNING)
-                continue
-            for q_data in questions_data:
-                Question.objects.create(
-                    text           = q_data.get('question', ''),
-                    option_a       = q_data.get('option_a', ''),
-                    option_b       = q_data.get('option_b', ''),
-                    option_c       = q_data.get('option_c', ''),
-                    option_d       = q_data.get('option_d', ''),
-                    option_e       = q_data.get('option_e', ''),
-                    correct_option = q_data.get('correct_option', ''),
-                    explanation    = q_data.get('explanation', ''),
-                    is_active      = False,
-                )
-                total_created += 1
-            self.message_user(
-                request,
-                f'Extracted {len(questions_data)} questions from {item.original_filename}.',
-                level=messages.SUCCESS,
-            )
-
-        self.message_user(
-            request,
-            f'Total questions created: {total_created}. Go to Quiz > Questions to review.',
-            level=messages.SUCCESS,
-        )
+        from apps.bot.ai_tasks import queue_question_extraction
+        queued = 0
+        for item in queryset.filter(processing_status=FileInbox.STATUS_PROCESSED).exclude(extracted_text=''):
+            try:
+                _, created = queue_question_extraction(item)
+                queued += int(created)
+            except ValueError as exc:
+                self.message_user(request, f'{item.original_filename}: {exc}', messages.WARNING)
+        self.message_user(request, f'Queued {queued} extraction(s). Review progress under Bot > Question extractions and generated questions under Quiz.', messages.SUCCESS)

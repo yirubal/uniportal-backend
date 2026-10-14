@@ -1,0 +1,38 @@
+{
+  "scope": "Synthetic local PostgreSQL/API workload; excludes DB and extraction memory; not Railway cost evidence",
+  "dataset": {
+    "departments": 50,
+    "resources": 30,
+    "questions": 1000,
+    "attempts": 500
+  },
+  "results": [
+    {
+      "workers": 1,
+      "requests": 60,
+      "concurrent_clients": 4,
+      "p50_ms": 958.31,
+      "p95_ms": 1510.69,
+      "requests_per_second": 3.71,
+      "web_pss_mib": 94.34
+    },
+    {
+      "workers": 2,
+      "requests": 60,
+      "concurrent_clients": 4,
+      "p50_ms": 145.28,
+      "p95_ms": 1783.79,
+      "requests_per_second": 5.83,
+      "web_pss_mib": 165.93
+    },
+    {
+      "workers": 4,
+      "requests": 60,
+      "concurrent_clients": 4,
+      "p50_ms": 47.14,
+      "p95_ms": 2069.14,
+      "requests_per_second": 7.61,
+      "web_pss_mib": 297.65
+    }
+  ]
+}

@@ -138,7 +138,7 @@
         <span class="material-symbols-outlined text-base">cloud_upload</span>
         Upload &amp; Queue PDFs
       </button>
-      <p class="text-sm text-base-400 dark:text-base-500">Files stay pending until you start processing.</p>
+      <p class="text-sm text-base-400 dark:text-base-500">Uploaded files are processed automatically. Status updates while work is pending.</p>
     </div>
   </form>
 
@@ -197,7 +197,7 @@
                 <span class="inline-flex items-center rounded-full border border-yellow-700/60 bg-yellow-900/20 px-2.5 py-1 text-xs font-semibold text-yellow-300">Pending</span>
               {% endif %}
             </td>
-            <td class="px-5 py-4 text-sm text-base-300">{{ upload.records_created }}</td>
+            <td class="px-5 py-4 text-sm text-base-300">{{ upload.records_created }} new / {{ upload.records_updated }} updated</td>
             <td class="px-5 py-4 text-sm {% if upload.error_message %}text-red-300{% else %}text-base-500{% endif %}">
               {{ upload.error_message|default:"—"|truncatechars:70 }}
             </td>
@@ -259,7 +259,7 @@
       });
     }
 
-    if (window.sessionStorage.getItem('examPdfProcessingStarted') === '1' || {{ processing_count }} > 0) {
+    if (window.sessionStorage.getItem('examPdfProcessingStarted') === '1' || {{ processing_count }} > 0 || {{ pending_count }} > 0) {
       processingStarted = true;
       pollStatus();
     }

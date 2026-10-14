@@ -26,7 +26,7 @@ async def check_channel_membership(bot, user_id: int) -> bool:
         member = await bot.get_chat_member(chat_id=channel_id, user_id=user_id)
         return member.status in ('member', 'administrator', 'creator')
     except Exception as exc:
-        logger.warning('Async channel membership check failed for %s: %s', user_id, exc)
+        logger.warning('Async channel membership check failed (%s)', type(exc).__name__)
         return True  # Fail open — never block due to API error
 
 
@@ -92,43 +92,40 @@ async def handle_channel_post(update: Update, context: ContextTypes.DEFAULT_TYPE
         logger.info(f'Skipping text-only message {message.message_id}')
         return
 
-    already_exists = await sync_to_async(
-        FileInbox.objects.filter(telegram_message_id=message.message_id).exists
-    )()
+    from pathlib import Path
+    from django.conf import settings
+    from .downloader import safe_filename
+
+    source = str(getattr(settings, 'TELEGRAM_CHANNEL_ID', '')).strip()
+    if not source or str(message.chat_id) != source:
+        logger.warning('Ignoring document from unconfigured source channel')
+        return
+    already_exists = await sync_to_async(FileInbox.objects.filter(
+        telegram_chat_id=message.chat_id, telegram_message_id=message.message_id,
+    ).exists)()
     if already_exists:
-        logger.info(f'Already downloaded message {message.message_id}, skipping')
         return
-
-    logger.info(f'New file detected in channel: {filename}')
-
+    # Legacy records have unknown chat IDs. Match them only in the configured
+    # original channel, then record that source before enabling other channels.
+    if source:
+        legacy = await sync_to_async(FileInbox.objects.filter(
+            telegram_chat_id=0, telegram_message_id=message.message_id,
+        ).first)()
+        if legacy:
+            legacy.telegram_chat_id = message.chat_id
+            await sync_to_async(legacy.save)(update_fields=['telegram_chat_id'])
+            return
+    filename = safe_filename(filename)
     file_path = await download_file(context.bot, file_id, filename)
-
-    if not file_path:
-        logger.error(f'Failed to download {filename}')
-        await sync_to_async(FileInbox.objects.create)(
-            file='',
-            original_filename=filename,
-            telegram_message_id=message.message_id,
-            telegram_caption=message.caption or '',
-            posted_date=message.date or timezone.now(),
-            processing_status=FileInbox.STATUS_FAILED,
-            processing_error='Failed to download file from Telegram',
+    try:
+        await sync_to_async(create_inbox_item_from_local_file)(
+            file_path=file_path, original_filename=filename,
+            telegram_message_id=message.message_id, telegram_chat_id=message.chat_id,
+            telegram_caption=message.caption or '', posted_date=message.date or timezone.now(),
+            processing_status=FileInbox.STATUS_UNPROCESSED,
         )
-        return
-
-    inbox_item = await sync_to_async(create_inbox_item_from_local_file)(
-        file_path=file_path,
-        original_filename=filename,
-        telegram_message_id=message.message_id,
-        telegram_caption=message.caption or '',
-        posted_date=message.date or timezone.now(),
-        processing_status=FileInbox.STATUS_UNPROCESSED,
-    )
-
-    logger.info(f'Saved to FileInbox: {inbox_item.id} — {filename}')
-
-    from .tasks import process_inbox_item
-    await process_inbox_item(inbox_item.id)
+    finally:
+        Path(file_path).unlink(missing_ok=True)
 
 
 # ─── Student Commands ─────────────────────────────────────────────────────────

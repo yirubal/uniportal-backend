@@ -1,9 +1,6 @@
-import threading
 from hashlib import sha256
 
 from django.contrib import admin, messages
-from django.core.management import call_command
-from django.db import close_old_connections, connections
 from django.db.models import Count, Q
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import path, reverse
@@ -137,12 +134,8 @@ class ExamTermAdmin(ModelAdmin):
                     status=ExamPDFUpload.STATUS_PROCESSING,
                 ).exists()
 
-                if has_pending and not has_processing:
-                    threading.Thread(
-                        target=self._process_exam_pdfs_in_background,
-                        daemon=True,
-                    ).start()
-                    messages.success(request, 'Processing started...')
+                if has_pending:
+                    messages.success(request, 'Pending PDFs are queued for the worker.')
                 elif has_processing:
                     messages.warning(request, 'PDF processing is already running.')
                 else:
@@ -152,6 +145,14 @@ class ExamTermAdmin(ModelAdmin):
 
             schedule_files = request.FILES.getlist('schedule_pdf')
             attendance_files = request.FILES.getlist('attendance_pdfs')
+            from django.core.exceptions import ValidationError
+            from apps.content.validators import validate_exam_pdf
+            try:
+                for upload_file in schedule_files + attendance_files:
+                    validate_exam_pdf(upload_file)
+            except ValidationError as exc:
+                messages.error(request, '; '.join(exc.messages))
+                return redirect(request.path)
             queued_count = 0
             skipped_count = 0
 
@@ -228,14 +229,6 @@ class ExamTermAdmin(ModelAdmin):
             'opts': ExamTerm._meta,
         }
         return render(request, 'admin/exams/upload_pdfs.html', context)
-
-    @staticmethod
-    def _process_exam_pdfs_in_background():
-        close_old_connections()
-        try:
-            call_command('process_exam_pdfs')
-        finally:
-            connections.close_all()
 
     @staticmethod
     def _uploaded_file_hash(upload_file):
@@ -343,7 +336,7 @@ class StudentExamAdmin(ModelAdmin):
 
 @admin.register(ExamPDFUpload)
 class ExamPDFUploadAdmin(ModelAdmin):
-    list_display = ['original_name', 'pdf_type', 'term', 'status', 'records_created', 'uploaded_at']
+    list_display = ['original_name', 'pdf_type', 'term', 'status', 'records_created', 'records_updated', 'uploaded_at']
     list_filter = ['term', 'status', 'pdf_type']
     change_list_template = 'admin/exams/exampdfupload/change_list.html'
     readonly_fields = [
@@ -353,10 +346,17 @@ class ExamPDFUploadAdmin(ModelAdmin):
         'file',
         'content_hash',
         'status',
-        'records_created',
+        'records_created', 'records_updated',
         'error_message',
-        'uploaded_at',
+        'uploaded_at', 'attempt_count', 'claimed_at', 'next_attempt_at',
     ]
+    actions = ['retry_failed_uploads']
+
+    @admin.action(description='Retry failed PDF imports after review')
+    def retry_failed_uploads(self, request, queryset):
+        from django.utils import timezone
+        count = queryset.filter(status='failed').update(status='pending', attempt_count=0, next_attempt_at=timezone.now(), claimed_at=None, claim_token=None, error_message='')
+        self.message_user(request, f'Queued {count} PDF(s) for retry.')
 
     def add_view(self, request, form_url='', extra_context=None):
         return redirect('admin:exams_examterm_upload_pdfs')

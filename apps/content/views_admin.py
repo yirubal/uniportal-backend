@@ -227,12 +227,6 @@ def delete_resource(request, resource_id):
     course_id = first_course.id if first_course else None
     title     = resource.title
 
-    if resource.file:
-        try:
-            resource.file.delete(save=False)
-        except Exception as e:
-            messages.warning(request, f'File could not be deleted from storage: {e}')
-
     resource.delete()
     messages.success(request, f'Deleted: {title}')
     if course_id:
@@ -257,11 +251,6 @@ def delete_duplicate_resources(request, course_id):
 
     deleted = 0
     for r in to_delete:
-        try:
-            if r.file:
-                r.file.delete(save=False)
-        except Exception:
-            pass
         r.delete()
         deleted += 1
 

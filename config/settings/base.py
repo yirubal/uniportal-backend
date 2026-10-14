@@ -6,7 +6,8 @@ from datetime import timedelta
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 
 env = environ.Env(DEBUG=(bool, False))
-environ.Env.read_env(BASE_DIR / '.env')
+if env.bool('READ_DOT_ENV', default=True):
+    environ.Env.read_env(BASE_DIR / '.env')
 
 # ── Core ──────────────────────────────────────────────────────────────────────
 SECRET_KEY = env('SECRET_KEY')
@@ -25,6 +26,7 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
+    'django.contrib.postgres',
 
     # Third party
     'rest_framework',
@@ -42,6 +44,7 @@ INSTALLED_APPS = [
 
 # ── Middleware ────────────────────────────────────────────────────────────────
 MIDDLEWARE = [
+    'apps.api.middleware.RequestLogMiddleware',
     'django.middleware.security.SecurityMiddleware',
     'corsheaders.middleware.CorsMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
@@ -98,6 +101,7 @@ MEDIA_URL   = '/media/'
 MEDIA_ROOT  = BASE_DIR / 'media'
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+CORS_EXPOSE_HEADERS = ['X-Quiz-Simulation-ID', 'X-Request-ID']
 
 # ── REST Framework ────────────────────────────────────────────────────────────
 REST_FRAMEWORK = {
@@ -109,8 +113,8 @@ REST_FRAMEWORK = {
     'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
     'PAGE_SIZE': 20,
     'DEFAULT_THROTTLE_CLASSES': [
-        'rest_framework.throttling.AnonRateThrottle',
-        'rest_framework.throttling.UserRateThrottle',
+        'apps.api.throttles.StudentAwareAnonThrottle',
+        'apps.api.throttles.StudentRateThrottle',
     ],
     'DEFAULT_THROTTLE_RATES': {
         'anon': '30/minute',
@@ -176,8 +180,8 @@ GEMINI_API_KEY       = env('GEMINI_API_KEY',       default='')
 
 # ── File uploads ──────────────────────────────────────────────────────────────
 # config/settings/base.py
-FILE_UPLOAD_MAX_MEMORY_SIZE = 100 * 1024 * 1024  # 100MB
-DATA_UPLOAD_MAX_MEMORY_SIZE = 100 * 1024 * 1024
+FILE_UPLOAD_MAX_MEMORY_SIZE = 1024 * 1024  # Spool larger files to disk.
+DATA_UPLOAD_MAX_MEMORY_SIZE = 2 * 1024 * 1024
 
 # ── Unfold Admin ──────────────────────────────────────────────────────────────
 UNFOLD = {
@@ -368,3 +372,36 @@ LOGGING = {
         },
     },
 }
+
+# A single worker bounds memory; subprocess deadlines stay below claim expiry.
+WORKER_TASK_TIMEOUT_SECONDS = 300
+WORKER_CLAIM_TIMEOUT_SECONDS = 900
+WORKER_MAX_ATTEMPTS = 5
+EXTRACTION_MAX_PAGES = 100
+EXTRACTION_TIMEOUT_SECONDS = 240
+OCR_MAX_FILE_BYTES = 5 * 1024 * 1024
+AI_MAX_INPUT_CHARS = 40000
+AI_MAX_QUESTIONS = 500
+GEMINI_MODEL = os.environ.get('GEMINI_MODEL', 'gemini-3.1-flash-lite')
+
+RESOURCE_LINK_TTL_SECONDS = 900
+MAX_DOCUMENT_UPLOAD_BYTES = env.int('MAX_DOCUMENT_UPLOAD_BYTES', default=100 * 1024 * 1024)
+MAX_EXAM_PDF_UPLOAD_BYTES = env.int('MAX_EXAM_PDF_UPLOAD_BYTES', default=20 * 1024 * 1024)
+
+DATA_UPLOAD_MAX_NUMBER_FILES = 20
+
+API_LEGACY_LIST_LIMIT = 500
+MAX_EXAM_IMPORT_ROWS = 20000
+
+# Only low-frequency auth/payment throttles need shared cross-worker histories.
+# General traffic uses cheap process-local, approximate availability limits.
+CACHES = {
+    'default': {'BACKEND': 'django.core.cache.backends.locmem.LocMemCache', 'LOCATION': 'uniportal-local'},
+    'throttles': {'BACKEND': 'django.core.cache.backends.db.DatabaseCache',
+                  'LOCATION': 'api_throttle_cache', 'KEY_PREFIX': 'uniportal-throttle',
+                  'OPTIONS': {'MAX_ENTRIES': 10000}},
+}
+REST_FRAMEWORK['NUM_PROXIES'] = env.int('THROTTLE_NUM_PROXIES', default=0)
+
+if REST_FRAMEWORK['NUM_PROXIES'] < 0:
+    raise ValueError('THROTTLE_NUM_PROXIES must be zero or a positive trusted-proxy count.')

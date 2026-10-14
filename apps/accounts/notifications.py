@@ -28,37 +28,24 @@ def check_channel_membership_sync(user_id: int) -> bool:
         member_status = data.get('result', {}).get('status', 'left')
         return member_status in ('member', 'administrator', 'creator')
     except Exception as exc:
-        logger.warning('Channel membership check failed for user %s: %s — failing open', user_id, exc)
+        logger.warning('Channel membership check failed (%s); failing open', type(exc).__name__)
         return True  # Never block users due to API errors
 
 
 
 
-def send_telegram_message(chat_id, text: str, parse_mode: str | None = None) -> bool:
-    if not settings.TELEGRAM_BOT_TOKEN:
-        logger.warning('Telegram notify skipped: TELEGRAM_BOT_TOKEN is not configured.')
-        return False
-
-    try:
-        import httpx
-
-        payload = {
-            'chat_id': chat_id,
-            'text': text,
-        }
-        if parse_mode:
-            payload['parse_mode'] = parse_mode
-
-        response = httpx.post(
-            f'https://api.telegram.org/bot{settings.TELEGRAM_BOT_TOKEN}/sendMessage',
-            json=payload,
-            timeout=10,
-        )
-        response.raise_for_status()
-        return True
-    except Exception as exc:
-        logger.warning('Telegram notify failed for chat %s: %s', chat_id, exc)
-        return False
+def send_telegram_message(chat_id, text, parse_mode=None, *, deduplication_key=None, broadcast=None, exam_notification=None):
+    """Persist delivery intent. Only the worker calls Telegram."""
+    from uuid import uuid4
+    from apps.bot.models import NotificationDelivery
+    if not text or len(text) > 4096:
+        raise ValueError('Telegram messages must contain 1–4096 characters.')
+    NotificationDelivery.objects.get_or_create(
+        deduplication_key=deduplication_key or f'message:{uuid4()}',
+        defaults={'chat_id': int(chat_id), 'text': text, 'parse_mode': parse_mode or '',
+                  'broadcast': broadcast, 'exam_notification': exam_notification},
+    )
+    return True
 
 
 def notify_subscription_request_created(sub_request: SubscriptionRequest) -> bool:
@@ -71,7 +58,7 @@ def notify_subscription_request_created(sub_request: SubscriptionRequest) -> boo
         f'(Reference: {sub_request.reference}) is under review.\n\n'
         f'We will notify you once your payment is confirmed.'
     )
-    return send_telegram_message(student.telegram_id, text)
+    return send_telegram_message(student.telegram_id, text, deduplication_key=f'payment:{sub_request.pk}:{sub_request.status}:student')
 
 
 def notify_subscription_approved(sub_request: SubscriptionRequest) -> bool:
@@ -87,7 +74,8 @@ def notify_subscription_approved(sub_request: SubscriptionRequest) -> bool:
         f"🔑 *Reference:* `{sub_request.reference}`\n\n"
         f"You now have full access to all study materials and exit exam questions. Good luck! 🚀"
     )
-    return send_telegram_message(student.telegram_id, text, parse_mode='Markdown')
+    return send_telegram_message(student.telegram_id, text, parse_mode='Markdown',
+                                 deduplication_key=f'payment:{sub_request.pk}:approved:student')
 
 
 def notify_subscription_rejected(sub_request: SubscriptionRequest) -> bool:
@@ -103,36 +91,32 @@ def notify_subscription_rejected(sub_request: SubscriptionRequest) -> bool:
         f"• Included your reference code in the payment note\n\n"
         f"Contact support if you believe this is a mistake."
     )
-    return send_telegram_message(student.telegram_id, text)
+    return send_telegram_message(student.telegram_id, text, deduplication_key=f'payment:{sub_request.pk}:{sub_request.status}:student')
 
 
-def broadcast_to_all_students(
-    message: str,
-    parse_mode: str | None = None,
-    only_active: bool = True,
-) -> tuple[int, int, int]:
-    """
-    Send `message` as a private Telegram DM to every student — exactly the
-    same channel as subscription approval / rejection notifications.
-
-    Returns (total, success_count, failed_count).
-    """
-    from .models import Student
-
-    qs = Student.objects.all()
-    if only_active:
-        qs = qs.filter(is_active=True)
-
-    telegram_ids = list(qs.values_list('telegram_id', flat=True))
-    total   = len(telegram_ids)
-    success = 0
-    failed  = 0
-
-    for tid in telegram_ids:
-        if send_telegram_message(tid, message, parse_mode or None):
-            success += 1
-        else:
-            failed += 1
-
-    return total, success, failed
-
+def queue_broadcast(message, parse_mode='', sent_by=None):
+    from django.db import transaction
+    from .models import BroadcastMessage, Student
+    from apps.bot.models import NotificationDelivery
+    if not message or len(message) > 4096:
+        raise ValueError('Broadcasts must contain 1–4096 characters.')
+    if parse_mode not in {'', 'Markdown', 'HTML'}:
+        raise ValueError('Unsupported Telegram formatting mode.')
+    with transaction.atomic():
+        broadcast = BroadcastMessage.objects.create(message=message, parse_mode=parse_mode, sent_by=sent_by)
+        batch = []
+        total = 0
+        for chat_id in Student.objects.filter(is_active=True).values_list('telegram_id', flat=True).iterator(chunk_size=500):
+            batch.append(NotificationDelivery(
+                deduplication_key=f'broadcast:{broadcast.pk}:{chat_id}', chat_id=chat_id,
+                text=message, parse_mode=parse_mode, broadcast=broadcast,
+            ))
+            total += 1
+            if len(batch) == 500:
+                NotificationDelivery.objects.bulk_create(batch)
+                batch = []
+        if batch:
+            NotificationDelivery.objects.bulk_create(batch)
+        broadcast.total_users = total
+        broadcast.save(update_fields=['total_users'])
+    return broadcast

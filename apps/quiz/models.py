@@ -1,5 +1,9 @@
+from uuid import uuid4
+
 from django.core.validators import MinValueValidator
 from django.db import models
+from django.contrib.postgres.indexes import GinIndex
+from .scoring import quiz_percentage
 
 
 class ExamPaper(models.Model):
@@ -77,6 +81,8 @@ class ExamPaper(models.Model):
 
     @property
     def total_questions(self):
+        if hasattr(self, 'active_question_count'):
+            return self.active_question_count
         return self.questions.filter(is_active=True).count()
 
     @property
@@ -245,6 +251,8 @@ class Question(models.Model):
         verbose_name = 'Question'
         verbose_name_plural = 'Questions'
         ordering = ['exam_paper', 'id']
+        indexes = [GinIndex(fields=['topic_tags'], opclasses=['jsonb_path_ops'],
+                            condition=models.Q(is_active=True), name='question_active_tags_gin')]
 
     def __str__(self):
         return f'[{self.get_question_type_display()}] {self.text[:80]}'
@@ -273,8 +281,7 @@ class Question(models.Model):
 
     @property
     def is_auto_gradable(self):
-        """Essay questions cannot be auto-graded."""
-        return self.question_type != self.TYPE_ESSAY
+        return self.question_type in (self.TYPE_MCQ, self.TYPE_TRUE_FALSE, self.TYPE_FILL_BLANK)
 
     @property
     def has_five_options(self):
@@ -326,6 +333,7 @@ class QuizAttempt(models.Model):
         'accounts.Student',
         on_delete=models.CASCADE,
         related_name='quiz_attempts',
+        db_index=False,
     )
     exam_paper = models.ForeignKey(
         ExamPaper,
@@ -353,6 +361,8 @@ class QuizAttempt(models.Model):
     )
     score = models.IntegerField()
     total_questions = models.IntegerField()
+    gradable_total = models.PositiveIntegerField(null=True, blank=True)
+    pending_count = models.PositiveIntegerField(default=0)
     answers = models.JSONField(
         default=dict,
         help_text='Format: {question_id: selected_option} e.g. {"12": "a", "13": "c"}',
@@ -382,16 +392,32 @@ class QuizAttempt(models.Model):
         verbose_name = 'Quiz Attempt'
         verbose_name_plural = 'Quiz Attempts'
         ordering = ['-completed_at']
+        indexes = [models.Index(fields=['student', '-completed_at', '-id'], name='attempt_student_recent_idx')]
 
     def __str__(self):
         return f'{self.student} — {self.score}/{self.total_questions} ({self.mode})'
 
     @property
     def percentage(self):
-        if not self.total_questions or not self.score:
-            return 0
-        return round((self.score / self.total_questions) * 100, 1)
+        denominator = self.total_questions if self.gradable_total is None else self.gradable_total
+        return quiz_percentage(self.score, denominator)
 
     @property
     def passed(self):
         return self.percentage >= 50
+
+
+class QuizSimulation(models.Model):
+    """One issued paper snapshot; completion creates one ordinary QuizAttempt."""
+
+    id = models.UUIDField(primary_key=True, default=uuid4, editable=False)
+    student = models.ForeignKey('accounts.Student', on_delete=models.CASCADE)
+    exam_paper = models.ForeignKey(ExamPaper, on_delete=models.CASCADE)
+    question_snapshot = models.JSONField(default=list)
+    created_at = models.DateTimeField(auto_now_add=True)
+    expires_at = models.DateTimeField()
+    completed_at = models.DateTimeField(null=True, blank=True)
+    attempt = models.OneToOneField(QuizAttempt, null=True, blank=True, on_delete=models.SET_NULL)
+
+    class Meta:
+        indexes = [models.Index(fields=['student', 'exam_paper', 'expires_at'], name='simulation_student_paper_idx')]
