@@ -1,6 +1,12 @@
+import logging
+
 from django.utils import timezone
 from django.db import models
 from .validators import validate_document_upload
+
+logger = logging.getLogger(__name__)
+
+_UNKNOWN = object()
 
 
 class Department(models.Model):
@@ -192,6 +198,16 @@ class Resource(models.Model):
         blank=True,
         help_text='Original caption from the Telegram message',
     )
+    file_size = models.PositiveBigIntegerField(
+        null=True,
+        blank=True,
+        help_text='File size in bytes. Filled automatically when the file changes.',
+    )
+    page_count = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        help_text='Pages (PDF/DOCX) or slides (PPTX). Empty for other file types.',
+    )
     downloads_count = models.IntegerField(default=0)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -210,6 +226,51 @@ class Resource(models.Model):
 
     def __str__(self):
         return f'{self.title} — {self.get_file_type_display()}'
+
+    @classmethod
+    def from_db(cls, db, field_names, values):
+        instance = super().from_db(db, field_names, values)
+        # Remember the stored file name so save() only re-reads the file when it changes.
+        if 'file' in field_names:
+            instance._loaded_file_name = values[list(field_names).index('file')] or ''
+        return instance
+
+    def save(self, *args, **kwargs):
+        update_fields = kwargs.get('update_fields')
+        if self._file_changed() and (update_fields is None or 'file' in update_fields):
+            self.refresh_file_metadata()
+            if update_fields is not None:
+                kwargs['update_fields'] = {*update_fields, 'file_size', 'page_count'}
+        super().save(*args, **kwargs)
+        self._loaded_file_name = self.file.name or ''
+
+    def _file_changed(self):
+        loaded = getattr(self, '_loaded_file_name', _UNKNOWN)
+        if loaded is _UNKNOWN:
+            # New instance, or loaded with the file column deferred.
+            return self._state.adding and bool(self.file.name)
+        return (self.file.name or '') != loaded
+
+    def refresh_file_metadata(self):
+        """Recompute file_size/page_count from the file. Never raises; returns True if read."""
+        from .file_metadata import get_file_metadata
+
+        self.file_size = None
+        self.page_count = None
+        if not self.file or not self.file.name:
+            return False
+        name = self.file.name
+        try:
+            if not self.file._committed:
+                # Fresh upload not yet written to storage: read the in-memory/temp file.
+                self.file_size, self.page_count = get_file_metadata(self.file.file, name)
+            else:
+                with self.file.storage.open(name, 'rb') as handle:
+                    self.file_size, self.page_count = get_file_metadata(handle, name)
+            return True
+        except Exception as exc:
+            logger.warning('Could not read metadata for resource %s file %s: %s', self.pk, name, exc)
+            return False
 
     @property
     def is_worksheet(self):

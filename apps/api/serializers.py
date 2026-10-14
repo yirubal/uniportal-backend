@@ -151,6 +151,10 @@ class ResourceSerializer(serializers.ModelSerializer):
         source='get_source_display',
         read_only=True,
     )
+    file_size = serializers.IntegerField(read_only=True, allow_null=True)
+    page_count = serializers.IntegerField(read_only=True, allow_null=True)
+    file_extension = serializers.SerializerMethodField()
+    description = serializers.SerializerMethodField()
 
     class Meta:
         model = Resource
@@ -169,7 +173,19 @@ class ResourceSerializer(serializers.ModelSerializer):
             'created_at',
             'is_locked',
             'file_url', 'file_url_expires_in',
+            'file_size',
+            'page_count',
+            'file_extension',
+            'description',
         ]
+
+    def get_file_extension(self, obj) -> str | None:
+        from pathlib import Path
+        extension = Path(obj.file.name or '').suffix.lower().lstrip('.')
+        return extension or None
+
+    def get_description(self, obj) -> str | None:
+        return (obj.original_caption or '').strip() or None
 
     def get_access_level(self, obj):
         # Student-facing effective access during the owner's free adoption period.
