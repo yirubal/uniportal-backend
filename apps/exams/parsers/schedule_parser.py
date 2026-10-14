@@ -48,12 +48,15 @@ def parse_schedule_pdf(file_path: str) -> Optional[ParsedSchedule]:
 
         pages_text = []
         with pdfplumber.open(file_path) as pdf:
+            from django.conf import settings
+            if len(pdf.pages) > settings.EXTRACTION_MAX_PAGES:
+                raise ValueError('Exam PDF exceeds the page limit; split the document.')
             for page in pdf.pages:
                 text = page.extract_text(layout=True) or page.extract_text()
                 if text:
                     pages_text.append(_normalize_schedule_text(text))
     except Exception as exc:
-        logger.error('Failed to read schedule PDF: %s', exc)
+        logger.error('Failed to read schedule PDF (%s)', type(exc).__name__)
         return None
 
     full_text = '\n'.join(pages_text)

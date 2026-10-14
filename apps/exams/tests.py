@@ -141,7 +141,9 @@ class ExamLookupApiTests(APITestCase):
             'room_code': 'J-2',
         }
         StudentExam.objects.create(**exam_data)
-        StudentExam.objects.create(**exam_data)
+        from django.db import IntegrityError, transaction
+        with self.assertRaises(IntegrityError), transaction.atomic():
+            StudentExam.objects.create(**exam_data)
 
         response = self.client.get('/api/exams/lookup/', {'student_id': '93372'})
 
@@ -521,15 +523,17 @@ class ExamPDFUploadQueueTests(TestCase):
             return True, 7, ''
 
         stdout = StringIO()
+        from apps.bot.worker import process_claimed_work
         with patch('apps.exams.services.process_schedule_pdf', side_effect=process_schedule):
-            call_command('process_exam_pdfs', stdout=stdout)
+            with patch('apps.bot.worker.run_claimed_subprocess', side_effect=process_claimed_work):
+                call_command('process_exam_pdfs', stdout=stdout)
 
         upload.refresh_from_db()
         self.assertEqual(upload.status, ExamPDFUpload.STATUS_PROCESSED)
         self.assertEqual(upload.records_created, 7)
-        self.assertIn('Processed=1', stdout.getvalue())
+        self.assertIn('Processed 1 eligible', stdout.getvalue())
 
-    def test_admin_process_action_starts_background_thread(self):
+    def test_admin_process_action_leaves_work_for_durable_worker(self):
         user = get_user_model().objects.create_superuser(
             username='processor',
             email='processor@example.com',
@@ -542,21 +546,11 @@ class ExamPDFUploadQueueTests(TestCase):
             status=ExamPDFUpload.STATUS_PENDING,
         )
 
-        with patch('apps.exams.admin.threading.Thread') as thread_class:
-            response = self.client.post(
-                '/admin/exams/examterm/upload-pdfs/',
-                {'action': 'process'},
-            )
-
+        with patch('apps.exams.services.process_schedule_pdf') as process:
+            response = self.client.post('/admin/exams/examterm/upload-pdfs/', {'action': 'process'})
         self.assertEqual(response.status_code, 302)
-        self.assertEqual(response['Location'], '/admin/exams/examterm/upload-pdfs/')
-        thread_class.assert_called_once()
-        self.assertEqual(thread_class.call_args.kwargs['daemon'], True)
-        self.assertEqual(
-            thread_class.call_args.kwargs['target'].__name__,
-            '_process_exam_pdfs_in_background',
-        )
-        thread_class.return_value.start.assert_called_once()
+        self.assertEqual(ExamPDFUpload.objects.get().status, 'pending')
+        process.assert_not_called()
 
     def test_admin_upload_status_returns_term_counts(self):
         user = get_user_model().objects.create_superuser(
@@ -878,12 +872,14 @@ class ExamNotificationCommandTests(TestCase):
 
         call_command('send_exam_notifications', stdout=out)
 
-        self.assertEqual(mock_send_message.await_count, 2)
+        mock_send_message.assert_not_awaited()
         log = ExamNotificationLog.objects.get(term=term, days_before=7)
-        self.assertEqual(log.sent_count, 2)
+        from apps.bot.models import NotificationDelivery
+        self.assertEqual(NotificationDelivery.objects.filter(exam_notification=log).count(), 2)
+        self.assertEqual(log.sent_count, 0)
         self.assertEqual(log.failed_count, 0)
-        self.assertIn('Sent 7-day notification: 2 delivered, 0 failed', out.getvalue())
+        self.assertIn('Queued 7-day reminders', out.getvalue())
 
         call_command('send_exam_notifications', stdout=out)
-        self.assertEqual(mock_send_message.await_count, 2)
+        mock_send_message.assert_not_awaited()
         self.assertEqual(ExamNotificationLog.objects.filter(term=term, days_before=7).count(), 1)

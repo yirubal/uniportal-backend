@@ -1,221 +1,112 @@
-import gc
-import os
-import logging
-import signal
+"""Bounded document extraction, called only by the worker subprocess."""
+import time
+from dataclasses import dataclass
 from pathlib import Path
 
-logger = logging.getLogger(__name__)
-
-# Max seconds to spend on a single OCR page before skipping it
-OCR_PAGE_TIMEOUT_SECONDS = 60
+from django.conf import settings
 
 
-class PageTimeoutError(Exception):
-    pass
+@dataclass
+class ExtractionResult:
+    text: str
+    outcome: str = 'complete'
+    note: str = ''
 
 
-def _timeout_handler(signum, frame):
-    raise PageTimeoutError('OCR page timed out')
-
-
-def extract_text(file_path: str) -> str:
-    """
-    Routes file to correct extractor based on file extension.
-    Returns extracted text string or empty string if extraction fails.
-    """
-    path = Path(file_path)
-    extension = path.suffix.lower()
-
-    if extension == '.pdf':
+def extract_document(file_path):
+    suffix = Path(file_path).suffix.lower()
+    if suffix == '.pdf':
         return extract_pdf(file_path)
-    elif extension in ['.jpg', '.jpeg', '.png', '.bmp', '.tiff', '.webp']:
-        return extract_image(file_path)
-    elif extension in ['.docx', '.doc']:
-        return extract_docx(file_path)
-    else:
-        logger.warning(f'Unsupported file type: {extension}')
-        return ''
+    if suffix in {'.jpg', '.jpeg', '.png', '.bmp', '.tiff', '.webp'}:
+        return ExtractionResult(extract_image(file_path))
+    if suffix == '.docx':
+        return ExtractionResult(extract_docx(file_path))
+    return ExtractionResult('', 'skipped', f'Unsupported file type: {suffix or "unknown"}')
 
 
-def extract_pdf(file_path: str) -> str:
-    """
-    Extracts text from PDF files.
-    Tries pdfplumber first (digital PDFs).
-    Falls back to pytesseract OCR (scanned PDFs).
-    """
-    try:
-        import pdfplumber
-        text = ''
-        with pdfplumber.open(file_path) as pdf:
-            total_pages = len(pdf.pages)
-            logger.info(f'PDF has {total_pages} pages: {file_path}')
-            for i, page in enumerate(pdf.pages):
-                page_text = page.extract_text()
-                if page_text:
-                    text += page_text + '\n'
-                # Free page memory immediately
-                del page
-                gc.collect()
-
-        if len(text.strip()) > 50:
-            logger.info(f'Extracted PDF text using pdfplumber ({len(text)} chars): {file_path}')
-            return text.strip()
-
-        logger.info(f'PDF appears scanned, falling back to OCR: {file_path}')
-        return extract_pdf_with_ocr(file_path)
-
-    except ImportError:
-        logger.warning('pdfplumber not installed, falling back to OCR')
-        return extract_pdf_with_ocr(file_path)
-    except Exception as e:
-        logger.error(f'PDF extraction failed for {file_path}: {e}')
-        return extract_pdf_with_ocr(file_path)
+def extract_text(file_path):
+    result = extract_document(file_path)
+    if result.outcome == 'skipped' or not result.text.strip():
+        raise ValueError(result.note or 'No text extracted; manual review required.')
+    return result.text
 
 
-def extract_pdf_with_ocr(file_path: str) -> str:
-    """
-    Converts each PDF page to an image then runs OCR on it.
-    Each page has a timeout of OCR_PAGE_TIMEOUT_SECONDS.
-    Pages that time out are skipped with a placeholder.
-    """
-    try:
-        import pytesseract
-        from pdf2image import convert_from_path
+def extract_pdf(file_path):
+    import pdfplumber
+    limit = settings.EXTRACTION_MAX_PAGES
+    with pdfplumber.open(file_path) as pdf:
+        if len(pdf.pages) > limit:
+            return ExtractionResult('', 'skipped', f'PDF exceeds {limit} pages; manual review required.')
+        texts = []
+        image_only_pages = 0
+        for page in pdf.pages:
+            page_text = page.extract_text() or ''
+            if not page_text.strip() and page.images:
+                image_only_pages += 1
+            texts.append(page_text)
+            page.close()
+    text = '\n'.join(texts).strip()
+    if len(text) >= 50:
+        if image_only_pages:
+            return ExtractionResult(text, 'partial', f'{image_only_pages} image-only page(s) need OCR/manual review.')
+        return ExtractionResult(text)
+    return extract_pdf_with_ocr(file_path)
 
-        text = ''
-        skipped = 0
 
-        # Convert one page at a time to limit memory usage
-        # first_page/last_page args let us process page by page
+def extract_pdf_with_ocr(file_path):
+    import pytesseract
+    from pdf2image import convert_from_path, pdfinfo_from_path
+
+    # An unreadable page count is an error. Never render an entire unknown PDF.
+    count = int(pdfinfo_from_path(file_path, timeout=20)['Pages'])
+    if not 0 < count <= settings.EXTRACTION_MAX_PAGES:
+        return ExtractionResult('', 'skipped', 'PDF page limit exceeded; manual review required.')
+    if Path(file_path).stat().st_size > settings.OCR_MAX_FILE_BYTES:
+        return ExtractionResult('', 'skipped', 'Scanned PDF exceeds OCR size limit; manual review required.')
+    deadline = time.monotonic() + settings.EXTRACTION_TIMEOUT_SECONDS
+    texts = []
+    skipped = 0
+    for page in range(1, count + 1):
+        remaining = deadline - time.monotonic()
+        if remaining < 1:
+            skipped += count - page + 1
+            break
+        images = []
         try:
-            # Get total page count first
-            from pdf2image import pdfinfo_from_path
-            info = pdfinfo_from_path(file_path)
-            total_pages = info.get('Pages', 1)
+            images = convert_from_path(
+                file_path, dpi=120, first_page=page, last_page=page, thread_count=1,
+                grayscale=True, size=1800, timeout=min(30, remaining),
+            )
+            if not images:
+                raise ValueError('No rendered page')
+            remaining = deadline - time.monotonic()
+            if remaining < 1:
+                raise TimeoutError('Document deadline exceeded')
+            texts.append(pytesseract.image_to_string(images[0], lang='eng', timeout=min(30, remaining)))
         except Exception:
-            # If pdfinfo fails, convert all at once (fallback)
-            total_pages = None
-
-        if total_pages:
-            logger.info(f'OCR: processing {total_pages} pages one by one: {file_path}')
-            for page_num in range(1, total_pages + 1):
-                try:
-                    images = convert_from_path(
-                        file_path,
-                        dpi=150,
-                        first_page=page_num,
-                        last_page=page_num,
-                    )
-                    if not images:
-                        continue
-                    image = images[0]
-
-                    # Set per-page timeout using SIGALRM (Unix only)
-                    try:
-                        signal.signal(signal.SIGALRM, _timeout_handler)
-                        signal.alarm(OCR_PAGE_TIMEOUT_SECONDS)
-                        page_text = pytesseract.image_to_string(image, lang='eng')
-                        signal.alarm(0)  # Cancel alarm
-                    except PageTimeoutError:
-                        signal.alarm(0)
-                        logger.warning(f'OCR timeout on page {page_num} of {file_path} — skipping')
-                        text += f'\n[Page {page_num}: OCR timed out — skipped]\n'
-                        skipped += 1
-                        continue
-
-                    text += page_text + '\n'
-                    logger.info(f'OCR processed page {page_num}/{total_pages}')
-
-                    del image
-                    del images
-                    gc.collect()
-
-                except Exception as e:
-                    logger.warning(f'OCR failed on page {page_num}: {e} — skipping')
-                    text += f'\n[Page {page_num}: OCR failed — skipped]\n'
-                    skipped += 1
-                    continue
-        else:
-            # Fallback: convert all pages at once
-            images = convert_from_path(file_path, dpi=150)
-            for i, image in enumerate(images):
-                try:
-                    signal.signal(signal.SIGALRM, _timeout_handler)
-                    signal.alarm(OCR_PAGE_TIMEOUT_SECONDS)
-                    page_text = pytesseract.image_to_string(image, lang='eng')
-                    signal.alarm(0)
-                    text += page_text + '\n'
-                    logger.info(f'OCR processed page {i + 1}')
-                except PageTimeoutError:
-                    signal.alarm(0)
-                    logger.warning(f'OCR timeout on page {i + 1} — skipping')
-                    text += f'\n[Page {i + 1}: OCR timed out — skipped]\n'
-                    skipped += 1
-                finally:
-                    del image
-                    gc.collect()
-            del images
-            gc.collect()
-
-        if skipped:
-            logger.warning(f'OCR complete with {skipped} skipped pages: {file_path}')
-        else:
-            logger.info(f'OCR complete, all pages processed: {file_path}')
-
-        return text.strip()
-
-    except ImportError:
-        logger.error('pytesseract or pdf2image not installed')
-        return ''
-    except Exception as e:
-        logger.error(f'OCR extraction failed for {file_path}: {e}')
-        return ''
+            skipped += 1
+        finally:
+            for image in images:
+                image.close()
+    text = '\n'.join(texts).strip()
+    if not text:
+        return ExtractionResult('', 'empty', f'No OCR text extracted; {skipped} page(s) failed or skipped.')
+    if skipped:
+        return ExtractionResult(text, 'partial', f'{skipped} page(s) failed or skipped; review extracted text.')
+    return ExtractionResult(text)
 
 
-def extract_image(file_path: str) -> str:
-    """
-    Extracts text from image files using pytesseract OCR.
-    """
-    try:
-        import pytesseract
-        from PIL import Image
-
-        with Image.open(file_path) as image:
-            try:
-                signal.signal(signal.SIGALRM, _timeout_handler)
-                signal.alarm(OCR_PAGE_TIMEOUT_SECONDS)
-                text = pytesseract.image_to_string(image, lang='eng')
-                signal.alarm(0)
-            except PageTimeoutError:
-                signal.alarm(0)
-                logger.warning(f'OCR timeout on image: {file_path}')
-                return ''
-
-        gc.collect()
-        logger.info(f'Extracted image text using OCR: {file_path}')
-        return text.strip()
-
-    except ImportError:
-        logger.error('pytesseract or Pillow not installed')
-        return ''
-    except Exception as e:
-        logger.error(f'Image extraction failed for {file_path}: {e}')
-        return ''
+def extract_image(file_path):
+    import pytesseract
+    from PIL import Image
+    with Image.open(file_path) as image:
+        if image.width * image.height > 20000000:
+            raise ValueError('Image exceeds 20 million pixels; manual review required.')
+        image.thumbnail((1800, 1800))
+        return pytesseract.image_to_string(image, lang='eng', timeout=30).strip()
 
 
-def extract_docx(file_path: str) -> str:
-    """
-    Extracts text from Word documents.
-    """
-    try:
-        import docx
-        doc = docx.Document(file_path)
-        text = '\n'.join([para.text for para in doc.paragraphs if para.text])
-        logger.info(f'Extracted docx text: {file_path}')
-        return text.strip()
-    except ImportError:
-        logger.error('python-docx not installed')
-        return ''
-    except Exception as e:
-        logger.error(f'Docx extraction failed for {file_path}: {e}')
-        return ''
+def extract_docx(file_path):
+    import docx
+    document = docx.Document(file_path)
+    return '\n'.join(paragraph.text for paragraph in document.paragraphs if paragraph.text).strip()

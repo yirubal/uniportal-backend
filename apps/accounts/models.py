@@ -1,5 +1,4 @@
 import logging
-import traceback
 
 from django.db import models
 from django.db.models import Q
@@ -120,20 +119,11 @@ class Student(models.Model):
         """Activate premium for N days. Extends existing expiry if still active."""
         from django.utils import timezone
         from datetime import timedelta
-        caller = traceback.format_stack()[-2].strip()
         logger.info(
-            'activate_premium called for student %s for %s days. Caller: %s',
+            'Activating premium for student %s for %s days',
             self.telegram_id,
             days,
-            caller,
         )
-        if 'approve_requests' not in caller:
-            logger.warning(
-                'activate_premium called outside SubscriptionRequestAdmin approve action '
-                'for student %s. Caller: %s',
-                self.telegram_id,
-                caller,
-            )
         base = self.subscription_expiry if self.is_premium else timezone.now()
         self.subscription_status = self.SUBSCRIPTION_PREMIUM
         self.subscription_expiry = base + timedelta(days=days)
@@ -346,6 +336,10 @@ class BroadcastMessage(models.Model):
         verbose_name        = 'Broadcast Message'
         verbose_name_plural = 'Broadcast Messages'
         ordering            = ['-sent_at']
+
+    @property
+    def pending_count(self):
+        return max(0, self.total_users - self.success_count - self.failed_count)
 
     def __str__(self):
         preview = self.message[:60] + '…' if len(self.message) > 60 else self.message

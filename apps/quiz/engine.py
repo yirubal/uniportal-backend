@@ -1,5 +1,6 @@
-import random
 import logging
+from .scoring import quiz_percentage
+from .selection import filter_topic_tags, select_random_questions
 from apps.quiz.models import Question, QuizAttempt, ExamPaper
 
 logger = logging.getLogger(__name__)
@@ -31,17 +32,8 @@ def get_practice_questions(
     )
 
     if topic:
-        questions = questions.filter(topic_tags__contains=topic)
-
-    if limit and not is_premium:
-        limit = min(limit, 5)
-
-    questions = list(questions)
-    random.shuffle(questions)
-    if limit:
-        return questions[:limit]
-
-    return questions
+        questions = filter_topic_tags(questions, [topic])
+    return select_random_questions(questions, limit)
 
 
 def get_exit_exam_questions(
@@ -72,15 +64,8 @@ def get_exit_exam_questions(
         questions = questions.filter(exam_paper_id=exam_paper_id)
 
     if topic:
-        questions = questions.filter(topic_tags__contains=topic)
-
-    questions = list(questions)
-    random.shuffle(questions)
-
-    if limit:
-        questions = questions[:limit]
-
-    return questions
+        questions = filter_topic_tags(questions, [topic])
+    return select_random_questions(questions, limit)
 
 
 def get_simulation_questions(
@@ -105,7 +90,7 @@ def get_simulation_questions(
         logger.warning(f'Exam {exam_paper_id} is not ready')
         return None
 
-    return list(exam.questions.filter(is_active=True).order_by('id'))
+    return list(exam.questions.filter(is_active=True).select_related('chapter').order_by('id')[:501])
 
 
 def get_topic_questions(
@@ -120,7 +105,6 @@ def get_topic_questions(
     """
     questions = Question.objects.filter(
         is_active=True,
-        topic_tags__contains=topic,
         exam_paper__department_id=department_id,
         exam_paper__exam_type__in=[
             ExamPaper.TYPE_EXIT_REAL,
@@ -129,12 +113,7 @@ def get_topic_questions(
         exam_paper__is_active=True,
     ).distinct()
 
-    if not is_premium:
-        limit = min(limit, 5)
-
-    questions = list(questions)
-    random.shuffle(questions)
-    return questions[:limit]
+    return select_random_questions(filter_topic_tags(questions, [topic]), limit)
 
 
 def calculate_score(
@@ -162,7 +141,6 @@ def calculate_score(
     for question_id, question in questions_map.items():
         selected = answers_map.get(question_id, '')
         q_type = question.question_type
-        auto_gradable = question.is_auto_gradable  # False for essay
 
         is_correct = False
         is_pending = False  # True for essay/matching — needs manual review
@@ -219,7 +197,7 @@ def calculate_score(
                     topic_scores[tag]['correct'] += 1
 
     # Score is out of auto-gradable questions only
-    percentage = round((score / gradable_total) * 100, 1) if gradable_total > 0 else 0
+    percentage = quiz_percentage(score, gradable_total)
 
     pending_count = sum(1 for r in results if r['is_pending'])
 
@@ -227,9 +205,7 @@ def calculate_score(
         tag: {
             'correct':    data['correct'],
             'total':      data['total'],
-            'percentage': round(
-                (data['correct'] / data['total']) * 100, 1
-            ) if data['total'] > 0 else 0,
+            'percentage': quiz_percentage(data['correct'], data['total']),
         }
         for tag, data in topic_scores.items()
     }
@@ -259,6 +235,8 @@ def get_topics_with_low_score(detailed_answers: dict) -> list[dict]:
     topic_scores = {}
 
     for answer_data in detailed_answers.values():
+        if answer_data.get('is_pending') or answer_data.get('question_type') in (Question.TYPE_ESSAY, Question.TYPE_MATCHING):
+            continue
         is_correct = answer_data.get('is_correct', False)
         topics = answer_data.get('topic_tags', [])
 
@@ -279,7 +257,7 @@ def get_topics_with_low_score(detailed_answers: dict) -> list[dict]:
         if percentage < 50:
             weak_topics.append({
                 'topic': topic,
-                'percentage': round(percentage, 1),
+                'percentage': quiz_percentage(scores['correct'], scores['total']),
                 'correct': scores['correct'],
                 'total': scores['total'],
             })
@@ -288,80 +266,32 @@ def get_topics_with_low_score(detailed_answers: dict) -> list[dict]:
 
 
 def get_performance_summary(student) -> dict:
-    """
-    Returns a student's overall performance summary across all attempts.
-    """
-    attempts = QuizAttempt.objects.filter(
-        student=student,
-    ).order_by('-completed_at')
+    from django.db.models import Avg, Case, Count, F, FloatField, Max, Value, When
+    from django.db.models.functions import Coalesce, Round
 
-    total_attempts = attempts.count()
-
-    if total_attempts == 0:
-        return {
-            'total_attempts':    0,
-            'average_score':     0,
-            'best_score':        0,
-            'weak_topics':       [],
-            'score_over_time':   [],
-            'attempts_by_paper': [],
-        }
-
-    percentages = [a.percentage for a in attempts]
-    average_score = round(sum(percentages) / len(percentages), 1)
-    best_score = max(percentages)
-
-    score_over_time = [
-        {
-            'date':  a.completed_at.strftime('%Y-%m-%d'),
-            'score': a.percentage,
-            'mode':  a.mode,
-        }
-        for a in attempts[:30]
-    ]
-
-    # Weak topics — from recent attempts' wrong answers
+    attempts = QuizAttempt.objects.filter(student=student).order_by().annotate(
+        denominator=Coalesce('gradable_total', 'total_questions'),
+    ).annotate(percent=Case(
+        When(denominator__gt=0, then=Round(100.0 * F('score') / F('denominator'), 1)),
+        default=Value(0.0), output_field=FloatField(),
+    ))
+    totals = attempts.aggregate(total=Count('pk'), average=Avg('percent'), best=Max('percent'))
+    recent = list(attempts.order_by('-completed_at', '-pk').values('completed_at', 'mode', 'percent')[:30])
     weak_topics = set()
-    for attempt in attempts[:20]:
-        if isinstance(attempt.answers, dict):
-            for question_id, selected in attempt.answers.items():
-                try:
-                    q = Question.objects.get(id=question_id)
-                    if (
-                        q.is_auto_gradable and
-                        q.correct_option and
-                        selected != q.correct_option
-                    ):
-                        for tag in (q.topic_tags or []):
-                            weak_topics.add(tag)
-                except Question.DoesNotExist:
-                    pass
-
-    # Attempts breakdown by exam paper
-    from django.db.models import Count, Avg
-    by_paper = (
-        attempts
-        .filter(exam_paper__isnull=False)
-        .values('exam_paper__title', 'exam_paper__exam_type')
-        .annotate(total=Count('id'), average=Avg('score'))
-        .order_by('-total')[:10]
-    )
-
-    attempts_by_paper = [
-        {
-            'paper_title': item['exam_paper__title'],
-            'exam_type':   item['exam_paper__exam_type'],
-            'attempts':    item['total'],
-            'average':     round(float(item['average'] or 0), 1),
-        }
-        for item in by_paper
-    ]
-
+    snapshots = attempts.order_by('-completed_at', '-pk').values_list('detailed_answers', flat=True)[:20]
+    for details in snapshots.iterator(chunk_size=1):
+        for topic in get_topics_with_low_score(details or {}):
+            weak_topics.add(topic['topic'])
+    papers = attempts.filter(exam_paper__isnull=False).values(
+        'exam_paper__title', 'exam_paper__exam_type', 'exam_paper_id',
+    ).annotate(attempts=Count('pk'), average=Avg('percent')).order_by('-attempts', 'exam_paper_id')[:10]
     return {
-        'total_attempts':    total_attempts,
-        'average_score':     average_score,
-        'best_score':        best_score,
-        'weak_topics':       list(weak_topics),
-        'score_over_time':   score_over_time,
-        'attempts_by_paper': attempts_by_paper,
+        'total_attempts': totals['total'],
+        'average_score': round(totals['average'] or 0, 1),
+        'best_score': totals['best'] or 0,
+        'weak_topics': sorted(weak_topics),
+        'score_over_time': [{'date': row['completed_at'].strftime('%Y-%m-%d'), 'score': row['percent'], 'mode': row['mode']}
+                            for row in recent],
+        'attempts_by_paper': [{'paper_title': row['exam_paper__title'], 'exam_type': row['exam_paper__exam_type'],
+                               'attempts': row['attempts'], 'average': round(row['average'], 1)} for row in papers],
     }

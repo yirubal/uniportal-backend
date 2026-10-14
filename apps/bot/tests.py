@@ -36,96 +36,38 @@ class TelegramWebhookViewTests(TestCase):
     def setUp(self):
         self.client = APIClient()
 
-    @override_settings(TELEGRAM_BOT_TOKEN='123:test-token', TELEGRAM_WEBHOOK_SECRET='webhook-secret')
+    @override_settings(TELEGRAM_BOT_TOKEN='123:test-token', TELEGRAM_WEBHOOK_SECRET='secret')
     def test_rejects_invalid_secret_header(self):
-        with patch('apps.bot.application.process_telegram_update') as process_update:
-            with self.assertLogs('apps.api.views', level='WARNING'):
-                response = self.client.post(
-                    '/api/telegram/webhook/',
-                    {'update_id': 123},
-                    format='json',
-                    HTTP_X_TELEGRAM_BOT_API_SECRET_TOKEN='wrong-secret',
-                )
-
+        from .models import TelegramUpdate
+        response = self.client.post('/api/telegram/webhook/', {'update_id': 123}, format='json')
         self.assertEqual(response.status_code, 403)
-        process_update.assert_not_called()
+        self.assertFalse(TelegramUpdate.objects.exists())
 
-    @override_settings(TELEGRAM_BOT_TOKEN='123:test-token', TELEGRAM_WEBHOOK_SECRET='webhook-secret')
-    def test_processes_update_with_valid_secret_header(self):
-        calls = []
-
-        async def fake_process_update(payload):
-            calls.append(payload)
-
-        with patch('apps.bot.application.process_telegram_update', side_effect=fake_process_update):
-            response = self.client.post(
-                '/api/telegram/webhook/',
-                {'update_id': 123},
-                format='json',
-                HTTP_X_TELEGRAM_BOT_API_SECRET_TOKEN='webhook-secret',
-            )
-
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json(), {'ok': True})
-        self.assertEqual(calls, [{'update_id': 123}])
+    @override_settings(TELEGRAM_BOT_TOKEN='123:test-token', TELEGRAM_WEBHOOK_SECRET='secret')
+    def test_persists_and_deduplicates_without_processing_in_request(self):
+        from .models import TelegramUpdate
+        with patch('apps.bot.application.process_telegram_update') as process:
+            for _ in range(2):
+                response = self.client.post('/api/telegram/webhook/', {'update_id': 123}, format='json',
+                    HTTP_X_TELEGRAM_BOT_API_SECRET_TOKEN='secret')
+                self.assertEqual(response.status_code, 200)
+        self.assertEqual(TelegramUpdate.objects.count(), 1)
+        self.assertEqual(TelegramUpdate.objects.get().status, 'pending')
+        process.assert_not_called()
 
     @override_settings(TELEGRAM_BOT_TOKEN='123:test-token', TELEGRAM_WEBHOOK_SECRET='')
-    def test_allows_unsigned_update_when_secret_not_configured(self):
-        calls = []
-
-        async def fake_process_update(payload):
-            calls.append(payload)
-
-        with patch('apps.bot.application.process_telegram_update', side_effect=fake_process_update):
-            response = self.client.post(
-                '/api/telegram/webhook/',
-                {'update_id': 456},
-                format='json',
-            )
-
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(calls, [{'update_id': 456}])
+    def test_returns_503_when_persistence_fails(self):
+        with patch('apps.bot.models.TelegramUpdate.objects.get_or_create', side_effect=RuntimeError('Database down')):
+            with self.assertLogs('apps.api.views.auth', level='ERROR'):
+                response = self.client.post('/api/telegram/webhook/', {'update_id': 123}, format='json')
+        self.assertEqual(response.status_code, 503)
 
     @override_settings(TELEGRAM_BOT_TOKEN='123:test-token', TELEGRAM_WEBHOOK_SECRET='')
-    def test_processes_webhook_updates_on_persistent_event_loop(self):
-        loop_ids = []
+    def test_invalid_payloads_return_400(self):
+        for data in ({}, {'update_id': 'abc'}, {'update_id': True}, {'update_id': -1}, {'update_id': 2**64}):
+            response = self.client.post('/api/telegram/webhook/', data, format='json')
+            self.assertEqual(response.status_code, 400)
 
-        async def fake_process_update(payload):
-            import asyncio
-
-            loop_ids.append(id(asyncio.get_running_loop()))
-
-        with patch('apps.bot.application.process_telegram_update', side_effect=fake_process_update):
-            first_response = self.client.post(
-                '/api/telegram/webhook/',
-                {'update_id': 1},
-                format='json',
-            )
-            second_response = self.client.post(
-                '/api/telegram/webhook/',
-                {'update_id': 2},
-                format='json',
-            )
-
-        self.assertEqual(first_response.status_code, 200)
-        self.assertEqual(second_response.status_code, 200)
-        self.assertEqual(len(set(loop_ids)), 1)
-
-    @override_settings(TELEGRAM_BOT_TOKEN='123:test-token', TELEGRAM_WEBHOOK_SECRET='')
-    def test_processing_errors_are_acknowledged_to_stop_telegram_retries(self):
-        async def fake_process_update(payload):
-            raise RuntimeError('handler failed')
-
-        with patch('apps.bot.application.process_telegram_update', side_effect=fake_process_update):
-            with self.assertLogs('apps.api.views', level='ERROR'):
-                response = self.client.post(
-                    '/api/telegram/webhook/',
-                    {'update_id': 789},
-                    format='json',
-                )
-
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json(), {'ok': True})
 
 
 class SetupWebhookCommandTests(TestCase):

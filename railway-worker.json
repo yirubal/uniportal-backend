@@ -1,0 +1,10 @@
+{
+  "$schema": "https://railway.com/railway.schema.json",
+  "build": {"builder": "DOCKERFILE"},
+  "deploy": {
+    "startCommand": "python manage.py run_worker",
+    "preDeployCommand": [],
+    "healthcheckPath": null,
+    "numReplicas": 1
+  }
+}

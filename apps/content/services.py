@@ -2,7 +2,7 @@ from pathlib import Path
 
 from django.core.files import File
 
-from .models import FileInbox
+from .models import FileInbox, Resource
 
 
 def create_inbox_item_from_local_file(
@@ -14,10 +14,12 @@ def create_inbox_item_from_local_file(
     posted_date,
     processing_status=FileInbox.STATUS_UNPROCESSED,
     processing_error='',
+    telegram_chat_id=0,
 ):
     inbox_item = FileInbox(
         original_filename=original_filename,
         telegram_message_id=telegram_message_id,
+        telegram_chat_id=telegram_chat_id,
         telegram_caption=telegram_caption,
         posted_date=posted_date,
         processing_status=processing_status,
@@ -49,10 +51,13 @@ def save_local_file_to_inbox_item(
     inbox_item.posted_date = posted_date
     inbox_item.processing_status = processing_status
     inbox_item.processing_error = processing_error
+    from .validators import validate_document_upload
     with open(file_path, 'rb') as handle:
+        incoming = File(handle, name=original_filename)
+        validate_document_upload(incoming)
         inbox_item.file.save(
             Path(original_filename).name,
-            File(handle),
+            incoming,
             save=False,
         )
     inbox_item.save()
@@ -78,16 +83,15 @@ def copy_inbox_file_to_resource(inbox_item, resource):
 def clear_inbox_file(inbox_item, *, protected_file_name=None):
     """
     Clears the inbox file reference.
-    If the inbox file path matches the protected_file_name (i.e. the
-    resource is using the same file), only the DB reference is cleared —
-    the actual R2 file is preserved.
+    Preserve files referenced by any resource or another inbox item. The
+    explicit protected name also covers a resource not yet saved to the DB.
     """
     file_name = inbox_item.file.name
     if not file_name:
         return False
 
-    if protected_file_name and file_name == protected_file_name:
-        # Resource is using this file — only clear DB reference
+    is_referenced = file_name == protected_file_name or file_is_referenced(file_name, excluding_inbox_id=inbox_item.pk)
+    if is_referenced:
         inbox_item.file.name = ''
         inbox_item.save(update_fields=['file'])
         return True
@@ -167,7 +171,8 @@ def cleanup_assigned_inbox_duplicates(*, dry_run=False, limit=None):
         if dry_run:
             stats['cleaned'] += 1
             messages.append(
-                f'Would delete duplicate inbox file for inbox {inbox_item.id}: {inbox_item.file.name}'
+                f'Would clear duplicate inbox reference for inbox {inbox_item.id}: '
+                f'{inbox_item.file.name}; stored file deleted only if unreferenced'
             )
             continue
 
@@ -178,7 +183,8 @@ def cleanup_assigned_inbox_duplicates(*, dry_run=False, limit=None):
             ):
                 stats['cleaned'] += 1
                 messages.append(
-                    f'Deleted duplicate inbox file for inbox {inbox_item.id}'
+                    f'Cleared duplicate inbox reference for inbox {inbox_item.id}; '
+                    'stored file deleted only if unreferenced'
                 )
         except Exception as exc:
             stats['failed'] += 1
@@ -187,3 +193,12 @@ def cleanup_assigned_inbox_duplicates(*, dry_run=False, limit=None):
             )
 
     return stats, messages
+
+
+def file_is_referenced(name, *, excluding_inbox_id=None):
+    from apps.exams.models import ExamPDFUpload
+    inboxes = FileInbox.objects.filter(file=name)
+    if excluding_inbox_id is not None:
+        inboxes = inboxes.exclude(pk=excluding_inbox_id)
+    return (Resource.objects.filter(file=name).exists() or inboxes.exists()
+            or ExamPDFUpload.objects.filter(file=name).exists())

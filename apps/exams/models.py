@@ -1,4 +1,6 @@
+from django.utils import timezone
 from django.db import models, transaction
+from apps.content.validators import validate_exam_pdf
 
 
 class ExamTerm(models.Model):
@@ -95,6 +97,7 @@ class ExamScheduleEntry(models.Model):
 
     class Meta:
         ordering = ['course_name']
+        constraints = [models.UniqueConstraint(fields=['session', 'course_code'], name='schedule_session_course_unique')]
 
     def __str__(self):
         return f'{self.course_code} — {self.session}'
@@ -112,6 +115,10 @@ class StudentExam(models.Model):
 
     class Meta:
         ordering = ['session__date', 'session__start_time', 'student_name']
+        constraints = [
+            models.UniqueConstraint(fields=['session', 'student_id', 'course_code', 'room_code'], condition=~models.Q(student_id=''), name='exam_student_id_unique'),
+            models.UniqueConstraint(fields=['session', 'student_name', 'course_code', 'room_code'], condition=models.Q(student_id=''), name='exam_student_name_unique'),
+        ]
         indexes = [
             models.Index(fields=['term', 'student_id'], name='student_exam_id_idx'),
             models.Index(fields=['term', 'student_name'], name='student_exam_name_idx'),
@@ -151,13 +158,19 @@ class ExamPDFUpload(models.Model):
         blank=True,
     )
     pdf_type = models.CharField(max_length=15, choices=TYPE_CHOICES)
-    file = models.FileField(upload_to='exam_pdfs/%Y/%m/')
+    file = models.FileField(upload_to='exam_pdfs/%Y/%m/', validators=[validate_exam_pdf])
     original_name = models.CharField(max_length=500)
     content_hash = models.CharField(max_length=64, blank=True, db_index=True)
     status = models.CharField(max_length=15, choices=STATUS_CHOICES, default=STATUS_PENDING)
     records_created = models.IntegerField(default=0)
+    records_updated = models.PositiveIntegerField(default=0)
     error_message = models.TextField(blank=True)
     uploaded_at = models.DateTimeField(auto_now_add=True)
+
+    attempt_count = models.PositiveIntegerField(default=0)
+    claimed_at = models.DateTimeField(null=True, blank=True)
+    claim_token = models.UUIDField(null=True, blank=True, editable=False)
+    next_attempt_at = models.DateTimeField(default=timezone.now, db_index=True)
 
     class Meta:
         ordering = ['-uploaded_at']
