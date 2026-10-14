@@ -204,16 +204,70 @@ Primary release evidence: [Django security release](https://www.djangoproject.co
 Local verification with the revised pins: 182 PostgreSQL tests passed; SQLite
 passed 174 with eight PostgreSQL-only skips. System/migration checks, static asset
 collection, worker crash recovery and synthetic database/media restore passed.
-Host OCR was skipped because Tesseract is absent; hosted CI requires
-it. Python 3.12 metadata compatibility is checked; hosted Python 3.12 CI remains
-unverified. Railway deployment remains unverified. The local Docker build was
-interrupted while downloading system packages. After resuming, Docker Desktop's
-WSL integration was unavailable, so the full image build and container OCR smoke
-are NOT verified. Static collection, package metadata compatibility and real
-digital-PDF extraction passed independently. Compose and Railway configuration
-validation passed before the interruption; this does not prove image execution.
+The host lacks Tesseract; container verification now covers real OCR. Hosted CI
+execution remains unverified. Production web verification is recorded below;
+Compose and Railway configuration validation passed independently.
+
+### Docker verification — 2026-10-14
+
+After enabling Docker Desktop WSL integration and resolving local Docker DNS,
+the current Dockerfile built successfully without production credentials.
+The image installed the Python 3.12 dependency pins and prepared WhiteNoise
+manifest assets: 199 files copied and 569 post-processed. Inside that exact image,
+with external networking disabled:
+
+- `pip check` reported no broken requirements.
+- The packaged test suite ran 182 tests: 174 passed, eight PostgreSQL-only skips.
+- `scripts/check_container_extraction.py` loaded native PDFium and successfully
+  extracted the synthetic marker from both an image and a scanned PDF using
+  real Tesseract and Poppler. Temporary files were cleaned afterward.
+
+Reproduce with:
+
+```bash
+docker build --tag uniportal-verification:local .
+docker run --rm --network none uniportal-verification:local python -m pip check
+docker run --rm --network none \
+  -e DJANGO_SETTINGS_MODULE=config.settings.test -e READ_DOT_ENV=False \
+  uniportal-verification:local python manage.py test --noinput
+docker run --rm --network none \
+  -e DJANGO_SETTINGS_MODULE=config.settings.test -e READ_DOT_ENV=False \
+  uniportal-verification:local python scripts/check_container_extraction.py
+```
+
+The `container` job in `.github/workflows/checks.yml` repeats these checks on
+push/PR. Its hosted execution is not yet verified. These results verify image
+packaging and synthetic extraction; live worker deployment, production media,
+proxy behavior, representative OCR resource use and actual backups remain
+separate rollout checks. No Railway services or production data were changed.
 
 ## Sizing evidence and remaining rollout checks
+
+### Production web recovery — 2026-10-15
+
+The owner authorized retaining one record per duplicate exam identity. Production
+was audited with the same normalization rules as `exams.0007`; the remaining
+conflict was rows 3889/3893. Both were archived in private R2 and read back with
+SHA-256 verification before row 3893 was deleted transactionally, retaining 3889.
+Row 5361 had already been removed before this cleanup; row 5360 remained.
+The final StudentExam and ExamScheduleEntry audits found no duplicate identities.
+The source PDFs themselves contain the conflicting details; keeping the oldest
+record followed the disclosed cleanup policy and does not verify the academic details.
+
+Affected-row backup (not a full database backup):
+`operations/backups/exam-duplicate-cleanup/2026-10-14T22-12-29Z-87c21645ca7e4e3cb277d0f1c418493b.json`.
+
+The first retry applied `exams.0007` and `content.0017`, then failed readiness
+because `healthcheck.railway.app` was absent from ALLOWED_HOSTS. That exact host
+was appended to the existing web-service variable. Redeploying existing commit
+`a7df036c58facc71f84d791d9bb8be59f41fc585` then succeeded, deployment
+`2558aa01-e999-41ef-ad7b-5f4f2eaac1d1`. Live `/health/`, `/live/` and
+`/api/departments/` returned HTTP 200; readiness confirmed a database connection.
+
+Web/schema deployment is now verified. The project inspection showed only web
+and PostgreSQL services; durable worker and daily maintenance rollout, broader
+student-flow tests, TLS/proxy verification, scheduled full backups/restore,
+alert delivery and production sizing remain pending.
 
 [Synthetic web comparison](PHASE_6_WEB_BENCHMARK.json) runs one, two and four sync
 workers against a disposable PostgreSQL database: 50 departments, 30 resources,

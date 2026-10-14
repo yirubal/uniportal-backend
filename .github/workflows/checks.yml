@@ -12,6 +12,26 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  container:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the production image without credentials
+        run: docker build --tag uniportal-ci .
+      - name: Check installed image dependencies
+        run: docker run --rm --network none uniportal-ci python -m pip check
+      - name: Test the packaged app with isolated settings
+        run: >-
+          docker run --rm --network none
+          -e DJANGO_SETTINGS_MODULE=config.settings.test -e READ_DOT_ENV=False
+          uniportal-ci python manage.py test --noinput
+      - name: Verify real image and scanned-PDF extraction
+        run: >-
+          docker run --rm --network none
+          -e DJANGO_SETTINGS_MODULE=config.settings.test -e READ_DOT_ENV=False
+          uniportal-ci python scripts/check_container_extraction.py
+
   tests:
     runs-on: ubuntu-latest
     timeout-minutes: 15
