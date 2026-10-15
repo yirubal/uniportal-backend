@@ -41,7 +41,8 @@ def database_fingerprint(connection):
         cursor.execute("SELECT tablename FROM pg_tables WHERE schemaname='public' ORDER BY tablename")
         for (table,) in cursor.fetchall():
             digest = hashlib.sha256()
-            cursor.execute(sql.SQL('SELECT row_to_json(t)::text FROM {} t ORDER BY 1').format(sql.Identifier(table)))
+            # Source and recovery servers can have different default locales.
+            cursor.execute(sql.SQL('SELECT row_to_json(t)::text COLLATE "C" FROM {} t ORDER BY 1').format(sql.Identifier(table)))
             count = 0
             for (row,) in cursor:
                 digest.update(row.encode() + b'\n')
@@ -97,7 +98,8 @@ def pg_environment(dsn):
 def create_backup(dsn, client, bucket, progress=lambda message: None):
     now = datetime.now(timezone.utc)
     snapshot_key = PREFIX + 'snapshots/' + now.strftime('%Y%m%dT%H%M%SZ-') + uuid4().hex
-    manifest = {'version': 1, 'started_at': now.isoformat(), 'bucket': bucket}
+    manifest = {'version': 1, 'started_at': now.isoformat(), 'bucket': bucket,
+        'table_hash_format': 'row-json-utf8-c-collation-utc-v1'}
     with psycopg2.connect(dsn, connect_timeout=15) as connection, TemporaryDirectory(prefix='uniportal-backup-') as directory:
         connection.set_session(isolation_level='REPEATABLE READ', readonly=True)
         with connection.cursor() as cursor:

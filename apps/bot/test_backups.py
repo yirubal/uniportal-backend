@@ -9,13 +9,14 @@ from unittest.mock import patch
 from unittest.mock import Mock
 from types import SimpleNamespace
 from botocore.exceptions import ReadTimeoutError
+from psycopg2.extensions import make_dsn
 
 from django.core.management import call_command
 from django.core.management.base import CommandError
 from django.db import connection
 from django.test import SimpleTestCase, TransactionTestCase
 
-from apps.bot.backups import PREFIX, backup_media, create_backup, object_hash, pg_environment, prune_backups
+from apps.bot.backups import PREFIX, backup_media, create_backup, database_fingerprint, object_hash, pg_environment, prune_backups
 
 
 class MemoryS3:
@@ -171,6 +172,17 @@ class BackupSafetyTests(SimpleTestCase):
 
 @skipUnless(connection.vendor == 'postgresql' and shutil.which('pg_dump'), 'Requires PostgreSQL and pg_dump')
 class RealDatabaseBackupTests(TransactionTestCase):
+    def test_row_hash_order_is_bytewise_even_when_database_locale_differs(self):
+        from apps.accounts.models import Student
+        Student.objects.bulk_create([Student(id=pk, telegram_id=987650000 + pk,
+            first_name='Synthetic locale test') for pk in range(1, 13)])
+        actual = database_fingerprint(connection)['accounts_student']
+        with connection.cursor() as cursor:
+            cursor.execute('SELECT row_to_json(t)::text FROM accounts_student t')
+            rows = sorted(row[0].encode() for row in cursor.fetchall())
+        expected = hashlib.sha256(b''.join(row + b'\n' for row in rows)).hexdigest()
+        self.assertEqual(actual, {'rows': 12, 'sha256': expected})
+
     def test_actual_pg_dump_has_complete_snapshot_and_private_completion_marker(self):
         from apps.accounts.models import Student
         from apps.content.models import Resource
@@ -178,7 +190,9 @@ class RealDatabaseBackupTests(TransactionTestCase):
         Resource.objects.create(title='Synthetic backup', file='resources/synthetic.pdf')
         client = MemoryS3()
         client.put_object(Bucket='private', Key='resources/synthetic.pdf', Body=b'synthetic bytes')
-        key, manifest = create_backup(connection.connection.dsn, client, 'private')
+        params = connection.connection.get_dsn_parameters()
+        params['password'] = connection.connection.info.password or ''
+        key, manifest = create_backup(make_dsn(**params), client, 'private')
         self.assertTrue(key.endswith('/manifest.json'))
         self.assertEqual(manifest['tables']['accounts_student']['rows'], 1)
         self.assertEqual(len(manifest['media']), 1)
@@ -189,6 +203,8 @@ class RealDatabaseBackupTests(TransactionTestCase):
         from apps.content.models import Resource
         Resource.objects.create(title='Missing media', file='resources/missing.pdf')
         client = MemoryS3()
+        params = connection.connection.get_dsn_parameters()
+        params['password'] = connection.connection.info.password or ''
         with self.assertRaisesRegex(ValueError, 'missing media'):
-            create_backup(connection.connection.dsn, client, 'private')
+            create_backup(make_dsn(**params), client, 'private')
         self.assertFalse(any(key.endswith('/manifest.json') for key in client.objects))
