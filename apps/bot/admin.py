@@ -5,8 +5,10 @@ from unfold.admin import ModelAdmin
 from .models import NotificationDelivery, QuestionExtraction, TelegramUpdate
 
 
+@admin.action(permissions=['change'], description='Retry selected failed records after review')
 def retry_failed(model_admin, request, queryset):
     parents = list(queryset.filter(status='failed').values_list('broadcast_id', 'exam_notification_id')) if queryset.model is NotificationDelivery else []
+    selected = queryset.count()
     count = queryset.filter(status='failed').update(
         status='pending', attempt_count=0, next_attempt_at=timezone.now(),
         claim_token=None, claimed_at=None, error_message='',
@@ -15,7 +17,7 @@ def retry_failed(model_admin, request, queryset):
     for broadcast_id, reminder_id in parents:
         refresh_broadcast(broadcast_id)
         refresh_exam_reminder(reminder_id)
-    model_admin.message_user(request, f'Queued {count} failed record(s) for an explicit retry.', messages.SUCCESS)
+    model_admin.message_user(request, f'Queued {count} failed record(s) for retry; {selected - count} non-failed record(s) skipped.', messages.SUCCESS)
 
 
 retry_failed.short_description = 'Retry selected failed records after review'
@@ -31,6 +33,9 @@ class TelegramUpdateAdmin(ModelAdmin):
     def has_add_permission(self, request):
         return False
 
+    def has_delete_permission(self, request, obj=None):
+        return False
+
 
 @admin.register(NotificationDelivery)
 class NotificationDeliveryAdmin(ModelAdmin):
@@ -42,6 +47,9 @@ class NotificationDeliveryAdmin(ModelAdmin):
     def has_add_permission(self, request):
         return False
 
+    def has_delete_permission(self, request, obj=None):
+        return False
+
 
 @admin.register(QuestionExtraction)
 class QuestionExtractionAdmin(ModelAdmin):
@@ -51,4 +59,7 @@ class QuestionExtractionAdmin(ModelAdmin):
     actions = [retry_failed]
 
     def has_add_permission(self, request):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
         return False

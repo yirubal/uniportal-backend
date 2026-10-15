@@ -1,4 +1,5 @@
 from django.contrib import admin, messages
+from django.core.exceptions import PermissionDenied
 from django.urls import path, reverse
 from django.http import HttpResponseRedirect
 from django.db import transaction
@@ -106,6 +107,8 @@ class StudentAdmin(ModelAdmin):
 
     def broadcast_view(self, request):
         """Custom admin page: compose and send a broadcast DM to all students."""
+        if not request.user.has_perm('accounts.add_broadcastmessage'):
+            raise PermissionDenied
         if request.method == 'POST':
             message    = request.POST.get('message', '').strip()
             parse_mode = request.POST.get('parse_mode', '')
@@ -146,7 +149,7 @@ class StudentAdmin(ModelAdmin):
             return f'✅ Premium ({obj.days_remaining}d left)'
         return '⬜ Free'
 
-    @admin.action(description='Deactivate Premium')
+    @admin.action(permissions=['change'], description='Deactivate Premium')
     def deactivate_premium(self, request, queryset):
         queryset.update(
             subscription_status=Student.SUBSCRIPTION_FREE,
@@ -262,7 +265,7 @@ class SubscriptionRequestAdmin(ModelAdmin):
             return '✅ Approved'
         return '❌ Rejected'
 
-    @admin.action(description='✅ Approve & activate selected requests')
+    @admin.action(permissions=['change'], description='✅ Approve & activate selected requests')
     def approve_requests(self, request, queryset):
         activated = 0
         selected_ids = list(queryset.values_list('pk', flat=True))
@@ -285,7 +288,7 @@ class SubscriptionRequestAdmin(ModelAdmin):
                 messages.WARNING,
             )
 
-    @admin.action(description='❌ Reject selected requests')
+    @admin.action(permissions=['change'], description='❌ Reject selected requests')
     def reject_requests(self, request, queryset):
         selected_ids = list(queryset.values_list('pk', flat=True))
         rejected = sum(reject_subscription_request(request_id) for request_id in selected_ids)
