@@ -1,6 +1,7 @@
 from django.contrib import admin
 from django.contrib.admin import SimpleListFilter
 from django.contrib import messages
+from django.core.exceptions import PermissionDenied
 from django.urls import path, reverse
 from django.utils.html import format_html
 from django.db import transaction
@@ -83,6 +84,8 @@ class CourseAdmin(ModelAdmin):
     def audit_view(self, request):
         """Wraps the audit logic so it gets full Unfold admin context (theme, sidebar, colors)."""
         from django.shortcuts import render
+        if not (request.user.has_perm('content.view_course') and request.user.has_perm('content.view_resource')):
+            raise PermissionDenied
         context = {
             **self.admin_site.each_context(request),
             **views_admin.course_resource_audit_context(request),
@@ -92,6 +95,8 @@ class CourseAdmin(ModelAdmin):
     def resource_detail_view(self, request, course_id):
         """Wraps the course resource detail page in the same Unfold admin context."""
         from django.shortcuts import render
+        if not (request.user.has_perm('content.view_course') and request.user.has_perm('content.view_resource')):
+            raise PermissionDenied
         context = {
             **self.admin_site.each_context(request),
             **views_admin.course_resource_detail_context(course_id),
@@ -195,34 +200,25 @@ class ResourceAdmin(ModelAdmin):
             initial['courses'] = [course_id]
         return initial
 
-    @admin.action(description='Publish selected resources')
+    @admin.action(permissions=['change'], description='Publish selected resources')
     def publish_selected(self, request, queryset):
-        queryset.update(status=Resource.STATUS_PUBLISHED)
-        self.message_user(request, f'{queryset.count()} resource(s) published.')
+        count = queryset.update(status=Resource.STATUS_PUBLISHED)
+        self.message_user(request, f'{count} resource(s) published.')
 
-    @admin.action(description='Reject selected resources')
+    @admin.action(permissions=['change'], description='Reject selected resources')
     def reject_selected(self, request, queryset):
-        queryset.update(status=Resource.STATUS_REJECTED)
-        self.message_user(request, f'{queryset.count()} resource(s) rejected.')
+        count = queryset.update(status=Resource.STATUS_REJECTED)
+        self.message_user(request, f'{count} resource(s) rejected.')
 
-    @admin.action(description='Retry failed text extraction after review')
-    def retry_failed_extraction(self, request, queryset):
-        from django.utils import timezone
-        count = queryset.filter(processing_status='failed', assigned_resource__isnull=True).exclude(file='').update(
-            processing_status='unprocessed', attempt_count=0, next_attempt_at=timezone.now(),
-            claimed_at=None, claim_token=None, processing_error='',
-        )
-        self.message_user(request, f'Queued {count} file(s) for extraction.')
-
-    @admin.action(description='Mark selected as Free')
+    @admin.action(permissions=['change'], description='Mark selected as Free')
     def mark_as_free(self, request, queryset):
-        queryset.update(access_level=Resource.ACCESS_FREE)
-        self.message_user(request, f'{queryset.count()} resource(s) marked as free.')
+        count = queryset.update(access_level=Resource.ACCESS_FREE)
+        self.message_user(request, f'{count} resource(s) marked as free.')
 
-    @admin.action(description='Mark selected as Premium')
+    @admin.action(permissions=['change'], description='Mark selected as Premium')
     def mark_as_premium(self, request, queryset):
-        queryset.update(access_level=Resource.ACCESS_PREMIUM)
-        self.message_user(request, f'{queryset.count()} resource(s) marked as premium.')
+        count = queryset.update(access_level=Resource.ACCESS_PREMIUM)
+        self.message_user(request, f'{count} resource(s) marked as premium.')
 
 
 # ── File Inbox ────────────────────────────────────────────────────────────────
@@ -248,6 +244,14 @@ class AssignmentFilter(SimpleListFilter):
 
 @admin.register(FileInbox)
 class FileInboxAdmin(ModelAdmin):
+    def get_actions(self, request):
+        actions = super().get_actions(request)
+        if not request.user.has_perm('content.add_resource'):
+            actions.pop('publish_as_resource', None)
+        if not request.user.has_perm('quiz.add_question'):
+            actions.pop('extract_questions', None)
+        return actions
+
     list_display  = ['original_filename', 'telegram_caption_preview', 'posted_date', 'processing_status', 'is_assigned']
     list_filter   = [AssignmentFilter, 'processing_status']
     search_fields = ['original_filename', 'telegram_caption', 'extracted_text']
@@ -290,13 +294,26 @@ class FileInboxAdmin(ModelAdmin):
             return obj.telegram_caption[:60] + ('...' if len(obj.telegram_caption) > 60 else '')
         return '—'
 
-    @admin.action(description='Mark selected as processed')
-    def mark_as_processed(self, request, queryset):
-        queryset.exclude(processing_status='processing').update(processing_status=FileInbox.STATUS_PROCESSED)
-        self.message_user(request, f'{queryset.count()} item(s) marked as processed.')
+    @admin.action(permissions=['change'], description='Retry failed text extraction after review')
+    def retry_failed_extraction(self, request, queryset):
+        from django.utils import timezone
+        selected = queryset.count()
+        count = queryset.filter(processing_status='failed', assigned_resource__isnull=True).exclude(file='').update(
+            processing_status='unprocessed', attempt_count=0, next_attempt_at=timezone.now(),
+            claimed_at=None, claim_token=None, processing_error='',
+        )
+        self.message_user(request, f'Queued {count} file(s) for extraction; {selected - count} ineligible file(s) skipped.')
 
-    @admin.action(description='Publish selected as Resource — assign course after')
+    @admin.action(permissions=['change'], description='Manually mark selected as processed (does not extract text)')
+    def mark_as_processed(self, request, queryset):
+        selected = queryset.count()
+        count = queryset.exclude(processing_status='processing').update(processing_status=FileInbox.STATUS_PROCESSED)
+        self.message_user(request, f'{count} item(s) manually marked as processed; {selected - count} processing item(s) skipped. Text extraction was not run.')
+
+    @admin.action(permissions=['change'], description='Create draft resources — assign courses and review next')
     def publish_as_resource(self, request, queryset):
+        if not request.user.has_perm('content.add_resource'):
+            raise PermissionDenied
         created = 0
         failed  = 0
         for item in queryset.filter(
@@ -337,12 +354,14 @@ class FileInboxAdmin(ModelAdmin):
 
         self.message_user(
             request,
-            f'{created} resource(s) created. {failed} failed. Please update the course for each one.',
+            f'{created} draft resource(s) created. {failed} failed. Open Resources, filter by Pending, assign courses, review, then publish.',
             level=messages.WARNING if failed else messages.SUCCESS,
         )
 
-    @admin.action(description='Extract questions from selected files using AI')
+    @admin.action(permissions=['change'], description='Extract questions from selected files using AI')
     def extract_questions(self, request, queryset):
+        if not request.user.has_perm('quiz.add_question'):
+            raise PermissionDenied
         from apps.bot.ai_tasks import queue_question_extraction
         queued = 0
         for item in queryset.filter(processing_status=FileInbox.STATUS_PROCESSED).exclude(extracted_text=''):
@@ -351,4 +370,4 @@ class FileInboxAdmin(ModelAdmin):
                 queued += int(created)
             except ValueError as exc:
                 self.message_user(request, f'{item.original_filename}: {exc}', messages.WARNING)
-        self.message_user(request, f'Queued {queued} extraction(s). Review progress under Bot > Question extractions and generated questions under Quiz.', messages.SUCCESS)
+        self.message_user(request, f'Queued {queued} extraction(s). Review progress at /admin/bot/questionextraction/ and generated questions under Quiz.', messages.SUCCESS)

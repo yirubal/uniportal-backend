@@ -337,6 +337,125 @@ measurement before final sizing or verified savings. No paid gates were added.
 restart/deploy and restore procedures work; code is simpler to navigate; latency,
 resource usage, and cost comparisons are documented.
 
+## Admin improvement track — audit and implementation order
+
+Audited 2026-10-15. This is a separate admin improvement track, not a declaration
+that the original production rollout checks are complete. Investigation covered
+admin registrations, custom views, templates, worker recovery, isolated Django
+requests and read-only production aggregates. No production records were changed
+or jobs retried. Visual findings below are from template inspection; browser,
+keyboard, narrow-screen and contrast checks remain part of implementation.
+
+### Production snapshot
+
+At 07:20 UTC on 2026-10-15:
+
+| Area | Observed state | Interpretation |
+|---|---|---|
+| Exam PDF imports | 55 processed; 14 failed | All failed uploads date from 2026-09-14 and have attempt count zero. Error text falls in the PDF parsing category; review individual causes before retrying. These predate the durable-worker rollout and do not establish that the new worker failed. |
+| File inbox | 276 processed; 2 unprocessed | Earliest pending due time was 2026-10-14 21:39 UTC, about 9 hours 41 minutes overdue. Verify worker deployment, eligibility and logs before promising recovery. Processed does not necessarily mean unassigned or published. |
+| Telegram updates, notification deliveries, AI extractions | No rows | An empty queue is not proof that ingestion or the worker is operating. |
+| Stale processing claims | Zero across the five queues | No processing claim exceeded the configured 15-minute threshold at inspection. |
+| Published resources without courses | Zero | Publishing should still validate course assignment to prevent future mistakes. |
+
+### Findings
+
+| Priority | Problem and evidence | Improvement |
+|---|---|---|
+| P0 | Custom admin views rely on staff access without checking model permissions. In an isolated database, a staff user with no model permissions received 403 on the normal resource list, 200 on audit/broadcast/upload pages, and successfully deleted a synthetic resource through the custom URL. See [custom resource views](apps/content/views_admin.py), [broadcast](apps/accounts/admin.py), [exam actions](apps/exams/admin.py), and [quiz actions](apps/quiz/admin.py). | Apply explicit view/add/change/delete permissions to each custom operation and its UI control; test restricted staff as well as superusers. |
+| P0 | Resource duplicate cleanup groups solely by normalized title and deletes Resource rows. Equal titles do not establish equal files; deleting a shared resource also removes its other course links. See `delete_duplicate_resources` in [resource views](apps/content/views_admin.py). | Replace automatic title-based deletion with candidate review. Show file identity, course associations and the exact proposed deletion/unlink action before confirmation. |
+| P1 | File inbox declares `retry_failed_extraction`, but that method is defined on ResourceAdmin instead. Django action lookup returned no action for FileInboxAdmin. See [content admin](apps/content/admin.py). | Put the retry on the correct admin; report queued and skipped counts and preserve review-before-retry behavior. |
+| P1 | Failure queues are registered under Bot but omitted from the configured sidebar while all-applications navigation is hidden. The inbox success message directs users to this missing Bot section. See [navigation](config/settings/base.py) and [job admin](apps/bot/admin.py). | Add a permission-aware Operations section and direct links from files/imports/broadcasts to their jobs and errors. |
+| P1 | The homepage has no project-specific overview template or dashboard callback. Only payment requests get a sidebar count. | Make pending reviews, overdue work and failures visible before totals. Each count should open the corresponding filtered list. |
+| P1 | Course coverage treats any resource, including pending/rejected, as coverage. An isolated course with one pending resource showed 100% coverage and zero published resources. Department reporting hardcodes distance programs and can count repeated course placements as separate courses. See [audit queries](apps/content/views_admin.py). | Define coverage as published student-visible material; count distinct active courses; make program/department scope explicit and consistent with filters. |
+| P1 | “Publish selected as Resource” actually creates pending drafts without courses; “Mark selected as processed” can bypass extraction and reports all selected rows rather than only changed rows. See [inbox actions](apps/content/admin.py). | Name draft creation accurately, link to the created drafts, and show the next required step. Remove or clearly distinguish manual processing overrides. Report actual changed/skipped counts. |
+| P1 | Exam upload polling is disabled on the global upload page because there is no term ID. On term pages it refreshes counts but not table rows/errors, has no fetch failure feedback, and checks four counts per request. The Process button only reports queue state; it does not start work. See [upload template](templates/admin/exams/upload_pdfs.html) and [exam admin](apps/exams/admin.py). | Show one consistent queued/processing/completed/failed flow on both pages; refresh visible results, report connection failures, and remove the redundant Process action. Use one aggregate query and bounded polling while work is active. |
+| P1 | Quiz bulk metadata uses unchecked IDs and raw posted values with `queryset.update()`. Missing objects can raise errors; chapter/paper consistency and choice validation are absent from this flow. Selection is stored under one session key, so a second tab can replace the first selection. See [quiz admin](apps/quiz/admin.py). | Use a validated Django form and explicit selection per operation. Show a preview/count and retain valid input on errors. |
+| P2 | Lists expose many columns and relationship dropdowns; course/paper/chapter selection gets harder as content grows. Several computed counts execute a query per displayed row (exam terms, papers, chapters), and the audit runs queries per department without pagination. | Keep task-relevant columns, add searchable relation inputs, annotate counts, paginate audit lists and measure query counts against realistic data. |
+| P2 | Custom bulk updates/deletes bypass the standard per-object admin change logging. Job records appear read-only but still inherit delete capability for users with delete permission. | Log meaningful custom changes; prevent routine deletion of operational history where it would hide failures or remove queued work. |
+| P2 | Templates mix Unfold utilities, large copied CSS blocks, inline styles and hardcoded dark backgrounds. Several wide tables use overflow-hidden. The broadcast timestamp expression spans lines and an isolated render left the expression literal. | Use existing Unfold styles consistently; fix the timestamp, table scrolling, light/dark states, focus visibility, labels and empty/error states. Verify in a browser before calling accessibility complete. |
+| P2 | Broadcast confirmation exists, but the confirmed button submits without a duplicate-submit guard and the POST has no operation token. Repeated submissions create separate broadcasts; history offers no direct delivery-error recovery link. | Prevent accidental repeated sends, make recipient count clear, and link delivery progress/failures to Operations. Keep delivery in the existing worker. |
+
+### Intended navigation and homepage
+
+Keep Django + Unfold and the current monolith. Use six clear destinations:
+Overview; Content; Exams & quizzes; Students & communication; Operations;
+Settings. Keep payments available under Students without making monetization
+the focus or changing free student access. Model-specific subpages remain normal
+Django admin pages, with descriptive labels and permission-aware links.
+
+The Overview should answer “What needs my attention?” with clickable counts for
+failed imports, failed extraction/delivery, overdue pending work, draft resources
+needing review and unassigned questions. Counts with overlapping populations must
+not be added into a misleading grand total. Provide shortcuts for reviewing
+uploads, creating a resource, uploading exam PDFs and finding a student. Add the
+active exam term and a small recent-activity list with timestamps and links.
+Do not label the worker healthy merely because queues are empty; display what
+was actually observed and when.
+
+### Step-by-step delivery
+
+1. **Safety and recovery correctness.** Fix custom permissions, title-based
+   duplicate deletion, the missing inbox retry action and misleading action
+   messages. Inspect historical PDF failures and overdue inbox work; verify the
+   worker before explicitly retrying eligible records. Add targeted regression
+   tests for denied access and state changes. Complete when restricted staff
+   cannot mutate unauthorized records and legitimate recovery is available.
+2. **Navigation and Overview.** Add the grouped sidebar, task shortcuts,
+   permission-aware attention cards and linked status summaries. Complete when
+   common tasks and failure queues are reachable from the homepage and every
+   card opens the matching filtered records. Keep queries bounded; no external
+   calls, object reads, or constant polling on the homepage.
+3. **Content workflow.** Make inbox -> draft -> course assignment -> review ->
+   publish explicit. Improve relation search, preview/details, coverage accuracy,
+   empty states and paginated audit lists. Complete when an admin can finish this
+   flow without guessing the next screen and titles never authorize deletion.
+4. **Exams, questions and communication.** Repair upload progress/results,
+   validate bulk edits, preserve selections safely and expose delivery recovery.
+   Complete when global and term-specific uploads show accurate terminal results,
+   invalid edits return helpful errors and broadcasts resist accidental repeats.
+5. **Usability and cost verification.** Check narrow screens, keyboard navigation,
+   light/dark themes, table overflow and back/filter preservation. Measure query
+   growth and page response times on representative data; fix measured hotspots
+   with concrete queries. Do not add a separate admin frontend, new service,
+   generic dashboard framework, Redis, charts library or broker for this work.
+
+### Step 1 implementation — 2026-10-15
+
+Repository safety and recovery changes are implemented and locally verified:
+
+- Custom audit, resource deletion, broadcast, exam activation/upload/status,
+  question import/template and bulk metadata routes now check the relevant model
+  permissions. Mutating admin actions require change permission. Draft creation
+  additionally requires resource-add permission; AI extraction requires
+  question-add permission. Related custom-page controls are hidden when forbidden.
+- Title-based bulk deletion no longer deletes records. Individual deletion uses
+  Django's related-object confirmation and normal deletion log. Resource review
+  shows file references and course associations, with titles labeled as possible
+  duplicates rather than proof of identical contents.
+- Inbox retry now exists on FileInboxAdmin, requeues only failed, unassigned
+  records with file references, resets claim/attempt state and reports skipped
+  records. PDF/job retries report skipped non-failed records. Routine job/PDF
+  history deletion is disabled, including for superusers.
+- Draft creation is labeled accurately; manual processing is explicitly described
+  as an override that does not extract text. Resource update messages use affected
+  row counts, including when the original selection was filtered by status.
+
+Verification: 12 new admin regression tests cover restricted staff, legitimate
+access, confirmation/logging, shared resource preservation, action permissions
+and mixed retry selections. The full SQLite suite ran 209 cases: 201 passed and
+8 PostgreSQL-only cases skipped. Django checks and migration-drift checks pass;
+no migration is required. No production records were changed or jobs retried.
+
+**Operational follow-up remains open:** read-only Railway inspection on
+2026-10-15 found only `web` and `Postgres`, with no worker service. Deploy the
+existing `railway-worker.json` configuration and verify bounded processing before
+retrying reviewed historical failures. The queue snapshot above remains a point
+in time, not a claim that those jobs have recovered. The 14 historical import
+errors still require individual source/error review before retrying.
+
+Steps 2–5 remain pending. The navigation and Overview redesign has not started.
+
 ## Deferred — Monetization readiness
 
 This section is inactive until the owner explicitly decides to introduce paid

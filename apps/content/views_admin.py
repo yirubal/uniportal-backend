@@ -5,6 +5,7 @@ Custom admin views: Course Resource Audit Dashboard
 """
 
 from django.contrib.admin.views.decorators import staff_member_required
+from django.contrib.auth.decorators import permission_required
 from django.shortcuts import render, get_object_or_404, redirect
 from django.contrib import messages
 from django.db.models import Count, Q, Prefetch
@@ -214,45 +215,30 @@ def course_resource_detail_context(course_id) -> dict:
 
 
 @staff_member_required
+@permission_required(('content.view_course', 'content.view_resource'), raise_exception=True)
 def course_resource_detail(request, course_id):
     context = course_resource_detail_context(course_id)
     return render(request, 'admin/content/course_resource_detail.html', context)
 
 
 @staff_member_required
+@permission_required('content.delete_resource', raise_exception=True)
 @require_POST
 def delete_resource(request, resource_id):
-    resource  = get_object_or_404(Resource, id=resource_id)
-    first_course = resource.courses.first()
-    course_id = first_course.id if first_course else None
-    title     = resource.title
-
-    resource.delete()
-    messages.success(request, f'Deleted: {title}')
-    if course_id:
-        return redirect('admin:course_resource_detail', course_id=course_id)
-    return redirect('admin:course_resource_audit')
+    # Old links must go through Django's permission checks, related-object review
+    # and explicit deletion confirmation before any record can be removed.
+    get_object_or_404(Resource, id=resource_id)
+    return redirect('admin:content_resource_delete', object_id=resource_id)
 
 
 @staff_member_required
+@permission_required(('content.view_course', 'content.view_resource'), raise_exception=True)
 @require_POST
 def delete_duplicate_resources(request, course_id):
-    course    = get_object_or_404(Course, id=course_id)
-    resources = Resource.objects.filter(courses=course).order_by('title', 'created_at')
-
-    seen      = {}
-    to_delete = []
-    for r in resources:
-        key = r.title.lower().strip()
-        if key in seen:
-            to_delete.append(r)
-        else:
-            seen[key] = r
-
-    deleted = 0
-    for r in to_delete:
-        r.delete()
-        deleted += 1
-
-    messages.success(request, f'Deleted {deleted} duplicate resource(s) from {course.name}.')
+    get_object_or_404(Course, id=course_id)
+    messages.warning(
+        request,
+        'Matching titles are only possible duplicates. Compare the files and '
+        'course associations, then use Review deletion for an individual resource.',
+    )
     return redirect('admin:course_resource_detail', course_id=course_id)

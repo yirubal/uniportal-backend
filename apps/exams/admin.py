@@ -1,6 +1,7 @@
 from hashlib import sha256
 
 from django.contrib import admin, messages
+from django.core.exceptions import PermissionDenied
 from django.db.models import Count, Q
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import path, reverse
@@ -79,6 +80,8 @@ class ExamTermAdmin(ModelAdmin):
 
     def activate_term_view(self, request, term_id):
         term = get_object_or_404(ExamTerm, pk=term_id)
+        if not self.has_change_permission(request, term):
+            raise PermissionDenied
         if request.method != 'POST':
             messages.warning(request, 'Use the Activate button to change the active exam term.')
             return self._redirect_back(request)
@@ -89,6 +92,8 @@ class ExamTermAdmin(ModelAdmin):
 
     def deactivate_term_view(self, request, term_id):
         term = get_object_or_404(ExamTerm, pk=term_id)
+        if not self.has_change_permission(request, term):
+            raise PermissionDenied
         if request.method != 'POST':
             messages.warning(request, 'Use the Deactivate button to change the active exam term.')
             return self._redirect_back(request)
@@ -110,6 +115,8 @@ class ExamTermAdmin(ModelAdmin):
     def upload_status_view(self, request, term_id):
         from django.http import JsonResponse
 
+        if not request.user.has_perm('exams.view_exampdfupload'):
+            raise PermissionDenied
         uploads = ExamPDFUpload.objects.filter(term_id=term_id)
         return JsonResponse({
             'pending': uploads.filter(status=ExamPDFUpload.STATUS_PENDING).count(),
@@ -119,9 +126,11 @@ class ExamTermAdmin(ModelAdmin):
         })
 
     def upload_pdfs_view(self, request, term_id=None):
+        if not request.user.has_perms(['exams.add_exampdfupload', 'exams.view_exampdfupload']):
+            raise PermissionDenied
         term = None
         if term_id is not None:
-            term = ExamTerm.objects.filter(pk=term_id).first()
+            term = get_object_or_404(ExamTerm, pk=term_id)
 
         if request.method == 'POST':
             action = request.POST.get('action', 'upload')
@@ -251,8 +260,17 @@ class ExamTermAdmin(ModelAdmin):
 
     def change_view(self, request, object_id, form_url='', extra_context=None):
         extra_context = extra_context or {}
-        extra_context['upload_pdfs_url'] = f'/admin/exams/examterm/{object_id}/upload-pdfs/'
+        extra_context['upload_pdfs_url'] = (
+            reverse('admin:exam_upload_pdfs', args=[object_id])
+            if request.user.has_perms(['exams.add_exampdfupload', 'exams.view_exampdfupload']) else None
+        )
         return super().change_view(request, object_id, form_url, extra_context)
+
+    def get_list_display(self, request):
+        columns = super().get_list_display(request)
+        if not self.has_change_permission(request):
+            return [column for column in columns if column != 'activation_controls']
+        return columns
 
     @admin.display(description='Active')
     def active_status(self, obj):
@@ -288,7 +306,7 @@ class ExamTermAdmin(ModelAdmin):
             label,
         )
 
-    @admin.action(description='Activate selected term')
+    @admin.action(permissions=['change'], description='Activate selected term')
     def activate_selected_term(self, request, queryset):
         terms = list(queryset)
         if len(terms) != 1:
@@ -298,7 +316,7 @@ class ExamTermAdmin(ModelAdmin):
         terms[0].activate()
         messages.success(request, f'{terms[0]} is now the active exam term.')
 
-    @admin.action(description='Deactivate selected term(s)')
+    @admin.action(permissions=['change'], description='Deactivate selected term(s)')
     def deactivate_selected_terms(self, request, queryset):
         count = 0
         for term in queryset:
@@ -352,11 +370,15 @@ class ExamPDFUploadAdmin(ModelAdmin):
     ]
     actions = ['retry_failed_uploads']
 
-    @admin.action(description='Retry failed PDF imports after review')
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+    @admin.action(permissions=['change'], description='Retry failed PDF imports after review')
     def retry_failed_uploads(self, request, queryset):
         from django.utils import timezone
+        selected = queryset.count()
         count = queryset.filter(status='failed').update(status='pending', attempt_count=0, next_attempt_at=timezone.now(), claimed_at=None, claim_token=None, error_message='')
-        self.message_user(request, f'Queued {count} PDF(s) for retry.')
+        self.message_user(request, f'Queued {count} failed PDF(s) for retry; {selected - count} non-failed PDF(s) skipped.')
 
     def add_view(self, request, form_url='', extra_context=None):
         return redirect('admin:exams_examterm_upload_pdfs')

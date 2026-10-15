@@ -2,6 +2,7 @@
 {% load i18n %}
 
 {% block content %}
+{% if perms.exams.add_exampdfupload and perms.exams.view_exampdfupload %}
 <div style="
   margin-bottom: 1rem;
   padding: 1.25rem 1.5rem;
@@ -41,5 +42,6 @@
   ">Start from the schedule PDF and then upload the attendance PDFs for student lookup.</p>
 </div>
 
+{% endif %}
 {{ block.super }}
 {% endblock %}

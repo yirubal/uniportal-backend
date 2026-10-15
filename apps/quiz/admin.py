@@ -1,4 +1,5 @@
 from django.contrib import admin, messages
+from django.core.exceptions import PermissionDenied
 from django.shortcuts import render, redirect
 from django.urls import path
 from django.http import HttpResponseRedirect
@@ -212,6 +213,8 @@ class ExamPaperAdmin(ModelAdmin):
         }
 
     def download_template_view(self, request, paper_id=None):
+        if not self.has_view_or_change_permission(request):
+            raise PermissionDenied
         exam_paper = None
         if paper_id is not None:
             try:
@@ -239,6 +242,8 @@ class ExamPaperAdmin(ModelAdmin):
     # ── Import questions view ─────────────────────────────────────────────────
 
     def import_questions_view(self, request, paper_id):
+        if not (self.has_change_permission(request) and request.user.has_perm('quiz.add_question')):
+            raise PermissionDenied
         from apps.quiz.models import ExamPaper
         from apps.quiz.importers import import_exit_questions_from_excel, import_questions_from_excel
 
@@ -295,7 +300,7 @@ class ExamPaperAdmin(ModelAdmin):
         extra_context['import_url'] = reverse(
             'admin:quiz_exampaper_import_questions',
             args=[object_id]
-        )
+        ) if self.has_change_permission(request) and request.user.has_perm('quiz.add_question') else None
         return super().change_view(request, object_id, form_url, extra_context)
 
 
@@ -390,17 +395,17 @@ class QuestionAdmin(ModelAdmin):
 
     # ── Simple Actions ────────────────────────────────────────────────────────
 
-    @admin.action(description='Activate selected questions')
+    @admin.action(permissions=['change'], description='Activate selected questions')
     def activate_questions(self, request, queryset):
         queryset.update(is_active=True)
         self.message_user(request, f'{queryset.count()} question(s) activated.')
 
-    @admin.action(description='Deactivate selected questions')
+    @admin.action(permissions=['change'], description='Deactivate selected questions')
     def deactivate_questions(self, request, queryset):
         queryset.update(is_active=False)
         self.message_user(request, f'{queryset.count()} question(s) deactivated.')
 
-    @admin.action(description='Assign selected questions to an exam paper')
+    @admin.action(permissions=['change'], description='Assign selected questions to an exam paper')
     def assign_to_exam_paper(self, request, queryset):
         if request.method == 'POST' and 'exam_paper' in request.POST:
             exam_paper_id = request.POST.get('exam_paper')
@@ -421,7 +426,7 @@ class QuestionAdmin(ModelAdmin):
 
     # ── Bulk Metadata Action ──────────────────────────────────────────────────
 
-    @admin.action(description='📋 Set metadata for selected questions')
+    @admin.action(permissions=['change'], description='📋 Set metadata for selected questions')
     def bulk_set_metadata(self, request, queryset):
         selected_ids = list(queryset.values_list('id', flat=True))
         request.session['bulk_metadata_question_ids'] = selected_ids
@@ -441,6 +446,8 @@ class QuestionAdmin(ModelAdmin):
         return custom + urls
 
     def bulk_metadata_view(self, request):
+        if not self.has_change_permission(request):
+            raise PermissionDenied
         question_ids = request.session.get('bulk_metadata_question_ids', [])
 
         if not question_ids:

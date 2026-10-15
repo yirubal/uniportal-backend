@@ -61,7 +61,7 @@
         <div
             class="flex items-center gap-2 px-4 py-2 bg-white dark:bg-base-800 border border-orange-300 dark:border-orange-700 rounded-default">
             <span class="text-2xl font-black text-orange-600 dark:text-orange-400">{{ duplicate_count }}</span>
-            <span class="text-xs font-semibold uppercase tracking-wide text-orange-400">Duplicates</span>
+            <span class="text-xs font-semibold uppercase tracking-wide text-orange-400">Possible duplicates</span>
         </div>
         {% endif %}
     </div>
@@ -69,19 +69,12 @@
     {# ── Action bar ── #}
     <div class="flex flex-wrap gap-3 mb-6">
         {% if duplicate_count > 0 %}
-        <form method="post" action="{% url 'admin:delete_duplicate_resources' course_id=course.id %}"
-            onsubmit="return confirm('Delete {{ duplicate_count }} duplicate resource(s)? This cannot be undone.')">
-            {% csrf_token %}
-            <button type="submit"
-                class="inline-flex items-center gap-2 px-4 py-2 text-sm font-semibold bg-red-600 hover:bg-red-700 text-white rounded-default shadow-sm transition-colors">
-                🗑 Delete All Duplicates
-            </button>
-        </form>
+        <p class="text-sm text-base-600 dark:text-base-300">Matching titles are possible duplicates. Compare files and course associations before deleting.</p>
         {% endif %}
-        <a href="{% url 'admin:content_resource_add' %}?course={{ course.id }}"
+        {% if perms.content.add_resource %}<a href="{% url 'admin:content_resource_add' %}?course={{ course.id }}"
             class="inline-flex items-center gap-2 px-4 py-2 text-sm font-semibold bg-primary-600 hover:bg-primary-700 text-white rounded-default shadow-sm transition-colors">
             + Add Resource
-        </a>
+        </a>{% endif %}
         <a href="{% url 'admin:content_resource_changelist' %}?courses__id__exact={{ course.id }}"
             class="inline-flex items-center gap-2 px-4 py-2 text-sm font-semibold bg-base-100 dark:bg-base-800 text-base-700 dark:text-base-200 hover:text-primary-600 dark:hover:text-primary-400 border border-base-200 dark:border-base-700 hover:border-primary-500 dark:hover:border-primary-500 rounded-default transition-colors">
             Edit in Admin →
@@ -127,8 +120,10 @@
 
                     <td class="px-5 py-3">
                         <div class="font-semibold text-base-900 dark:text-base-100 group-hover:text-primary-600 dark:group-hover:text-primary-400 transition-colors">
-                            {{ item.resource.title }}
+                            <a href="{% url 'admin:content_resource_change' item.resource.id %}">{{ item.resource.title }}</a>
                         </div>
+                        <p class="text-xs text-base-500 dark:text-base-400">File: {{ item.resource.file.name|default:"No file" }}</p>
+                        <p class="text-xs text-base-500 dark:text-base-400">Used by: {% for linked_course in item.resource.courses.all %}{{ linked_course.code }}{% if not forloop.last %}, {% endif %}{% empty %}No courses{% endfor %}</p>
                         {% if item.is_duplicate %}
                         <span
                             class="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-orange-100 dark:bg-orange-900/40 text-orange-700 dark:text-orange-400 mt-1">
@@ -169,14 +164,11 @@
                     </td>
 
                     <td class="px-5 py-3">
-                        <form method="post" action="{% url 'admin:delete_resource' resource_id=item.resource.id %}"
-                            onsubmit="return confirm('Delete \'{{ item.resource.title|escapejs }}\'?')">
-                            {% csrf_token %}
-                            <button type="submit"
-                                class="inline-flex items-center px-3 py-1.5 text-xs font-semibold bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300 hover:text-red-800 dark:hover:text-red-200 border border-transparent hover:border-red-300 dark:hover:border-red-700 rounded-default transition-colors">
-                                Delete
-                            </button>
-                        </form>
+                        {% if perms.content.delete_resource %}
+                        <a href="{% url 'admin:content_resource_delete' item.resource.id %}"
+                            class="text-sm text-red-600 dark:text-red-400">Review deletion</a>
+                        {% endif %}
+
                     </td>
                 </tr>
                 {% endfor %}
@@ -189,10 +181,10 @@
         class="text-center py-16 text-base-400 dark:text-base-500 bg-white dark:bg-base-800 border border-base-200 dark:border-base-700 rounded-default">
         <p class="text-5xl mb-3">📂</p>
         <p class="font-semibold">No resources for this course yet.</p>
-        <a href="{% url 'admin:content_resource_add' %}?course={{ course.id }}"
+        {% if perms.content.add_resource %}<a href="{% url 'admin:content_resource_add' %}?course={{ course.id }}"
             class="inline-flex items-center gap-2 mt-4 px-4 py-2 text-sm font-semibold bg-primary-600 hover:bg-primary-700 text-white rounded-default shadow-sm transition-colors">
             + Add First Resource
-        </a>
+        </a>{% endif %}
     </div>
     {% endif %}
 
