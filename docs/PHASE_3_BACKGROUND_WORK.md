@@ -165,7 +165,9 @@ one is still running. [Railway cron guide](https://docs.railway.com/cron-jobs).
 
 Update 2026-10-15: the live worker is deployed and has claimed both waiting inbox
 items; both stopped at the existing 100-page PDF limit and require review. The
-daily schedule is still pending. New Railway services cannot use the legacy JSON
+daily schedule is now deployed and its first controlled run passed after a full
+production backup/restore drill. It runs `run_maintenance --backup` at 03:00 UTC.
+See [backup and maintenance evidence](PRODUCTION_BACKUPS.md). New Railway services cannot use the legacy JSON
 config-file path; the worker uses equivalent explicit service settings. See
 [production rollout evidence](PHASE_6_OPERATIONS.md#admin-rollout-and-worker-activation--2026-10-15).
 Compare worker memory, CPU, queue age, and Railway usage against Phase 1 metrics.

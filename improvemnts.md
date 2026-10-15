@@ -679,7 +679,7 @@ found through actual administrator use; monetization remains deferred.
 - [ ] Verify a successful live upload/extraction, controlled notification and AI
   workflow, authenticated admin changes and frontend/device resource viewing.
 - [x] Verify a full production database/media backup and isolated restore.
-- [ ] Deploy daily maintenance after reviewing its subscription/reminder/file-cleanup effects.
+- [x] Deploy daily maintenance after reviewing its subscription/reminder/file-cleanup effects.
 - [ ] Complete alerts, proxy trust and representative cost/capacity measurements.
 - [ ] Migrate legacy Railway JSON configuration before the 2026-12-01 cutoff.
   New services already reject legacy config paths; the worker uses explicit
@@ -705,7 +705,13 @@ actual dumps, missing files, corrupt copies, retention, credentials and ordering
 The real production database and all media were restored successfully in isolation:
 36 tables / 5,817 rows, 564 objects / 758,163,668 bytes, all hashes matching.
 Django reads/relationships passed with external credentials disabled; temporary
-private files and the local cluster were removed. Cron deployment is next.
+private files and the local cluster were removed. Daily maintenance is deployed
+from `prod` at 03:00 UTC / 06:00 Nairobi with backup required. Its first controlled
+run completed a fresh backup, expired two overdue subscriptions and removed three
+expired throttle rows, then exited successfully. No reminders, inbox cleanup or
+work compaction were due. Read-only post-run checks confirmed the results. PR #92
+is merged; hosted container/SQLite/PostgreSQL checks pass. See
+[deployment evidence](docs/PRODUCTION_MAINTENANCE_VERIFICATION.json).
 No migration or Python dependency was added.
 See [backup operation and recovery](docs/PRODUCTION_BACKUPS.md).
 
@@ -758,5 +764,5 @@ roadmap rather than implementing an outdated assumption.
 | 3 — Background processing | Repository implementation verified; rollout and OCR smoke pending | 134 PostgreSQL tests + 36 final focused checks; SQLite 128 passed / 7 skipped; recovery and restore drills pass. See docs/PHASE_3_BACKGROUND_WORK.md. |
 | 4 — File delivery | Repository implementation verified; live integration and measurements pending | 144 PostgreSQL tests; SQLite 137 passed / 7 skipped; restore/checks pass. See docs/PHASE_4_FILE_DELIVERY.md. |
 | 5 — Database and API efficiency | Repository implementation verified; rollout pending | 165 distinct PostgreSQL cases; SQLite 157 passed / 8 skipped; query plans and restore pass. See docs/PHASE_5_DATABASE_API.md. |
-| 6 — Code and production operation | Repository, hosted CI, production web and worker deployment verified; remaining operational checks pending | Original baseline: 182 PostgreSQL tests and real container OCR. Current admin suite: 259 PostgreSQL tests; hosted SQLite/PostgreSQL/container checks pass. On 2026-10-15 current web/schema and one worker deployed; live endpoints and R2 CORS reads pass. Both overdue inbox files require review at the 100-page limit. Maintenance, full backups/restore, controlled integration flows, alerts, proxy trust and sizing remain open. See docs/PHASE_6_OPERATIONS.md. |
+| 6 — Code and production operation | Repository, hosted CI, web/worker, real backup/restore and first daily-maintenance execution verified; follow-ups remain | Current suite: 272 PostgreSQL tests; hosted SQLite/PostgreSQL/container checks pass. All 36 production tables / 5,817 rows and 564 media files restored with matching hashes. Daily backup-before-maintenance runs at 03:00 UTC; first controlled run succeeded. Live endpoints and R2 CORS reads pass. Large inbox PDFs need review. Controlled integrations, alerts, proxy trust, ongoing recovery drills, independent backup storage and sizing remain follow-ups. See docs/PHASE_6_OPERATIONS.md. |
 | Monetization readiness | Deferred by owner | Free adoption period |
