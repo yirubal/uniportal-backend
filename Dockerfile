@@ -1,5 +1,5 @@
 # Multi-stage build for UniPortal Django backend.
-FROM python:3.12-slim AS builder
+FROM python:3.12-slim-trixie AS builder
 
 WORKDIR /app
 
@@ -17,17 +17,28 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY requirements.txt .
 RUN pip install --prefix=/install --no-cache-dir --timeout 300 --retries 10 -r requirements.txt
 
-FROM python:3.12-slim
+FROM python:3.12-slim-trixie
 
 WORKDIR /app
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
+    ca-certificates \
     libpq5 \
     poppler-utils \
-    postgresql-client \
     tesseract-ocr \
     && rm -rf /var/lib/apt/lists/*
+
+# Production runs PostgreSQL 18. Debian's default client 17 cannot dump it.
+# Use the PostgreSQL project's signed repository, with only the client installed.
+RUN install -d /usr/share/postgresql-common/pgdg && \
+    curl --fail --silent --show-error \
+      https://www.postgresql.org/media/keys/ACCC4CF8.asc \
+      -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc && \
+    printf '%s\n' 'deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt trixie-pgdg main' \
+      > /etc/apt/sources.list.d/pgdg.list && \
+    apt-get update && apt-get install -y --no-install-recommends postgresql-client-18 && \
+    rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder /install /usr/local
 

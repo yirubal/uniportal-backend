@@ -678,8 +678,8 @@ found through actual administrator use; monetization remains deferred.
   Telegram reports a configured webhook with no backlog or last error.
 - [ ] Verify a successful live upload/extraction, controlled notification and AI
   workflow, authenticated admin changes and frontend/device resource viewing.
-- [ ] Verify full production backups and isolated restore, then deploy daily
-  maintenance after reviewing its subscription/reminder/file-cleanup effects.
+- [x] Verify a full production database/media backup and isolated restore.
+- [ ] Deploy daily maintenance after reviewing its subscription/reminder/file-cleanup effects.
 - [ ] Complete alerts, proxy trust and representative cost/capacity measurements.
 - [ ] Migrate legacy Railway JSON configuration before the 2026-12-01 cutoff.
   New services already reject legacy config paths; the worker uses explicit
@@ -688,6 +688,26 @@ found through actual administrator use; monetization remains deferred.
 Details and measurement limits: [rollout evidence](docs/PHASE_6_OPERATIONS.md#admin-rollout-and-worker-activation--2026-10-15)
 and [sanitized snapshot](docs/PRODUCTION_ROLLOUT_VERIFICATION.json). No extraction
 limits were raised, failed jobs retried or monetization rules changed.
+
+### Backup and maintenance implementation — 2026-10-15
+
+Railway rejected native backup scheduling on this Hobby workspace because it
+requires Pro. The owner selected the existing private R2 bucket for now, accepting
+that it does not protect against bucket/account loss. Added a PostgreSQL snapshot
+dump, incremental verified media copies and private completion manifests, with
+30-day retention scoped to the new backup namespace. Daily maintenance must use
+`run_maintenance --backup`; a failed backup prevents all maintenance effects.
+The container now has PostgreSQL client 18, matching the production server.
+
+Validation: 272 PostgreSQL tests pass; the container passes 272 tests with 12
+PostgreSQL-only skips, dependency checks and real OCR. Thirteen backup tests cover
+actual dumps, missing files, corrupt copies, retention, credentials and ordering.
+The real production database and all media were restored successfully in isolation:
+36 tables / 5,817 rows, 564 objects / 758,163,668 bytes, all hashes matching.
+Django reads/relationships passed with external credentials disabled; temporary
+private files and the local cluster were removed. Cron deployment is next.
+No migration or Python dependency was added.
+See [backup operation and recovery](docs/PRODUCTION_BACKUPS.md).
 
 ## Deferred — Monetization readiness
 

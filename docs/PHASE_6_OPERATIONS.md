@@ -119,6 +119,10 @@ review the plan, and retain the current web migration ownership.
 | Worker | `/railway-worker.json` | Docker build, `run_worker`, one replica, no pre-deploy migrations or HTTP check |
 | Daily maintenance | `/railway-maintenance.json` | `run_maintenance`, daily 03:00 UTC / 06:00 EAT, no restart loop or HTTP check |
 
+The backup rollout adds `--backup` to the maintenance start command. It must
+finish and verify a database/media backup before maintenance changes anything.
+See [backup design, retention and recovery](PRODUCTION_BACKUPS.md).
+
 Do not let worker/cron services inherit the root web config: config-as-code takes
 precedence over service UI commands. A pre-deploy command executes per deployment;
 keep exactly one migration-owning web service and serialize releases. Separate
