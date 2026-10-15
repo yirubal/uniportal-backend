@@ -186,6 +186,7 @@ DATA_UPLOAD_MAX_MEMORY_SIZE = 2 * 1024 * 1024
 # ── Unfold Admin ──────────────────────────────────────────────────────────────
 UNFOLD = {
     'SITE_TITLE':    'UniPortal Admin',
+    'DASHBOARD_CALLBACK': 'config.admin_dashboard.dashboard',
     'SITE_HEADER':   'Unity University',
     'SITE_SUBHEADER': 'Student Portal',
     'SITE_URL':      '/',
@@ -210,134 +211,7 @@ UNFOLD = {
     'SIDEBAR': {
         'show_search':       True,
         'show_all_applications': False,
-        'navigation': [
-            {
-                'title': 'Students',
-                'separator': True,
-                'items': [
-                    {
-                        'title': 'Students',
-                        'icon':  'people',
-                        'link':  '/admin/accounts/student/',
-                    },
-                    {
-                        'title': 'Subscription Requests',
-                        'icon':  'payments',
-                        'link':  '/admin/accounts/subscriptionrequest/',
-                        'badge': 'apps.accounts.badge.badge_pending_requests',
-                    },
-                    {
-                        'title': 'Subscription Plans',
-                        'icon':  'card_membership',
-                        'link':  '/admin/accounts/subscriptionplan/',
-                    },
-                    {
-                        'title': 'Send Broadcast',
-                        'icon':  'campaign',
-                        'link':  '/admin/accounts/student/broadcast/',
-                        'permission': lambda request: request.user.has_perm('accounts.add_broadcastmessage'),
-                    },
-                ],
-            },
-            {
-                'title': 'Content',
-                'separator': True,
-                'items': [
-                    {
-                        'title': 'Departments',
-                        'icon':  'apartment',
-                        'link':  '/admin/content/department/',
-                    },
-                    {
-                        'title': 'Courses',
-                        'icon':  'menu_book',
-                        'link':  '/admin/content/course/',
-                    },
-
-                    {
-                        'title': 'Resources',
-                        'icon':  'folder',
-                        'link':  '/admin/content/resource/',
-                    },
-                    {
-                        'title': 'File Inbox',
-                        'icon':  'inbox',
-                        'link':  '/admin/content/fileinbox/',
-                    },
-
-                    {
-                        'title': "Resource Audit",
-                        'icon':  "fact_check",
-                        'link':  "/admin/content/course/course-resource-audit/",
-                        'permission': lambda request: request.user.has_perms(['content.view_course', 'content.view_resource']),
-                    },
-                ],
-            },
-            {
-                'title': 'Quiz',
-                'separator': True,
-                'items': [
-                    {
-                        'title': 'Exam Papers',
-                        'icon':  'description',
-                        'link':  '/admin/quiz/exampaper/',
-                    },
-                    {
-                        'title': 'Questions',
-                        'icon':  'quiz',
-                        'link':  '/admin/quiz/question/',
-                    },
-                    {
-                        'title': 'Chapters',
-                        'icon':  'menu_book',
-                        'link':  '/admin/quiz/chapter/',
-                    },
-                    {
-                        'title': 'Quiz Attempts',
-                        'icon':  'history_edu',
-                        'link':  '/admin/quiz/quizattempt/',
-                    },
-                ],
-            },
-            {
-                'title': 'Exams',
-                'separator': True,
-                'items': [
-                    {
-                        'title': 'Exam Terms',
-                        'icon': 'calendar_month',
-                        'link': '/admin/exams/examterm/',
-                    },
-                    {
-                        'title': 'Student Exams',
-                        'icon': 'assignment',
-                        'link': '/admin/exams/studentexam/',
-                    },
-                    {
-                        'title': 'PDF Uploads',
-                        'icon': 'upload_file',
-                        'link': '/admin/exams/exampdfupload/',
-                    },
-                    {
-                        'title': 'Notifications Log',
-                        'icon': 'notifications',
-                        'link': '/admin/exams/examnotificationlog/',
-                    },
-                ],
-            },
-
-            {
-                'title': 'Settings',
-                'separator': True,
-                'items': [
-                    {
-                        'title': 'Site Settings',
-                        'icon':  'settings',
-                        'link':  '/admin/accounts/sitesettings/',
-                    },
-                ],
-            },
-        ],
+        'navigation': 'config.admin_dashboard.navigation',
     },
 }
 

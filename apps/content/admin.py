@@ -5,6 +5,7 @@ from django.core.exceptions import PermissionDenied
 from django.urls import path, reverse
 from django.utils.html import format_html
 from django.db import transaction
+from apps.bot.admin_filters import WorkAttentionFilter
 from unfold.admin import ModelAdmin, TabularInline
 
 from . import views_admin
@@ -253,7 +254,7 @@ class FileInboxAdmin(ModelAdmin):
         return actions
 
     list_display  = ['original_filename', 'telegram_caption_preview', 'posted_date', 'processing_status', 'is_assigned']
-    list_filter   = [AssignmentFilter, 'processing_status']
+    list_filter   = [WorkAttentionFilter, AssignmentFilter, 'processing_status']
     search_fields = ['original_filename', 'telegram_caption', 'extracted_text']
     readonly_fields = [
         'original_filename', 'telegram_message_id', 'telegram_caption',

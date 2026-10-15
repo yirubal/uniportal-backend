@@ -1,5 +1,6 @@
 from django.contrib import admin, messages
 from django.utils import timezone
+from apps.bot.admin_filters import WorkAttentionFilter
 from unfold.admin import ModelAdmin
 
 from .models import NotificationDelivery, QuestionExtraction, TelegramUpdate
@@ -26,7 +27,7 @@ retry_failed.short_description = 'Retry selected failed records after review'
 @admin.register(TelegramUpdate)
 class TelegramUpdateAdmin(ModelAdmin):
     list_display = ['update_id', 'status', 'attempt_count', 'next_attempt_at', 'claimed_at', 'created_at']
-    list_filter = ['status']
+    list_filter = [WorkAttentionFilter, 'status']
     readonly_fields = [field.name for field in TelegramUpdate._meta.fields]
     actions = [retry_failed]
 
@@ -40,7 +41,7 @@ class TelegramUpdateAdmin(ModelAdmin):
 @admin.register(NotificationDelivery)
 class NotificationDeliveryAdmin(ModelAdmin):
     list_display = ['deduplication_key', 'broadcast', 'status', 'attempt_count', 'next_attempt_at', 'created_at']
-    list_filter = ['status', 'broadcast']
+    list_filter = [WorkAttentionFilter, 'status', 'broadcast']
     readonly_fields = [field.name for field in NotificationDelivery._meta.fields]
     actions = [retry_failed]
 
@@ -54,7 +55,7 @@ class NotificationDeliveryAdmin(ModelAdmin):
 @admin.register(QuestionExtraction)
 class QuestionExtractionAdmin(ModelAdmin):
     list_display = ['inbox', 'status', 'attempt_count', 'next_attempt_at', 'created_at']
-    list_filter = ['status']
+    list_filter = [WorkAttentionFilter, 'status']
     readonly_fields = [field.name for field in QuestionExtraction._meta.fields]
     actions = [retry_failed]
 

@@ -454,7 +454,43 @@ retrying reviewed historical failures. The queue snapshot above remains a point
 in time, not a claim that those jobs have recovered. The 14 historical import
 errors still require individual source/error review before retrying.
 
-Steps 2–5 remain pending. The navigation and Overview redesign has not started.
+### Step 2 implementation — 2026-10-15
+
+Navigation and Overview are implemented in the existing Django/Unfold admin:
+
+- Grouped navigation covers Overview, Content, Exams & quizzes, Students &
+  communication, Operations and Settings. Standard destinations use their
+  registered admin permissions; unavailable destinations and empty groups are
+  omitted. Staff accounts/groups and previously hidden work queues are reachable.
+- Overview shortcuts cover inbox review, resource creation, exam PDF upload and
+  student search. Attention cards link to pending drafts, extracted unassigned
+  files, unassigned questions and nonzero failed/overdue/stale job counts.
+- A shared admin filter keeps all five job queues consistent with their counts.
+  Inbox operations explicitly include assigned files, avoiding the inbox's default
+  hidden-assignment filter. Overdue means pending for more than 15 minutes;
+  stale means processing with a missing claim or a claim older than the configured
+  worker timeout. No overlapping categories are combined into a grand total.
+- The active exam term and six most recent recorded admin changes are shown
+  only for models the user can view. Deleted activity entries have no edit link.
+  The page explains that bulk/background actions may not appear in this history.
+- The page shows its snapshot timestamp and explicitly states that queue counts
+  do not prove worker health. There is no polling, external call, storage read,
+  new service, chart package or new dependency. A scoped stylesheet supplies the
+  spacing, warning, keyboard-focus and screen-reader utilities missing from the
+  bundled Unfold CSS; the queue table scrolls horizontally on narrow screens.
+
+Verification: eight new tests cover linked record counts across queues, assigned
+inbox failures, scheduled/future jobs, stale claims, restricted staff, sidebar
+destinations, recent-activity privacy, active terms and query growth. The full
+SQLite suite ran 217 cases: 209 passed and 8 PostgreSQL-only cases skipped.
+Dashboard data uses 10 queries for a superuser both before and after adding 100
+jobs (the complete HTTP request also has normal admin/session/permission queries).
+Migration-drift checks pass; no migration is needed. Static collection includes
+the new stylesheet. Browser visual verification remains pending because the
+available Chromium executable lacks system libraries in this environment.
+
+The worker deployment follow-up from Step 1 remains open. Steps 3–5 remain
+pending; this step does not retry or alter production work.
 
 ## Deferred — Monetization readiness
 

@@ -1,0 +1,51 @@
+/* Only styles absent from Unfold's bundled utilities belong here. */
+.overview-workspace > * + * {
+    margin-top: 2rem;
+}
+
+.overview-workspace a:focus-visible {
+    outline: 2px solid var(--color-primary-600, #0284c7);
+    outline-offset: 3px;
+}
+
+.overview-workspace .overview-card:hover {
+    border-color: var(--color-primary-500, #0ea5e9);
+}
+
+.overview-workspace .overview-card-urgent {
+    border-color: #fca5a5;
+}
+
+.overview-workspace .overview-card-urgent .overview-value {
+    color: #b91c1c;
+}
+
+.dark .overview-workspace .overview-card-urgent {
+    border-color: #991b1b;
+}
+
+.dark .overview-workspace .overview-card-urgent .overview-value {
+    color: #f87171;
+}
+
+.overview-table tbody tr + tr,
+.overview-activity li + li {
+    border-top: 1px solid #e5e7eb;
+}
+
+.dark .overview-table tbody tr + tr,
+.dark .overview-activity li + li {
+    border-top-color: #374151;
+}
+
+.overview-sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border-width: 0;
+}
