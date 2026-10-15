@@ -489,8 +489,63 @@ Migration-drift checks pass; no migration is needed. Static collection includes
 the new stylesheet. Browser visual verification remains pending because the
 available Chromium executable lacks system libraries in this environment.
 
-The worker deployment follow-up from Step 1 remains open. Steps 3–5 remain
-pending; this step does not retry or alter production work.
+The worker deployment follow-up from Step 1 remains open. This step does not
+retry or alter production work.
+
+### Step 3 implementation — 2026-10-15
+
+The content workflow is implemented and verified in the existing admin:
+
+- Inbox and resource pages explain the next action. Creating a single draft
+  opens its review form; a batch opens a list filtered to the created drafts.
+  Repeated selections preserve the original assignment and skip ineligible
+  records. Draft creation and assignment are recorded in admin history. Assigned
+  inbox records remain hidden from the default list but their detail pages are
+  accessible, with a link to the resource. Assignment is read-only in the inbox.
+- Resource forms use searchable course selection. New choices are active courses;
+  existing inactive assignments remain visible for older drafts. Placement forms
+  also use searchable course/department inputs. Staff need the related model's
+  normal view/change permissions to use Django's relation search.
+- Review links open private R2 files using the existing expiring signed delivery
+  code, without downloading their bytes through the web service. Local file
+  previews stream only after an explicit authorized request. Stored size/page
+  metadata is visible without reading the file on the review page.
+- Publishing through the resource form requires a file reference and at least
+  one active course. Status is no longer editable directly in the list. Bulk
+  publishing accepts reviewed pending drafts that meet the same requirements,
+  reports skipped records and logs changes. It locks resource rows through a
+  separate ID subquery so related-course searches using DISTINCT work on
+  PostgreSQL. These checks verify assignment and stored file references, not
+  physical object availability; the explicit file review remains necessary.
+- Draft filters distinguish missing active-course assignments from files ready
+  for review. Drafts can remain unassigned while being prepared. Free student
+  access and existing monetization behavior are unchanged.
+- Coverage now counts distinct active courses with published material. All
+  summary figures, department cards and lists share search, department and
+  program scope; department/program must match the same placement. Repeated
+  placements and shared resources are counted distinctly within each summary.
+  All-program reporting replaces the hardcoded distance-only view. Unfiltered
+  coverage includes active courses without placements, with an explanation.
+- Department cards, course coverage lists and per-course resources are paginated.
+  Coverage navigation uses normal links and keeps filters while changing pages
+  or views. Invalid tab values cannot break client-side navigation. Matching
+  resource titles remain review-only hints across page boundaries; they never
+  authorize automatic deletion. Tables scroll horizontally on narrow screens.
+
+Verification: 16 new regressions cover single/batch draft handoff, repeat safety,
+publication rules/logging (including course-search locking), inactive assignments,
+autocomplete, review filters, authorized local/R2 preview, published coverage,
+placement scoping, search, pagination and bounded department query growth.
+The complete suite passes on an isolated temporary PostgreSQL database: 233
+tests passed. SQLite: 225 passed and 8 PostgreSQL-only cases skipped. System and
+migration-drift checks pass; no migration is required. Static collection includes
+the workflow stylesheet. The department overview query count stays bounded when
+30 departments are added; each page renders at most 24 departments or 25 courses
+or resources. Visual browser verification and the existing worker rollout remain
+pending. No production records or jobs were changed.
+
+Steps 4–5 remain pending. Next: exam upload progress, validated question bulk
+editing and broadcast/delivery feedback.
 
 ## Deferred — Monetization readiness
 

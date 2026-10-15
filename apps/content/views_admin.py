@@ -4,220 +4,152 @@ apps/content/views_admin.py
 Custom admin views: Course Resource Audit Dashboard
 """
 
+from urllib.parse import urlencode
+
 from django.contrib.admin.views.decorators import staff_member_required
 from django.contrib.auth.decorators import permission_required
 from django.shortcuts import render, get_object_or_404, redirect
 from django.contrib import messages
-from django.db.models import Count, Q, Prefetch
+from django.db.models import Count, Q, Prefetch, Exists, OuterRef, Window
+from django.db.models.functions import Lower, Trim
+from django.core.paginator import Paginator
 from django.views.decorators.http import require_POST
 
 from .models import Course, Resource, CoursePlacement, Department
 
 
 def course_resource_audit_context(request) -> dict:
-    """
-    Builds and returns the context dict for the Course Resource Audit dashboard.
-    Rendering is done by CourseAdmin.audit_view so that self.admin_site.each_context()
-    (which provides Unfold theme variables) can be merged in first.
-    """
-
-    # ── Overall stats ─────────────────────────────────────────────────────────
-    total_courses    = Course.objects.filter(is_active=True).count()
-    total_resources  = Resource.objects.count()
-    published_resources = Resource.objects.filter(status=Resource.STATUS_PUBLISHED).count()
-    pending_resources   = Resource.objects.filter(status=Resource.STATUS_PENDING).count()
-
-    courses_with_resources = (
-        Course.objects.filter(is_active=True, resources__isnull=False)
-        .distinct().count()
-    )
-    courses_without_resources = total_courses - courses_with_resources
-
-    # ── Per-department breakdown ───────────────────────────────────────────────
-    departments = Department.objects.filter(is_active=True).prefetch_related(
-        Prefetch(
-            'course_placements',
-            queryset=CoursePlacement.objects.select_related('course').filter(
-                program='distance'
-            ),
-        )
-    ).order_by('name')
-
-    dept_stats = []
-    for dept in departments:
-        placements = dept.course_placements.all()
-        dept_courses = [p.course for p in placements]
-        dept_total   = len(dept_courses)
-        if dept_total == 0:
-            continue
-
-        course_ids = [c.id for c in dept_courses]
-        dept_with_resources = (
-            Course.objects.filter(id__in=course_ids, resources__isnull=False)
-            .distinct().count()
-        )
-        dept_without = dept_total - dept_with_resources
-        dept_resource_count = Resource.objects.filter(courses__id__in=course_ids).distinct().count()
-        coverage_pct = round((dept_with_resources / dept_total) * 100) if dept_total else 0
-
-        dept_stats.append({
-            'department':      dept,
-            'total_courses':   dept_total,
-            'with_resources':  dept_with_resources,
-            'without':         dept_without,
-            'resource_count':  dept_resource_count,
-            'coverage_pct':    coverage_pct,
-        })
-
-    # ── Courses WITHOUT resources ─────────────────────────────────────────────
-    courses_missing = (
-        Course.objects.filter(is_active=True, resources__isnull=True)
-        .prefetch_related(
-            Prefetch(
-                'placements',
-                queryset=CoursePlacement.objects.select_related('department').filter(
-                    program='distance'
-                ).order_by('year', 'period'),
-            )
-        )
-        .order_by('name')
-        .distinct()
-    )
-
-    # ── Courses WITH resources ────────────────────────────────────────────────
-    courses_covered = (
-        Course.objects.filter(is_active=True, resources__isnull=False)
-        .annotate(
-            resource_count=Count('resources', distinct=True),
-            published_count=Count(
-                'resources',
-                filter=Q(resources__status='published'),
-                distinct=True,
-            ),
-            pending_count=Count(
-                'resources',
-                filter=Q(resources__status='pending'),
-                distinct=True,
-            ),
-        )
-        .prefetch_related(
-            Prefetch(
-                'placements',
-                queryset=CoursePlacement.objects.select_related('department').filter(
-                    program='distance'
-                ).order_by('year', 'period'),
-            )
-        )
-        .order_by('-resource_count')
-        .distinct()
-    )
-
-    # ── Filter by department (optional) ──────────────────────────────────────
-    dept_filter = request.GET.get('department')
+    """Count published coverage in one consistent course/placement scope."""
+    search = request.GET.get('q', '').strip()
+    program = request.GET.get('program', '')
+    if program not in dict(CoursePlacement.PROGRAM_CHOICES):
+        program = ''
     try:
-        dept_filter = int(dept_filter) if dept_filter else None
+        dept_filter = int(request.GET.get('department', '')) or None
     except (ValueError, TypeError):
         dept_filter = None
+    active_tab = request.GET.get('tab', 'overview')
+    if active_tab not in {'overview', 'missing', 'covered'}:
+        active_tab = 'overview'
 
+    courses = Course.objects.filter(is_active=True)
+    placement_scope = CoursePlacement.objects.filter(course_id=OuterRef('pk'))
     if dept_filter:
-        courses_missing = courses_missing.filter(
-            placements__department_id=dept_filter,
-            placements__program='distance',
-        )
-        courses_covered = courses_covered.filter(
-            placements__department_id=dept_filter,
-            placements__program='distance',
-        )
-
-    # ── Search ────────────────────────────────────────────────────────────────
-    search = request.GET.get('q', '').strip()
+        placement_scope = placement_scope.filter(department_id=dept_filter, department__is_active=True)
+    if program:
+        placement_scope = placement_scope.filter(program=program)
+    if dept_filter or program:
+        courses = courses.filter(Exists(placement_scope))
     if search:
-        courses_missing = courses_missing.filter(
-            Q(name__icontains=search) | Q(code__icontains=search)
-        )
-        courses_covered = courses_covered.filter(
-            Q(name__icontains=search) | Q(code__icontains=search)
-        )
+        courses = courses.filter(Q(name__icontains=search) | Q(code__icontains=search))
+
+    published = Resource.objects.filter(courses=OuterRef('pk'), status=Resource.STATUS_PUBLISHED)
+    courses = courses.annotate(has_published=Exists(published))
+    course_counts = courses.aggregate(
+        total=Count('pk'), covered=Count('pk', filter=Q(has_published=True)),
+    )
+    total = course_counts['total']
+    covered = course_counts['covered']
+    resources = Resource.objects.filter(courses__in=courses)
+    resource_counts = resources.aggregate(
+        total=Count('pk', distinct=True),
+        published=Count('pk', filter=Q(status=Resource.STATUS_PUBLISHED), distinct=True),
+        pending=Count('pk', filter=Q(status=Resource.STATUS_PENDING), distinct=True),
+    )
+    # One grouped query for every department; repeated placements count once.
+    department_scope = Q(course_placements__course__in=courses)
+    if program:
+        department_scope &= Q(course_placements__program=program)
+    departments = Department.objects.filter(is_active=True)
+    if dept_filter:
+        departments = departments.filter(pk=dept_filter)
+    department_counts = departments.annotate(
+        total_courses=Count('course_placements__course', filter=department_scope, distinct=True),
+        with_resources=Count('course_placements__course', filter=department_scope & Q(
+            course_placements__course__resources__status=Resource.STATUS_PUBLISHED), distinct=True),
+        resource_count=Count('course_placements__course__resources', filter=department_scope & Q(
+            course_placements__course__resources__status=Resource.STATUS_PUBLISHED), distinct=True),
+    ).filter(total_courses__gt=0).order_by('name', 'pk')
+
+    params = {}
+    if search:
+        params['q'] = search
+    if dept_filter:
+        params['department'] = dept_filter
+    if program:
+        params['program'] = program
+    tab_links = [{'key': key, 'label': label, 'url': '?' + urlencode({**params, 'tab': key})}
+                 for key, label in [('overview', 'By department'), ('missing', f'Missing published material ({total - covered})'),
+                                    ('covered', f'Published material ({covered})')]]
+    params['tab'] = active_tab
+    dept_stats, course_page = [], None
+    if active_tab == 'overview':
+        page = Paginator(department_counts, 24).get_page(request.GET.get('page'))
+        for dept in page:
+            dept_stats.append({'department': dept, 'total_courses': dept.total_courses,
+                               'with_resources': dept.with_resources,
+                               'without': dept.total_courses - dept.with_resources,
+                               'resource_count': dept.resource_count,
+                               'coverage_pct': round(100 * dept.with_resources / dept.total_courses)})
+    else:
+        placements = CoursePlacement.objects.select_related('department').filter(department__is_active=True)
+        if program:
+            placements = placements.filter(program=program)
+        if dept_filter:
+            placements = placements.filter(department_id=dept_filter)
+        listed_courses = courses.filter(has_published=active_tab == 'covered').annotate(
+            published_count=Count('resources', filter=Q(resources__status=Resource.STATUS_PUBLISHED), distinct=True),
+            pending_count=Count('resources', filter=Q(resources__status=Resource.STATUS_PENDING), distinct=True),
+        ).prefetch_related(Prefetch('placements', queryset=placements.order_by('department__name', 'program', 'year', 'period')))
+        page = Paginator(listed_courses.order_by('name', 'pk'), 25).get_page(request.GET.get('page'))
+        course_page = page
 
     return {
-        'title': 'Course Resource Audit',
-        'opts':  Course._meta,
-
-        # Overall stats
-        'total_courses':             total_courses,
-        'total_resources':           total_resources,
-        'published_resources':       published_resources,
-        'pending_resources':         pending_resources,
-        'courses_with_resources':    courses_with_resources,
-        'courses_without_resources': courses_without_resources,
-        'overall_coverage_pct':      round((courses_with_resources / total_courses) * 100) if total_courses else 0,
-
-        # Department breakdown
-        'dept_stats': dept_stats,
-
-        # Course lists
-        'courses_missing': courses_missing,
-        'courses_covered': courses_covered,
-
-        # Filter state
+        'title': 'Resource coverage', 'opts': Course._meta,
+        'total_courses': total, 'courses_with_resources': covered,
+        'courses_without_resources': total - covered,
+        'overall_coverage_pct': round(100 * covered / total) if total else 0,
+        'total_resources': resource_counts['total'], 'published_resources': resource_counts['published'],
+        'pending_resources': resource_counts['pending'],
+        'metrics': [
+            ('Active courses', total), ('With published material', covered),
+            ('Missing published material', total - covered), ('Resources in scope', resource_counts['total']),
+            ('Published resources', resource_counts['published']), ('Drafts to review', resource_counts['pending']),
+        ],
+        'dept_stats': dept_stats, 'courses': course_page, 'page_obj': page,
+        'pagination_query': urlencode(params), 'tab_links': tab_links,
         'departments': Department.objects.filter(is_active=True).order_by('name'),
-        'dept_filter': dept_filter,
-        'search':      search,
-        'active_tab':  request.GET.get('tab', 'overview'),
+        'program_choices': CoursePlacement.PROGRAM_CHOICES, 'program': program,
+        'dept_filter': dept_filter, 'search': search, 'active_tab': active_tab,
     }
 
 
-
-def course_resource_detail_context(course_id) -> dict:
+def course_resource_detail_context(course_id, request=None) -> dict:
     course = get_object_or_404(Course, id=course_id)
-    resources = (
-        Resource.objects
-        .filter(courses=course)
-        .prefetch_related('courses')
-        .order_by('file_type', 'title')
+    resources = Resource.objects.filter(courses=course)
+    counts = resources.aggregate(
+        total=Count('pk'), published=Count('pk', filter=Q(status=Resource.STATUS_PUBLISHED)),
+        pending=Count('pk', filter=Q(status=Resource.STATUS_PENDING)),
     )
-
-    seen_titles = {}
-    resources_with_flags = []
-    for r in resources:
-        normalized = r.title.lower().strip()
-        is_duplicate = normalized in seen_titles
-        seen_titles[normalized] = True
-        resources_with_flags.append({
-            'resource':      r,
-            'is_duplicate':  is_duplicate,
-        })
-
-    placements = (
-        CoursePlacement.objects
-        .filter(course=course)
-        .select_related('department')
-        .order_by('department__name', 'year', 'period')
-    )
-
-    total           = resources.count()
-    duplicate_count = sum(1 for r in resources_with_flags if r['is_duplicate'])
-    published_count = resources.filter(status=Resource.STATUS_PUBLISHED).count()
-    pending_count   = resources.filter(status=Resource.STATUS_PENDING).count()
-
-    context = {
-        'title':               f'Resources — {course.name}',
-        'course':              course,
-        'resources_with_flags': resources_with_flags,
-        'placements':          placements,
-        'opts':                Course._meta,
-        'total':               total,
-        'duplicate_count':     duplicate_count,
-        'published_count':     published_count,
-        'pending_count':       pending_count,
+    matching_titles = resources.annotate(normalized_title=Lower(Trim('title'))).values(
+        'normalized_title').annotate(matches=Count('pk')).filter(matches__gt=1).order_by()
+    listed = resources.annotate(title_matches=Window(
+        expression=Count('pk'), partition_by=[Lower(Trim('title'))],
+    )).prefetch_related('courses').order_by('file_type', 'title', 'pk')
+    page = Paginator(listed, 25).get_page(request.GET.get('page') if request else None)
+    return {
+        'title': f'Resources — {course.name}', 'course': course, 'opts': Course._meta,
+        'resources_with_flags': [{'resource': resource, 'is_duplicate': resource.title_matches > 1} for resource in page],
+        'placements': CoursePlacement.objects.filter(course=course).select_related('department').order_by('department__name', 'year', 'period'),
+        'total': counts['total'], 'published_count': counts['published'], 'pending_count': counts['pending'],
+        'duplicate_count': matching_titles.count(), 'page_obj': page, 'pagination_query': '',
     }
-    return context
 
 
 @staff_member_required
 @permission_required(('content.view_course', 'content.view_resource'), raise_exception=True)
 def course_resource_detail(request, course_id):
-    context = course_resource_detail_context(course_id)
+    context = course_resource_detail_context(course_id, request)
     return render(request, 'admin/content/course_resource_detail.html', context)
 
 
