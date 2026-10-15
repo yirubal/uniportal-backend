@@ -5,11 +5,13 @@ from django.contrib.admin.models import CHANGE, LogEntry
 from django.core import signing
 from django.core.exceptions import PermissionDenied
 from django.db import transaction
+from django.db.models import Count, Q
 from django.http import HttpResponse, HttpResponseRedirect
 from django.shortcuts import render, redirect
 from django.urls import path, reverse
 from django.utils.html import format_html
 from unfold.admin import ModelAdmin
+from unfold.contrib.filters.admin import AutocompleteSelectFilter
 
 from .models import Chapter, ExamPaper, Question, QuizAttempt
 from .forms import QuestionBulkEditForm
@@ -48,7 +50,7 @@ class ChapterAdmin(ModelAdmin):
         'created_at',
     ]
     list_filter = [
-        'course',
+        ('course', AutocompleteSelectFilter),
         'is_active',
         'created_at',
     ]
@@ -85,6 +87,11 @@ class ChapterAdmin(ModelAdmin):
             )
         }),
     )
+
+    def get_queryset(self, request):
+        return super().get_queryset(request).select_related('course').annotate(
+            active_question_count=Count('questions', filter=Q(questions__is_active=True)),
+        )
 
     @admin.display(description='Chapter')
     def chapter_display(self, obj):
@@ -171,9 +178,14 @@ class ExamPaperAdmin(ModelAdmin):
         }),
     )
 
+    def get_queryset(self, request):
+        return super().get_queryset(request).select_related('course', 'department').annotate(
+            active_question_count=Count('questions', filter=Q(questions__is_active=True)),
+        )
+
     @admin.display(description='Total Questions')
     def total_questions_display(self, obj):
-        return obj.questions.filter(is_active=True).count()
+        return obj.total_questions
 
     # ── Extra URLs ────────────────────────────────────────────────────────────
 
@@ -310,6 +322,7 @@ class ExamPaperAdmin(ModelAdmin):
 
 @admin.register(Question)
 class QuestionAdmin(ModelAdmin):
+    list_select_related = ['chapter__course', 'exam_paper__course', 'exam_paper__department']
     ordering = ['-id']
     list_per_page = 50
 
@@ -327,11 +340,11 @@ class QuestionAdmin(ModelAdmin):
         'question_type',
         'difficulty',
         'is_active',
-        'chapter__course',
-        'chapter',
+        ('chapter__course', AutocompleteSelectFilter),
+        ('chapter', AutocompleteSelectFilter),
         'exam_paper__exam_type',
-        'exam_paper__department',
-        'exam_paper__course',
+        ('exam_paper__department', AutocompleteSelectFilter),
+        ('exam_paper__course', AutocompleteSelectFilter),
     ]
     search_fields = [
         'text',
@@ -416,17 +429,19 @@ class QuestionAdmin(ModelAdmin):
         return self.start_bulk_edit(request, queryset)
 
     def start_bulk_edit(self, request, queryset, assignment_only=False):
+        filters = request.GET.copy()
+        filters.pop('next', None)
         selection = signing.dumps({
             'user': request.user.pk, 'ids': list(queryset.values_list('pk', flat=True)),
-            'assignment_only': assignment_only,
+            'assignment_only': assignment_only, 'filters': filters.urlencode(),
         }, salt='quiz-admin-bulk-edit', compress=True)
         form = QuestionBulkEditForm(initial={'selection': selection}, user=request.user, assignment_only=assignment_only)
-        return self.render_bulk_edit(request, form, queryset)
+        return self.render_bulk_edit(request, form, queryset, reverse('admin:quiz_question_changelist') + ('?' + filters.urlencode() if filters else ''))
 
-    def render_bulk_edit(self, request, form, queryset):
+    def render_bulk_edit(self, request, form, queryset, return_url):
         return render(request, 'admin/quiz/bulk_metadata.html', {
             **self.admin_site.each_context(request), 'opts': Question._meta,
-            'title': 'Review question changes', 'form': form, 'question_count': queryset.count(),
+            'title': 'Review question changes', 'form': form, 'bulk_return_url': return_url, 'question_count': queryset.count(),
             'question_preview': list(queryset.order_by('pk').values_list('text', flat=True)[:5]),
         })
 
@@ -453,6 +468,7 @@ class QuestionAdmin(ModelAdmin):
         except (signing.BadSignature, KeyError, TypeError):
             messages.warning(request, 'This selection is invalid or expired. Select the questions again; no changes were applied.')
             return redirect('admin:quiz_question_changelist')
+        return_url = reverse('admin:quiz_question_changelist') + ('?' + selection['filters'] if selection.get('filters') else '')
         form = QuestionBulkEditForm(request.POST, user=request.user, assignment_only=selection.get('assignment_only', False))
         queryset = self.get_queryset(request).filter(pk__in=selection['ids'])
         if form.is_valid():
@@ -484,14 +500,15 @@ class QuestionAdmin(ModelAdmin):
                         messages.success(request, f'Applied metadata to {count} selected question(s).')
                     else:
                         messages.info(request, 'All fields were left unchanged; no updates were applied.')
-                    return redirect('admin:quiz_question_changelist')
-        return self.render_bulk_edit(request, form, queryset)
+                    return redirect(return_url)
+        return self.render_bulk_edit(request, form, queryset, return_url)
 
 
 # ─── QuizAttempt Admin ─────────────────────────────────────────────────────────
 
 @admin.register(QuizAttempt)
 class QuizAttemptAdmin(ModelAdmin):
+    list_select_related = ['student', 'exam_paper__course', 'exam_paper__department']
     list_display = [
         'student',
         'exam_paper',

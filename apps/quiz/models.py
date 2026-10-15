@@ -146,6 +146,8 @@ class Chapter(models.Model):
 
     @property
     def question_count(self):
+        if hasattr(self, 'active_question_count'):
+            return self.active_question_count
         return self.questions.filter(is_active=True).count()
 
 

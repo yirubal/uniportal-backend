@@ -2,6 +2,7 @@ from django.contrib import admin, messages
 from django.utils import timezone
 from apps.bot.admin_filters import WorkAttentionFilter
 from unfold.admin import ModelAdmin
+from unfold.contrib.filters.admin import AutocompleteSelectFilter
 
 from .models import NotificationDelivery, QuestionExtraction, TelegramUpdate
 
@@ -40,8 +41,9 @@ class TelegramUpdateAdmin(ModelAdmin):
 
 @admin.register(NotificationDelivery)
 class NotificationDeliveryAdmin(ModelAdmin):
+    list_select_related = ['broadcast', 'exam_notification']
     list_display = ['deduplication_key', 'broadcast', 'status', 'attempt_count', 'next_attempt_at', 'created_at']
-    list_filter = [WorkAttentionFilter, 'status', 'broadcast']
+    list_filter = [WorkAttentionFilter, 'status', ('broadcast', AutocompleteSelectFilter)]
     readonly_fields = [field.name for field in NotificationDelivery._meta.fields]
     actions = [retry_failed]
 

@@ -4,7 +4,7 @@
 }
 
 .overview-workspace a:focus-visible {
-    outline: 2px solid var(--color-primary-600, #0284c7);
+    outline: 2px solid var(--color-primary-600, #0279b5);
     outline-offset: 3px;
 }
 

@@ -4,11 +4,12 @@ apps/content/views_admin.py
 Custom admin views: Course Resource Audit Dashboard
 """
 
-from urllib.parse import urlencode
+from urllib.parse import urlencode, parse_qsl
 
 from django.contrib.admin.views.decorators import staff_member_required
 from django.contrib.auth.decorators import permission_required
 from django.shortcuts import render, get_object_or_404, redirect
+from django.urls import reverse
 from django.contrib import messages
 from django.db.models import Count, Q, Prefetch, Exists, OuterRef, Window
 from django.db.models.functions import Lower, Trim
@@ -117,7 +118,7 @@ def course_resource_audit_context(request) -> dict:
             ('Published resources', resource_counts['published']), ('Drafts to review', resource_counts['pending']),
         ],
         'dept_stats': dept_stats, 'courses': course_page, 'page_obj': page,
-        'pagination_query': urlencode(params), 'tab_links': tab_links,
+        'pagination_query': urlencode(params), 'return_query': urlencode({**params, 'page': page.number}), 'tab_links': tab_links,
         'departments': Department.objects.filter(is_active=True).order_by('name'),
         'program_choices': CoursePlacement.PROGRAM_CHOICES, 'program': program,
         'dept_filter': dept_filter, 'search': search, 'active_tab': active_tab,
@@ -137,12 +138,19 @@ def course_resource_detail_context(course_id, request=None) -> dict:
         expression=Count('pk'), partition_by=[Lower(Trim('title'))],
     )).prefetch_related('courses').order_by('file_type', 'title', 'pk')
     page = Paginator(listed, 25).get_page(request.GET.get('page') if request else None)
+    audit_filters = request.GET.get('audit_filters', '') if request else ''
+    # Only carry filter values back to a fixed local admin route.
+    allowed_filters = {key: value for key, value in parse_qsl(audit_filters)
+                       if key in {'q', 'department', 'program', 'tab', 'page'}}
+    audit_query = urlencode(allowed_filters)
     return {
         'title': f'Resources — {course.name}', 'course': course, 'opts': Course._meta,
         'resources_with_flags': [{'resource': resource, 'is_duplicate': resource.title_matches > 1} for resource in page],
         'placements': CoursePlacement.objects.filter(course=course).select_related('department').order_by('department__name', 'year', 'period'),
         'total': counts['total'], 'published_count': counts['published'], 'pending_count': counts['pending'],
-        'duplicate_count': matching_titles.count(), 'page_obj': page, 'pagination_query': '',
+        'duplicate_count': matching_titles.count(), 'page_obj': page,
+        'audit_url': reverse('admin:course_resource_audit') + ('?' + audit_query if audit_query else ''),
+        'pagination_query': urlencode({'audit_filters': audit_query}) if audit_query else '',
     }
 
 

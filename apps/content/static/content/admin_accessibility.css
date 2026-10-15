@@ -1,0 +1,11 @@
+.admin-nav-group {
+    width: calc(100% - 1.5rem);
+    min-height: 2.5rem;
+    text-align: left;
+}
+.admin-nav-toggle { min-height: 2rem; min-width: 2rem; }
+.admin-nav-group:focus-visible, .admin-nav-toggle:focus-visible {
+    outline: 2px solid var(--color-primary-600, #0279b5);
+    outline-offset: -2px;
+    border-radius: 4px;
+}

@@ -1,0 +1,477 @@
+{
+  "date": "2026-10-15",
+  "data": "Synthetic fixtures only; no production data or external services",
+  "performance": {
+    "before": {
+      "database": "isolated in-memory SQLite",
+      "method": "warm rendered GETs; median of 3; queries include session/admin overhead",
+      "one_row": {
+        "overview": {
+          "queries": 14,
+          "median_ms": 24.37
+        },
+        "exam_terms": {
+          "queries": 8,
+          "median_ms": 17.9
+        },
+        "papers": {
+          "queries": 9,
+          "median_ms": 21.87
+        },
+        "chapters": {
+          "queries": 8,
+          "median_ms": 24.98
+        },
+        "questions": {
+          "queries": 14,
+          "median_ms": 29.19
+        },
+        "students": {
+          "queries": 8,
+          "median_ms": 22.6
+        },
+        "payments": {
+          "queries": 8,
+          "median_ms": 20.66
+        },
+        "deliveries": {
+          "queries": 8,
+          "median_ms": 18.8
+        }
+      },
+      "twenty_five_rows": {
+        "overview": {
+          "queries": 14,
+          "median_ms": 30.52
+        },
+        "exam_terms": {
+          "queries": 56,
+          "median_ms": 63.4
+        },
+        "papers": {
+          "queries": 57,
+          "median_ms": 136.72
+        },
+        "chapters": {
+          "queries": 32,
+          "median_ms": 76.61
+        },
+        "questions": {
+          "queries": 110,
+          "median_ms": 104.3
+        },
+        "students": {
+          "queries": 32,
+          "median_ms": 56.44
+        },
+        "payments": {
+          "queries": 32,
+          "median_ms": 54.98
+        },
+        "deliveries": {
+          "queries": 32,
+          "median_ms": 53.9
+        }
+      }
+    },
+    "after": {
+      "database": "isolated in-memory SQLite",
+      "method": "warm rendered GETs; median of 3; queries include session/admin overhead",
+      "one_row": {
+        "overview": {
+          "queries": 14,
+          "median_ms": 20.96
+        },
+        "exam_terms": {
+          "queries": 6,
+          "median_ms": 15.12
+        },
+        "papers": {
+          "queries": 7,
+          "median_ms": 24.39
+        },
+        "chapters": {
+          "queries": 6,
+          "median_ms": 25.47
+        },
+        "questions": {
+          "queries": 6,
+          "median_ms": 30.78
+        },
+        "students": {
+          "queries": 7,
+          "median_ms": 29.97
+        },
+        "payments": {
+          "queries": 7,
+          "median_ms": 36.39
+        },
+        "deliveries": {
+          "queries": 6,
+          "median_ms": 31.69
+        }
+      },
+      "twenty_five_rows": {
+        "overview": {
+          "queries": 14,
+          "median_ms": 36.03
+        },
+        "exam_terms": {
+          "queries": 6,
+          "median_ms": 57.37
+        },
+        "papers": {
+          "queries": 7,
+          "median_ms": 102.69
+        },
+        "chapters": {
+          "queries": 6,
+          "median_ms": 94.67
+        },
+        "questions": {
+          "queries": 6,
+          "median_ms": 88.81
+        },
+        "students": {
+          "queries": 7,
+          "median_ms": 74.52
+        },
+        "payments": {
+          "queries": 7,
+          "median_ms": 74.11
+        },
+        "deliveries": {
+          "queries": 6,
+          "median_ms": 78.4
+        }
+      }
+    },
+    "scope": "Rendered warm Django admin GETs; SQLite; medians are local observations, not production latency or bill estimates"
+  },
+  "browser": {
+    "engine": "Chromium headless (local temporary libraries; no application dependency added)",
+    "cases": [
+      {
+        "page": "overview",
+        "theme": "light",
+        "width": 1280,
+        "scrollWidth": 1265,
+        "unnamed": [],
+        "errors": [],
+        "overflow": []
+      },
+      {
+        "page": "coverage",
+        "theme": "light",
+        "width": 1280,
+        "scrollWidth": 1280,
+        "unnamed": [],
+        "errors": [],
+        "overflow": []
+      },
+      {
+        "page": "resource",
+        "theme": "light",
+        "width": 1280,
+        "scrollWidth": 1265,
+        "unnamed": [],
+        "errors": [],
+        "overflow": []
+      },
+      {
+        "page": "inbox",
+        "theme": "light",
+        "width": 1280,
+        "scrollWidth": 1265,
+        "unnamed": [],
+        "errors": [],
+        "overflow": []
+      },
+      {
+        "page": "uploads",
+        "theme": "light",
+        "width": 1280,
+        "scrollWidth": 1265,
+        "unnamed": [],
+        "errors": [],
+        "overflow": []
+      },
+      {
+        "page": "bulk",
+        "theme": "light",
+        "width": 1280,
+        "scrollWidth": 1280,
+        "unnamed": [],
+        "errors": [],
+        "overflow": []
+      },
+      {
+        "page": "broadcast",
+        "theme": "light",
+        "width": 1280,
+        "scrollWidth": 1265,
+        "unnamed": [],
+        "errors": [],
+        "overflow": []
+      },
+      {
+        "page": "questions",
+        "theme": "light",
+        "width": 1280,
+        "scrollWidth": 1265,
+        "unnamed": [],
+        "errors": [],
+        "overflow": []
+      },
+      {
+        "page": "overview",
+        "theme": "light",
+        "width": 390,
+        "scrollWidth": 375,
+        "unnamed": [],
+        "errors": [],
+        "overflow": []
+      },
+      {
+        "page": "coverage",
+        "theme": "light",
+        "width": 390,
+        "scrollWidth": 375,
+        "unnamed": [],
+        "errors": [],
+        "overflow": []
+      },
+      {
+        "page": "resource",
+        "theme": "light",
+        "width": 390,
+        "scrollWidth": 375,
+        "unnamed": [],
+        "errors": [],
+        "overflow": []
+      },
+      {
+        "page": "inbox",
+        "theme": "light",
+        "width": 390,
+        "scrollWidth": 375,
+        "unnamed": [],
+        "errors": [],
+        "overflow": []
+      },
+      {
+        "page": "uploads",
+        "theme": "light",
+        "width": 390,
+        "scrollWidth": 375,
+        "unnamed": [],
+        "errors": [],
+        "overflow": []
+      },
+      {
+        "page": "bulk",
+        "theme": "light",
+        "width": 390,
+        "scrollWidth": 390,
+        "unnamed": [],
+        "errors": [],
+        "overflow": []
+      },
+      {
+        "page": "broadcast",
+        "theme": "light",
+        "width": 390,
+        "scrollWidth": 375,
+        "unnamed": [],
+        "errors": [],
+        "overflow": []
+      },
+      {
+        "page": "questions",
+        "theme": "light",
+        "width": 390,
+        "scrollWidth": 375,
+        "unnamed": [],
+        "errors": [],
+        "overflow": []
+      },
+      {
+        "page": "overview",
+        "theme": "dark",
+        "width": 1280,
+        "scrollWidth": 1265,
+        "unnamed": [],
+        "errors": [],
+        "overflow": []
+      },
+      {
+        "page": "coverage",
+        "theme": "dark",
+        "width": 1280,
+        "scrollWidth": 1280,
+        "unnamed": [],
+        "errors": [],
+        "overflow": []
+      },
+      {
+        "page": "resource",
+        "theme": "dark",
+        "width": 1280,
+        "scrollWidth": 1265,
+        "unnamed": [],
+        "errors": [],
+        "overflow": []
+      },
+      {
+        "page": "inbox",
+        "theme": "dark",
+        "width": 1280,
+        "scrollWidth": 1265,
+        "unnamed": [],
+        "errors": [],
+        "overflow": []
+      },
+      {
+        "page": "uploads",
+        "theme": "dark",
+        "width": 1280,
+        "scrollWidth": 1265,
+        "unnamed": [],
+        "errors": [],
+        "overflow": []
+      },
+      {
+        "page": "bulk",
+        "theme": "dark",
+        "width": 1280,
+        "scrollWidth": 1280,
+        "unnamed": [],
+        "errors": [],
+        "overflow": []
+      },
+      {
+        "page": "broadcast",
+        "theme": "dark",
+        "width": 1280,
+        "scrollWidth": 1265,
+        "unnamed": [],
+        "errors": [],
+        "overflow": []
+      },
+      {
+        "page": "questions",
+        "theme": "dark",
+        "width": 1280,
+        "scrollWidth": 1265,
+        "unnamed": [],
+        "errors": [],
+        "overflow": []
+      },
+      {
+        "page": "overview",
+        "theme": "dark",
+        "width": 390,
+        "scrollWidth": 375,
+        "unnamed": [],
+        "errors": [],
+        "overflow": []
+      },
+      {
+        "page": "coverage",
+        "theme": "dark",
+        "width": 390,
+        "scrollWidth": 375,
+        "unnamed": [],
+        "errors": [],
+        "overflow": []
+      },
+      {
+        "page": "resource",
+        "theme": "dark",
+        "width": 390,
+        "scrollWidth": 375,
+        "unnamed": [],
+        "errors": [],
+        "overflow": []
+      },
+      {
+        "page": "inbox",
+        "theme": "dark",
+        "width": 390,
+        "scrollWidth": 375,
+        "unnamed": [],
+        "errors": [],
+        "overflow": []
+      },
+      {
+        "page": "uploads",
+        "theme": "dark",
+        "width": 390,
+        "scrollWidth": 375,
+        "unnamed": [],
+        "errors": [],
+        "overflow": []
+      },
+      {
+        "page": "bulk",
+        "theme": "dark",
+        "width": 390,
+        "scrollWidth": 390,
+        "unnamed": [],
+        "errors": [],
+        "overflow": []
+      },
+      {
+        "page": "broadcast",
+        "theme": "dark",
+        "width": 390,
+        "scrollWidth": 375,
+        "unnamed": [],
+        "errors": [],
+        "overflow": []
+      },
+      {
+        "page": "questions",
+        "theme": "dark",
+        "width": 390,
+        "scrollWidth": 375,
+        "unnamed": [],
+        "errors": [],
+        "overflow": []
+      }
+    ],
+    "interactions": {
+      "focus": {
+        "tag": "SELECT",
+        "id": "id_chapter",
+        "outline": "solid",
+        "width": "2px"
+      },
+      "contrast": {
+        "ratio": "4.77",
+        "color": "rgb(255, 255, 255)",
+        "background": "rgb(2, 121, 181)"
+      },
+      "dialogName": "Confirm Broadcast",
+      "firstFocus": "Cancel",
+      "escapeClosesDialog": true,
+      "groupExpanded": "true",
+      "mobile": {
+        "expanded": "true",
+        "focusInNavigation": true,
+        "escapeRestoresToggle": true
+      },
+      "submissionPerformed": false
+    },
+    "limits": [
+      "Eight pages at 390px and 1280px in light and dark themes; not an exhaustive accessibility certification.",
+      "Live Railway, Telegram, R2 file availability and real-device behavior were not exercised."
+    ]
+  },
+  "tests": {
+    "postgres_passed": 259,
+    "sqlite_passed": 250,
+    "sqlite_postgres_only_skipped": 9,
+    "new_regressions": 7
+  }
+}
