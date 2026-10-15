@@ -1,0 +1,81 @@
+{
+  "checked_at": "2026-10-15T15:11:43.411226+00:00",
+  "latest_backup": {
+    "manifest_key": "operations/backups/daily-v1/snapshots/20261015T150537Z-27df389fc6274d4d87ba0af27b0e15af/manifest.json",
+    "database_completed_at": "2026-10-15T15:06:23.106379+00:00",
+    "media_completed_at": "2026-10-15T15:06:23.106379+00:00",
+    "table_hash_format": "row-json-utf8-c-collation-utc-v1",
+    "tables": 36,
+    "media_objects": 564,
+    "media_bytes": 758163668
+  },
+  "maintenance_effects": {
+    "subscriptions_expired": 2,
+    "expired_throttle_rows_removed": 3,
+    "exam_reminders_queued": 0,
+    "inbox_files_cleaned": 0,
+    "completed_work_compacted": 0
+  },
+  "post_run_inventory": {
+    "bucket": "uniportal-media",
+    "media_objects": 564,
+    "media_bytes": 758163668,
+    "backup_objects": 571,
+    "postgres_version": "18.6 (Debian 18.6-1.pgdg13+2)",
+    "database_bytes": 30045887,
+    "subscriptions_due_to_expire": 0,
+    "active_exam_start": "None",
+    "assigned_inbox_references": 0,
+    "expired_throttle_rows": 0
+  },
+  "deployments": [
+    {
+      "service": "maintenance",
+      "deployment_id": "ec1b3333-ceca-4f11-a09c-a2cd977b7cee",
+      "status": "SUCCESS",
+      "stopped": true,
+      "commit": "a37ab59ed33243305bac201b482121ba34cd9c60",
+      "start_command": "python manage.py run_maintenance --backup",
+      "predeploy": [],
+      "healthcheck": null,
+      "replicas": 1,
+      "restart_policy": "NEVER",
+      "cron": "0 3 * * *",
+      "next_run": "2026-10-16T03:00:00Z"
+    },
+    {
+      "service": "worker",
+      "deployment_id": "d46af101-c6ba-4115-a377-c9c67ef84bd5",
+      "status": "SUCCESS",
+      "stopped": false,
+      "commit": "a37ab59ed33243305bac201b482121ba34cd9c60",
+      "start_command": "python manage.py run_worker",
+      "predeploy": [],
+      "healthcheck": null,
+      "replicas": 1,
+      "restart_policy": "ON_FAILURE",
+      "cron": null,
+      "next_run": null
+    },
+    {
+      "service": "web",
+      "deployment_id": "2be43fc9-0e43-4af1-8053-0f5e00fcefc6",
+      "status": "SLEEPING",
+      "stopped": true,
+      "commit": "a37ab59ed33243305bac201b482121ba34cd9c60",
+      "start_command": "gunicorn config.wsgi:application -c gunicorn.conf.py",
+      "predeploy": [
+        "python manage.py migrate --noinput"
+      ],
+      "healthcheck": "/health/",
+      "replicas": 1,
+      "restart_policy": "ON_FAILURE",
+      "cron": null,
+      "next_run": null
+    }
+  ],
+  "http": {
+    "/health/": 200,
+    "/live/": 200
+  }
+}

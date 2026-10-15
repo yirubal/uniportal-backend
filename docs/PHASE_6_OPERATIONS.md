@@ -1,8 +1,9 @@
 # Phase 6 — Code layout and production operation
 
-Repository implementation: 2026-10-13. Remaining Railway integrations, actual proxy trust,
-production backups, alert delivery, traffic sizing and cost comparison remain
-unverified. Student access rules and payment approval rules are preserved.
+Repository implementation: 2026-10-13. Production web, worker, real database/media
+backup/restore and the first daily-maintenance execution are verified. Remaining
+integrations, actual proxy trust, alert delivery, traffic sizing and cost comparison
+remain unverified. Student access rules and payment approval rules are preserved.
 
 ## Code responsibilities
 
@@ -187,7 +188,9 @@ channel, using a durable/shared status location supplied by the actual backup
 system. Configure API alerts from sanitized request logs, starting with 5xx over
 1% for five minutes with at least 100 requests, or five consecutive readiness
 failures. Review queue growth and disk alerts against observed workload. An alert
-receiver and real-backup writer have NOT been configured or contacted in this work.
+receiver has not been configured. The scheduled R2 backup writer and a real
+restore are now verified (see below), but its private completion manifest is not
+automatically connected to this command's optional local status-file interface.
 Do not add a paid monitoring service just for this phase; alert wiring remains an
 explicit rollout item.
 
@@ -255,6 +258,31 @@ proxy behavior, representative OCR resource use and actual backups remain
 separate rollout checks. No Railway services or production data were changed.
 
 ## Sizing evidence and remaining rollout checks
+
+### Production backup and daily maintenance — 2026-10-15
+
+Completed a real isolated restore of all 36 production public tables (5,817 rows)
+and all 564 private media files (758,163,668 bytes), with matching table/file hashes
+and Django relationship reads. Local private files and the temporary server were
+removed. The owner selected the existing private R2 bucket; bucket/account loss
+remains outside this arrangement. Native Railway backups were unavailable on
+Hobby and no plan upgrade was made.
+
+PR #92 passed hosted container/SQLite/PostgreSQL checks and deployed as
+`a37ab59ed33243305bac201b482121ba34cd9c60`. The new daily role uses
+`run_maintenance --backup`, one replica, 03:00 UTC, NEVER restart, no public domain,
+HTTP check or migration step. Its first controlled run completed a fresh backup
+before expiring two overdue subscriptions and deleting three expired throttle
+rows; no exam reminders, inbox cleanup or work compaction occurred. It exited
+successfully. The next run is scheduled for 2026-10-16 03:00 UTC. Read-only checks
+confirmed the effects and healthy web endpoints.
+
+[Backup design and recovery evidence](PRODUCTION_BACKUPS.md). This completes the
+backup/restore and maintenance rollout checkpoint. Alert delivery, actual proxy
+trust, successful controlled upload/notification/AI flows, authenticated admin and
+device checks, independent backup storage, ongoing restore drills and production
+cost/capacity measurements remain follow-ups. Earlier subsections below describe
+the state at their earlier checkpoints.
 
 ### Admin rollout and worker activation — 2026-10-15
 
@@ -358,7 +386,8 @@ separately with representative files; Hobby plan maximums are not allocations.
 Phase 1 production measurements were never supplied, so no verified cost saving
 or before/after production latency claim is made.
 
-Pending: confirm service config paths and migration ordering; verify trusted
-proxy scheme/IP handling, admin HTTPS, health checks, Telegram relaunch after token
-expiry, real backups/restore, scheduled maintenance, alert receiver and real
-R2/mobile delivery. Keep monetization deferred while completing those checks.
+Pending: migrate legacy web configuration before the platform cutoff; verify
+trusted proxy scheme/IP handling, authenticated admin HTTPS, Telegram relaunch
+after token expiry, alert delivery and real R2/mobile interactions. Repeat recovery
+drills and observe future scheduled backups/maintenance. Keep monetization deferred
+while completing those checks.

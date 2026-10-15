@@ -1,7 +1,7 @@
 # Production backup and maintenance
 
-Implementation and real backup/restore verified: 2026-10-15. Maintenance
-deployment is the next rollout action.
+Implementation, real backup/restore and first production maintenance run verified:
+2026-10-15.
 
 ## Arrangement
 
@@ -131,6 +131,32 @@ verified replacement snapshot records `row-json-utf8-c-collation-utc-v1` as its
 hash format. An earlier snapshot without that format field is not this verified
 drill's reference. A separate streaming timeout led to bounded per-object retry
 handling. These checks changed no production records and sent no notifications.
+
+### First production maintenance run
+
+PR #92 merged as `a37ab59ed33243305bac201b482121ba34cd9c60` after all hosted checks
+passed. Web and worker successfully deployed the same commit. Created maintenance
+service `a8f35da1-6c95-49cb-b87f-bf81e907c156`, deployment
+`ec1b3333-ceca-4f11-a09c-a2cd977b7cee`, using the explicit settings above and 18
+references to the existing web environment. No credentials were copied to source.
+
+The initial scheduled deployment waited for its cron time. A single manual
+verification run was triggered after the real restore passed. Its logs show the
+database/media snapshot completed at 15:06:24 UTC and retention completed before
+maintenance effects began at 15:06:27 UTC:
+
+- Two overdue subscriptions expired under the existing policy.
+- No active exam start date; no reminders queued or delivered by this run.
+- No assigned inbox references to clean; no application files deleted.
+- Work compaction remained report-only, with zero eligible records.
+- Three expired throttle history records removed.
+
+The deployment reports SUCCESS with its process stopped. The next scheduled run
+is 2026-10-16 03:00 UTC (06:00 Nairobi). Read-only post-run checks found zero
+overdue premium subscriptions and zero expired throttle rows, with all 564 media
+objects unchanged. Live health/liveness checks passed. This verifies the deployed
+command and first execution; future scheduled runs and alerts still need routine
+observation. [Sanitized deployment result](PRODUCTION_MAINTENANCE_VERIFICATION.json).
 
 References: [Railway backups](https://docs.railway.com/volumes/backups),
 [PostgreSQL Debian packages](https://www.postgresql.org/download/linux/debian/),

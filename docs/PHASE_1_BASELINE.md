@@ -165,6 +165,13 @@ classify stale jobs; add that in Phase 3.
 
 ## Backup and restore procedure
 
+Update 2026-10-15: a real production database and all private media have now been
+backed up and restored in isolation, and backup-before-maintenance has completed
+its first production run. The owner selected the existing private R2 bucket;
+independent bucket/account recovery is not covered. See
+[current arrangement and evidence](PRODUCTION_BACKUPS.md). The original procedure
+and historical baseline findings below remain for reference.
+
 ### Synthetic check included in CI
 
 On a disposable local PostgreSQL server, with `DATABASE_URL` already configured:
