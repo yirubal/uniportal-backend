@@ -312,6 +312,7 @@ class BroadcastMessage(models.Model):
         (PARSE_HTML,     'HTML'),
     ]
 
+    submission_token = models.UUIDField(null=True, blank=True, unique=True, editable=False)
     message       = models.TextField(help_text='Message text sent to all students.')
     parse_mode    = models.CharField(
         max_length=20,

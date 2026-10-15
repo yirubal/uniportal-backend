@@ -94,7 +94,7 @@ def notify_subscription_rejected(sub_request: SubscriptionRequest) -> bool:
     return send_telegram_message(student.telegram_id, text, deduplication_key=f'payment:{sub_request.pk}:{sub_request.status}:student')
 
 
-def queue_broadcast(message, parse_mode='', sent_by=None):
+def queue_broadcast(message, parse_mode='', sent_by=None, *, submission_token=None):
     from django.db import transaction
     from .models import BroadcastMessage, Student
     from apps.bot.models import NotificationDelivery
@@ -103,7 +103,16 @@ def queue_broadcast(message, parse_mode='', sent_by=None):
     if parse_mode not in {'', 'Markdown', 'HTML'}:
         raise ValueError('Unsupported Telegram formatting mode.')
     with transaction.atomic():
-        broadcast = BroadcastMessage.objects.create(message=message, parse_mode=parse_mode, sent_by=sent_by)
+        values = {'message': message, 'parse_mode': parse_mode, 'sent_by': sent_by}
+        if submission_token is not None:
+            broadcast, created = BroadcastMessage.objects.get_or_create(submission_token=submission_token, defaults=values)
+            if not created:
+                if (broadcast.message != message or broadcast.parse_mode != parse_mode
+                        or broadcast.sent_by_id != getattr(sent_by, 'pk', None)):
+                    raise ValueError('This confirmation was already used for another message. Reload before sending a new message.')
+                return broadcast
+        else:
+            broadcast = BroadcastMessage.objects.create(**values)
         batch = []
         total = 0
         for chat_id in Student.objects.filter(is_active=True).values_list('telegram_id', flat=True).iterator(chunk_size=500):
