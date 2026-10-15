@@ -1,0 +1,90 @@
+{% extends "admin/base.html" %}
+{% load i18n static %}
+
+{% block extrastyle %}
+{{ block.super }}
+<link rel="stylesheet" href="{% static 'content/admin_overview.css' %}">
+{% endblock %}
+
+{% block content %}
+<div class="overview-workspace">
+  <div>
+    <h1 class="text-2xl font-semibold text-base-900 dark:text-base-100">Your admin workspace</h1>
+    <p class="mt-2 text-sm text-base-500 dark:text-base-400">Review uploads, manage learning materials and follow up on work that needs attention.</p>
+  </div>
+
+  {% if task_shortcuts %}
+  <section aria-labelledby="tasks-title">
+    <h2 id="tasks-title" class="mb-3 text-lg font-semibold">Quick actions</h2>
+    <div class="flex flex-wrap gap-3">
+      {% for task in task_shortcuts %}
+      <a href="{{ task.url }}" class="inline-flex items-center gap-2 rounded-default border border-base-200 bg-white px-4 py-3 text-sm font-medium overview-card dark:border-base-700 dark:bg-base-900">
+        <span class="material-symbols-outlined" aria-hidden="true">{{ task.icon }}</span>{{ task.label }}
+      </a>
+      {% endfor %}
+    </div>
+  </section>
+  {% endif %}
+
+  <section aria-labelledby="attention-title">
+    <h2 id="attention-title" class="mb-3 text-lg font-semibold">Needs attention</h2>
+    <div class="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+      {% for card in attention_cards %}
+      <a href="{{ card.url }}" class="block rounded-default border bg-white p-5 overview-card dark:bg-base-900 {% if card.urgent %}overview-card-urgent{% else %}border-base-200 dark:border-base-700{% endif %}">
+        <span class="block text-sm text-base-600 dark:text-base-300">{{ card.label }}</span>
+        <span class="mt-2 block text-3xl font-semibold {% if card.urgent %}overview-value{% else %}text-base-900 dark:text-base-100{% endif %}">{{ card.value }}</span>
+        <span class="mt-3 block text-sm text-primary-600 dark:text-primary-400">Review records →</span>
+      </a>
+      {% empty %}
+      <p class="text-sm text-base-500 dark:text-base-400">No review summaries are available for your permissions. Use the navigation to access your assigned tools.</p>
+      {% endfor %}
+    </div>
+    <p class="mt-3 text-xs text-base-500 dark:text-base-400">Counts describe separate tasks and can overlap. They are not a combined total.</p>
+  </section>
+
+  {% if work_queues %}
+  <section aria-labelledby="operations-title">
+    <h2 id="operations-title" class="mb-2 text-lg font-semibold">Processing & delivery</h2>
+    <p class="mb-4 text-sm text-base-500 dark:text-base-400">Database snapshot: {{ observed_at|date:"M j, Y H:i T" }}. Overdue means pending for more than 15 minutes. Queue counts do not confirm that the worker is running.</p>
+    <div class="overflow-x-auto rounded-default border border-base-200 dark:border-base-700">
+      <table class="overview-table w-full text-left text-sm">
+        <caption class="overview-sr-only">Failed, overdue and stale jobs. Select a count to review matching records.</caption>
+        <thead class="bg-base-50 dark:bg-base-800"><tr>
+          <th scope="col" class="px-4 py-3">Process</th><th scope="col" class="px-4 py-3">Failed</th><th scope="col" class="px-4 py-3">Overdue</th><th scope="col" class="px-4 py-3">Stale claims</th>
+        </tr></thead>
+        <tbody class="bg-white dark:bg-base-900">
+        {% for queue in work_queues %}<tr>
+          <th scope="row" class="px-4 py-3 font-medium">{{ queue.label }}</th>
+          {% for count in queue.counts %}<td class="px-4 py-3"><a href="{{ count.url }}" class="underline text-primary-600 dark:text-primary-400" aria-label="{{ queue.label }}: {{ count.value }} {{ count.label }}">{{ count.value }}</a></td>{% endfor %}
+        </tr>{% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <p class="mt-3 text-xs text-base-500 dark:text-base-400">Stale claims are processing jobs with a missing or expired claim timestamp. Review the error and source before retrying a failed job.</p>
+  </section>
+  {% endif %}
+
+  {% if can_view_exam_terms %}
+  <section aria-labelledby="term-title">
+    <h2 id="term-title" class="mb-3 text-lg font-semibold">Active exam term</h2>
+    {% if active_exam_term %}
+    <a href="{{ active_exam_term.url }}" class="font-medium text-primary-600 underline dark:text-primary-400">{{ active_exam_term.label }}</a>
+    <p class="mt-2 text-sm text-base-500 dark:text-base-400">First exam: {{ active_exam_term.start_date|date:"M j, Y"|default:"Not set" }}</p>
+    {% else %}<p class="text-sm text-base-500 dark:text-base-400">No exam term is active.</p>{% endif %}
+  </section>
+  {% endif %}
+
+  <section aria-labelledby="activity-title">
+    <h2 id="activity-title" class="mb-3 text-lg font-semibold">Recent admin activity</h2>
+    <p class="mb-3 text-xs text-base-500 dark:text-base-400">Recorded admin changes for models you can view. Background processing and bulk actions may not appear here.</p>
+    <ul class="overview-activity">
+      {% for entry in recent_activity %}
+      <li class="py-3 text-sm">
+        {% if entry.url %}<a href="{{ entry.url }}" class="font-medium text-primary-600 underline dark:text-primary-400">{{ entry.label }}</a>{% else %}<span class="font-medium">{{ entry.label }}</span>{% endif %}
+        <p class="mt-1 text-xs text-base-500 dark:text-base-400">{{ entry.action }} · {{ entry.by }} · {{ entry.at|date:"M j, Y H:i T" }}</p>
+      </li>
+      {% empty %}<li class="py-3 text-sm text-base-500 dark:text-base-400">No recorded admin changes are available for your permissions.</li>{% endfor %}
+    </ul>
+  </section>
+</div>
+{% endblock %}

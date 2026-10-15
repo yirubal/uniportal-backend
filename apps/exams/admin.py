@@ -7,6 +7,7 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import path, reverse
 from django.utils.html import format_html
 from django.utils.http import url_has_allowed_host_and_scheme
+from apps.bot.admin_filters import WorkAttentionFilter
 from unfold.admin import ModelAdmin, TabularInline
 
 from .models import (
@@ -355,7 +356,7 @@ class StudentExamAdmin(ModelAdmin):
 @admin.register(ExamPDFUpload)
 class ExamPDFUploadAdmin(ModelAdmin):
     list_display = ['original_name', 'pdf_type', 'term', 'status', 'records_created', 'records_updated', 'uploaded_at']
-    list_filter = ['term', 'status', 'pdf_type']
+    list_filter = [WorkAttentionFilter, 'term', 'status', 'pdf_type']
     change_list_template = 'admin/exams/exampdfupload/change_list.html'
     readonly_fields = [
         'original_name',
