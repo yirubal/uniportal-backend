@@ -1,16 +1,18 @@
-from django.contrib import admin, messages
-from django.core.exceptions import PermissionDenied
-from django.shortcuts import render, redirect
-from django.urls import path
-from django.http import HttpResponseRedirect
-from unfold.admin import ModelAdmin
-from django.http import HttpResponse, HttpResponseRedirect
-from django.urls import path, reverse
-from django.utils.html import format_html
 import os
 
+from django.contrib import admin, messages
+from django.contrib.admin.models import CHANGE, LogEntry
+from django.core import signing
+from django.core.exceptions import PermissionDenied
+from django.db import transaction
+from django.http import HttpResponse, HttpResponseRedirect
+from django.shortcuts import render, redirect
+from django.urls import path, reverse
+from django.utils.html import format_html
+from unfold.admin import ModelAdmin
 
 from .models import Chapter, ExamPaper, Question, QuizAttempt
+from .forms import QuestionBulkEditForm
 
 
 # ─── Filters ──────────────────────────────────────────────────────────────────
@@ -397,40 +399,36 @@ class QuestionAdmin(ModelAdmin):
 
     @admin.action(permissions=['change'], description='Activate selected questions')
     def activate_questions(self, request, queryset):
-        queryset.update(is_active=True)
-        self.message_user(request, f'{queryset.count()} question(s) activated.')
+        count = queryset.update(is_active=True)
+        self.message_user(request, f'{count} question(s) activated.')
 
     @admin.action(permissions=['change'], description='Deactivate selected questions')
     def deactivate_questions(self, request, queryset):
-        queryset.update(is_active=False)
-        self.message_user(request, f'{queryset.count()} question(s) deactivated.')
+        count = queryset.update(is_active=False)
+        self.message_user(request, f'{count} question(s) deactivated.')
 
     @admin.action(permissions=['change'], description='Assign selected questions to an exam paper')
     def assign_to_exam_paper(self, request, queryset):
-        if request.method == 'POST' and 'exam_paper' in request.POST:
-            exam_paper_id = request.POST.get('exam_paper')
-            try:
-                exam_paper = ExamPaper.objects.get(id=exam_paper_id)
-                queryset.update(exam_paper=exam_paper)
-                self.message_user(request, f'{queryset.count()} question(s) assigned to {exam_paper.title}.')
-                return redirect('/admin/quiz/question/')
-            except ExamPaper.DoesNotExist:
-                self.message_user(request, 'Exam paper not found.', level='error')
+        return self.start_bulk_edit(request, queryset, assignment_only=True)
 
-        exam_papers = ExamPaper.objects.filter(is_active=True).order_by('-year')
-        return render(request, 'admin/quiz/assign_exam_paper.html', {
-            'questions': queryset,
-            'exam_papers': exam_papers,
-            'question_count': queryset.count(),
-        })
-
-    # ── Bulk Metadata Action ──────────────────────────────────────────────────
-
-    @admin.action(permissions=['change'], description='📋 Set metadata for selected questions')
+    @admin.action(permissions=['change'], description='Set metadata for selected questions')
     def bulk_set_metadata(self, request, queryset):
-        selected_ids = list(queryset.values_list('id', flat=True))
-        request.session['bulk_metadata_question_ids'] = selected_ids
-        return HttpResponseRedirect('bulk-metadata/')
+        return self.start_bulk_edit(request, queryset)
+
+    def start_bulk_edit(self, request, queryset, assignment_only=False):
+        selection = signing.dumps({
+            'user': request.user.pk, 'ids': list(queryset.values_list('pk', flat=True)),
+            'assignment_only': assignment_only,
+        }, salt='quiz-admin-bulk-edit', compress=True)
+        form = QuestionBulkEditForm(initial={'selection': selection}, user=request.user, assignment_only=assignment_only)
+        return self.render_bulk_edit(request, form, queryset)
+
+    def render_bulk_edit(self, request, form, queryset):
+        return render(request, 'admin/quiz/bulk_metadata.html', {
+            **self.admin_site.each_context(request), 'opts': Question._meta,
+            'title': 'Review question changes', 'form': form, 'question_count': queryset.count(),
+            'question_preview': list(queryset.order_by('pk').values_list('text', flat=True)[:5]),
+        })
 
     # ── Extra URL ─────────────────────────────────────────────────────────────
 
@@ -448,57 +446,46 @@ class QuestionAdmin(ModelAdmin):
     def bulk_metadata_view(self, request):
         if not self.has_change_permission(request):
             raise PermissionDenied
-        question_ids = request.session.get('bulk_metadata_question_ids', [])
-
-        if not question_ids:
-            messages.warning(request, 'No questions selected. Please select questions first.')
-            return redirect('..')
-
-        # ── POST: apply ───────────────────────────────────────────────────────
-        if request.method == 'POST':
-            qs = Question.objects.filter(id__in=question_ids)
-            updates = {}
-
-            paper_id = request.POST.get('exam_paper')
-            if paper_id:
-                updates['exam_paper'] = ExamPaper.objects.get(id=paper_id)
-
-            chapter_id = request.POST.get('chapter')
-            if chapter_id:
-                updates['chapter'] = Chapter.objects.get(id=chapter_id)
-
-            year = request.POST.get('year_source')
-            if year:
-                updates['year_source'] = year.strip()
-
-            difficulty = request.POST.get('difficulty')
-            if difficulty:
-                updates['difficulty'] = difficulty
-
-            is_active = request.POST.get('is_active')
-            if is_active == 'true':
-                updates['is_active'] = True
-            elif is_active == 'false':
-                updates['is_active'] = False
-
-            if updates:
-                qs.update(**updates)
-                del request.session['bulk_metadata_question_ids']
-                messages.success(request, f'✅ Updated {len(question_ids)} question(s) successfully.')
-            else:
-                messages.info(request, 'No fields were changed — all fields were left blank.')
-
-            return redirect('../')
-
-        # ── GET: render form ──────────────────────────────────────────────────
-        context = {
-            **self.admin_site.each_context(request),
-            'title': 'Set Question Metadata',
-            'question_ids': question_ids,
-            'exam_papers': ExamPaper.objects.filter(is_active=True).order_by('-year', 'title'),
-            'chapters': Chapter.objects.filter(is_active=True).select_related('course').order_by('course__name', 'number'),
-        }
-        return render(request, 'admin/quiz/bulk_metadata.html', context)
+        try:
+            selection = signing.loads(request.POST.get('selection', ''), salt='quiz-admin-bulk-edit', max_age=3600)
+            if selection['user'] != request.user.pk or not selection['ids']:
+                raise signing.BadSignature
+        except (signing.BadSignature, KeyError, TypeError):
+            messages.warning(request, 'This selection is invalid or expired. Select the questions again; no changes were applied.')
+            return redirect('admin:quiz_question_changelist')
+        form = QuestionBulkEditForm(request.POST, user=request.user, assignment_only=selection.get('assignment_only', False))
+        queryset = self.get_queryset(request).filter(pk__in=selection['ids'])
+        if form.is_valid():
+            with transaction.atomic():
+                # Lock questions only; optional paper/chapter relations are prefetched
+                # separately so PostgreSQL never locks the nullable side of a join.
+                questions = list(queryset.select_related(None).select_for_update().prefetch_related('chapter', 'exam_paper'))
+                if len(questions) != len(selection['ids']):
+                    form.add_error(None, 'Some selected questions no longer exist or are unavailable. Select again; no changes were applied.')
+                else:
+                    data = form.cleaned_data
+                    for question in questions:
+                        paper = data.get('exam_paper') or question.exam_paper
+                        chapter = None if data.get('clear_chapter') else data.get('chapter') or question.chapter
+                        if paper and chapter and paper.course_id != chapter.course_id:
+                            form.add_error(None, 'The resulting chapter and exam paper must belong to the same course. Choose a matching chapter or remove the chapter assignment. No changes were applied.')
+                            break
+                if not form.errors:
+                    updates = {key: form.cleaned_data[key] for key in ('exam_paper', 'chapter', 'year_source', 'difficulty')
+                               if form.cleaned_data.get(key)}
+                    if form.cleaned_data.get('clear_chapter'):
+                        updates['chapter'] = None
+                    if form.cleaned_data.get('is_active'):
+                        updates['is_active'] = form.cleaned_data['is_active'] == 'true'
+                    if updates:
+                        count = Question.objects.filter(pk__in=[question.pk for question in questions]).update(**updates)
+                        LogEntry.objects.log_actions(user_id=request.user.pk, queryset=questions, action_flag=CHANGE,
+                                                     change_message='Applied reviewed bulk question metadata.')
+                        messages.success(request, f'Applied metadata to {count} selected question(s).')
+                    else:
+                        messages.info(request, 'All fields were left unchanged; no updates were applied.')
+                    return redirect('admin:quiz_question_changelist')
+        return self.render_bulk_edit(request, form, queryset)
 
 
 # ─── QuizAttempt Admin ─────────────────────────────────────────────────────────

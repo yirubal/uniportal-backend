@@ -1,5 +1,6 @@
 from hashlib import sha256
 
+from django.conf import settings
 from django.contrib import admin, messages
 from django.core.exceptions import PermissionDenied
 from django.db.models import Count, Q
@@ -61,6 +62,7 @@ class ExamTermAdmin(ModelAdmin):
                 self.admin_site.admin_view(self.upload_pdfs_view),
                 name='exam_upload_pdfs',
             ),
+            path('upload-status/', self.admin_site.admin_view(self.upload_status_view), name='exams_examterm_upload_status'),
             path(
                 '<int:term_id>/upload-status/',
                 self.admin_site.admin_view(self.upload_status_view),
@@ -113,18 +115,27 @@ class ExamTermAdmin(ModelAdmin):
             return redirect(referer)
         return redirect(fallback)
 
-    def upload_status_view(self, request, term_id):
-        from django.http import JsonResponse
+    @staticmethod
+    def upload_summary(uploads):
+        return uploads.aggregate(**{
+            status: Count('pk', filter=Q(status=status))
+            for status in ('pending', 'processing', 'processed', 'failed')
+        })
 
+    def upload_status_view(self, request, term_id=None):
+        from django.http import JsonResponse
         if not request.user.has_perm('exams.view_exampdfupload'):
             raise PermissionDenied
-        uploads = ExamPDFUpload.objects.filter(term_id=term_id)
-        return JsonResponse({
-            'pending': uploads.filter(status=ExamPDFUpload.STATUS_PENDING).count(),
-            'processing': uploads.filter(status=ExamPDFUpload.STATUS_PROCESSING).count(),
-            'processed': uploads.filter(status=ExamPDFUpload.STATUS_PROCESSED).count(),
-            'failed': uploads.filter(status=ExamPDFUpload.STATUS_FAILED).count(),
-        })
+        uploads = ExamPDFUpload.objects.all()
+        if term_id is not None:
+            uploads = uploads.filter(term_id=term_id)
+        data = self.upload_summary(uploads)
+        if request.GET.get('details') == '1':
+            data['uploads'] = [{**row, 'error_message': row['error_message'][:500], 'url': reverse('admin:exams_exampdfupload_change', args=[row['id']])}
+                               for row in uploads.order_by('-uploaded_at', '-pk').values(
+                                   'id', 'original_name', 'pdf_type', 'status', 'records_created',
+                                   'records_updated', 'error_message')[:50]]
+        return JsonResponse(data)
 
     def upload_pdfs_view(self, request, term_id=None):
         if not request.user.has_perms(['exams.add_exampdfupload', 'exams.view_exampdfupload']):
@@ -137,20 +148,7 @@ class ExamTermAdmin(ModelAdmin):
             action = request.POST.get('action', 'upload')
 
             if action == 'process':
-                has_pending = ExamPDFUpload.objects.filter(
-                    status=ExamPDFUpload.STATUS_PENDING,
-                ).exists()
-                has_processing = ExamPDFUpload.objects.filter(
-                    status=ExamPDFUpload.STATUS_PROCESSING,
-                ).exists()
-
-                if has_pending:
-                    messages.success(request, 'Pending PDFs are queued for the worker.')
-                elif has_processing:
-                    messages.warning(request, 'PDF processing is already running.')
-                else:
-                    messages.warning(request, 'No pending PDF files to process.')
-
+                messages.info(request, 'Uploads are already queued automatically. The worker must be running to process them.')
                 return redirect(request.path)
 
             schedule_files = request.FILES.getlist('schedule_pdf')
@@ -214,12 +212,7 @@ class ExamTermAdmin(ModelAdmin):
             return redirect(request.path)
 
         upload_qs = ExamPDFUpload.objects.filter(term=term) if term else ExamPDFUpload.objects.all()
-        status_counts = upload_qs.aggregate(
-            pending=Count('id', filter=Q(status=ExamPDFUpload.STATUS_PENDING)),
-            processing=Count('id', filter=Q(status=ExamPDFUpload.STATUS_PROCESSING)),
-            processed=Count('id', filter=Q(status=ExamPDFUpload.STATUS_PROCESSED)),
-            failed=Count('id', filter=Q(status=ExamPDFUpload.STATUS_FAILED)),
-        )
+        status_counts = self.upload_summary(upload_qs)
         pending_count = status_counts['pending'] or 0
         processing_count = status_counts['processing'] or 0
         processed_count = status_counts['processed'] or 0
@@ -227,9 +220,12 @@ class ExamTermAdmin(ModelAdmin):
         uploads = upload_qs.order_by('-uploaded_at')[:50]
         context = {
             **self.admin_site.each_context(request),
-            'title': f'Upload PDFs — {term or "New Term"}',
+            'title': f'Upload PDFs — {term or "All terms"}',
+            'status_url': (reverse('admin:exam_upload_status', args=[term_id]) if term_id is not None
+                           else reverse('admin:exams_examterm_upload_status')) + '?details=1',
             'term': term,
             'term_id': term_id,
+            'max_upload_bytes': settings.MAX_EXAM_PDF_UPLOAD_BYTES,
             'uploads': uploads,
             'status_counts': status_counts,
             'pending_count': pending_count,

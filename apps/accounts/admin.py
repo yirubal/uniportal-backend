@@ -9,6 +9,7 @@ from django.shortcuts import render, redirect
 
 from .models import Student, SubscriptionPlan, SubscriptionRequest, SiteSettings, BroadcastMessage
 from .notifications import queue_broadcast
+from .forms import BroadcastForm
 from .services import approve_subscription_request, reject_subscription_request
 
 
@@ -97,6 +98,7 @@ class StudentAdmin(ModelAdmin):
         from django.urls import path
         urls = super().get_urls()
         custom = [
+            path('broadcast/status/', self.admin_site.admin_view(self.broadcast_status_view), name='accounts_broadcast_status'),
             path(
                 'broadcast/',
                 self.admin_site.admin_view(self.broadcast_view),
@@ -105,34 +107,41 @@ class StudentAdmin(ModelAdmin):
         ]
         return custom + urls
 
+    def broadcast_history(self, request):
+        queryset = BroadcastMessage.objects.select_related('sent_by')
+        if not self.admin_site._registry[BroadcastMessage].has_view_or_change_permission(request):
+            queryset = queryset.filter(sent_by=request.user)
+        return queryset.order_by('-sent_at', '-pk')[:10]
+
+    def broadcast_status_view(self, request):
+        from django.http import JsonResponse
+        if not (request.user.has_perm('accounts.add_broadcastmessage')
+                or self.admin_site._registry[BroadcastMessage].has_view_or_change_permission(request)):
+            raise PermissionDenied
+        return JsonResponse({'broadcasts': [{
+            'id': broadcast.pk, 'total': broadcast.total_users, 'delivered': broadcast.success_count,
+            'pending': broadcast.pending_count, 'failed': broadcast.failed_count,
+        } for broadcast in self.broadcast_history(request)]})
+
     def broadcast_view(self, request):
-        """Custom admin page: compose and send a broadcast DM to all students."""
         if not request.user.has_perm('accounts.add_broadcastmessage'):
             raise PermissionDenied
-        if request.method == 'POST':
-            message    = request.POST.get('message', '').strip()
-            parse_mode = request.POST.get('parse_mode', '')
-
-            if not message:
-                messages.error(request, 'Message cannot be empty.')
-                return redirect('admin:accounts_broadcast')
-
+        form = BroadcastForm(request.POST if request.method == 'POST' else None, user=request.user)
+        if request.method == 'POST' and form.is_valid():
             try:
-                broadcast = queue_broadcast(message, parse_mode, request.user)
+                broadcast = queue_broadcast(form.cleaned_data['message'], form.cleaned_data['parse_mode'], request.user,
+                                            submission_token=form.cleaned_data['submission_token'])
             except ValueError as exc:
-                messages.error(request, str(exc))
+                form.add_error(None, str(exc))
+            else:
+                self.message_user(request, f'Broadcast #{broadcast.pk} is queued for {broadcast.total_users} student(s). Repeated submissions use the same broadcast.', messages.SUCCESS)
                 return redirect('admin:accounts_broadcast')
-            self.message_user(request, f'Broadcast queued for {broadcast.total_users} student(s). Delivery progress is saved.', messages.SUCCESS)
-            return redirect('admin:accounts_broadcast')
-
-        # GET — show form + recent history
-        recent_broadcasts = BroadcastMessage.objects.select_related('sent_by')[:10]
         context = {
-            **self.admin_site.each_context(request),
-            'title':             'Send Broadcast Message',
-            'opts':              Student._meta,
-            'recent_broadcasts': recent_broadcasts,
+            **self.admin_site.each_context(request), 'title': 'Send Broadcast Message',
+            'opts': Student._meta, 'form': form, 'recent_broadcasts': self.broadcast_history(request),
             'parse_mode_choices': BroadcastMessage.PARSE_CHOICES,
+            'recipient_count': Student.objects.filter(is_active=True).count(),
+            'can_view_deliveries': request.user.has_perm('bot.view_notificationdelivery') or request.user.has_perm('bot.change_notificationdelivery'),
         }
         return render(request, 'admin/accounts/broadcast.html', context)
 

@@ -544,8 +544,65 @@ the workflow stylesheet. The department overview query count stays bounded when
 or resources. Visual browser verification and the existing worker rollout remain
 pending. No production records or jobs were changed.
 
-Steps 4–5 remain pending. Next: exam upload progress, validated question bulk
-editing and broadcast/delivery feedback.
+### Step 4 implementation — 2026-10-15
+
+Exam progress, question bulk editing and broadcast feedback are implemented:
+
+- Global and term upload pages now use the same status flow. Status requests
+  aggregate counts in one query and optionally return the latest 50 file rows,
+  including terminal errors and created/updated counts. The old four-count JSON
+  response is preserved when details are not requested. The redundant Process
+  button is removed; its legacy POST remains a harmless explanatory redirect.
+  Upload limits reflect configured settings, and failed imports link to their
+  full detail/retry controls. The upload page now supports light/dark themes and
+  horizontal table scrolling without the previous copied dark-only layout.
+- Upload and broadcast status refreshes stop when displayed work finishes or
+  after 24 requests at five-second intervals. Hidden pages pause refreshing;
+  requests have a ten-second deadline. Connection/session errors are visible and
+  manual refresh restarts checking. File names/errors are inserted as text, not
+  HTML. Queue snapshots still do not claim worker health.
+- Each question bulk form carries an independently signed, user-bound selection
+  that expires after an hour. Selections no longer share a session key across
+  tabs. Both paper assignment and metadata actions use the same validated form.
+  Invalid IDs, choices and overlong year labels keep their form input and apply
+  no changes. Existing and proposed paper/chapter assignments are checked for
+  course consistency across the whole selection before an atomic update.
+  Removing a chapter is explicit; missing/deleted selection members block partial
+  edits. Choices respect related-model permissions, and applied edits are logged.
+  The unused assignment template and duplicated bulk CSS were removed.
+- Broadcast forms show the current active-recipient count, preserve invalid
+  message input and require a signed, user-bound confirmation. A unique nullable
+  submission token on BroadcastMessage makes repeat/concurrent submissions of
+  that form reuse the same broadcast and deliveries. Reusing a token for different
+  content is rejected; a fresh form permits a deliberate new broadcast. Existing
+  internal callers without a token retain their behavior. The button guard also
+  prevents repeated clicks while submitting.
+- Broadcast history refreshes delivered/remaining/failed counts, shows correctly
+  rendered timestamps, and links permitted staff to the matching failed delivery
+  records. Staff who can compose but cannot view general broadcast history see
+  only their own broadcasts. Recovery remains the reviewed retry action on the
+  durable delivery queue; no whole-broadcast resend is triggered automatically.
+
+Verification: 19 new tests cover scoped upload progress and bounded rows, bulk
+validation, independent/invalid/cross-user selections, related-model permissions,
+atomic relationship checks, repeated broadcasts, history visibility and actual
+concurrent broadcast creation on PostgreSQL. Full PostgreSQL suite: 252 passed;
+SQLite: 243 passed and 9 PostgreSQL-only cases skipped. JavaScript syntax and
+isolated execution checks passed for text-only rendering, terminal refresh,
+connection errors, the 24-request limit and duplicate-submit guarding. Static
+collection includes both scripts; system checks, migration-drift and diff checks
+pass. Final focused upload/bulk-edit checks also pass.
+
+**Deployment:** apply `accounts.0009_broadcastmessage_submission_token` before
+serving this version. It adds a nullable unique UUID column; existing broadcasts
+receive NULL, with no exam-data migration or cleanup. Do not regenerate a new
+token automatically when retrying a submitted form. Browser visual verification,
+live Telegram flows and worker rollout verification remain pending. No production
+jobs or records were changed during this work; no new dependency/service or paid
+access gate was introduced.
+
+Step 5 remains pending: browser usability/accessibility and measured admin query
+costs across representative data and workflows.
 
 ## Deferred — Monetization readiness
 
