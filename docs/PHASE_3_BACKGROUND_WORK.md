@@ -163,7 +163,11 @@ The scheduled service needs the same database/storage settings and exits when
 finished. Railway schedules run in UTC and skip a new execution when the previous
 one is still running. [Railway cron guide](https://docs.railway.com/cron-jobs).
 
-The live worker and schedule have **not** been configured from this workspace.
+Update 2026-10-15: the live worker is deployed and has claimed both waiting inbox
+items; both stopped at the existing 100-page PDF limit and require review. The
+daily schedule is still pending. New Railway services cannot use the legacy JSON
+config-file path; the worker uses equivalent explicit service settings. See
+[production rollout evidence](PHASE_6_OPERATIONS.md#admin-rollout-and-worker-activation--2026-10-15).
 Compare worker memory, CPU, queue age, and Railway usage against Phase 1 metrics.
 Leave worker concurrency at one until workload evidence supports a change.
 

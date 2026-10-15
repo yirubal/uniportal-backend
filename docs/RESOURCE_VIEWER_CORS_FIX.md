@@ -26,11 +26,18 @@ URL authentication remains required. No bucket-public-access change is needed.
 
 The current Railway runtime R2 credentials permit object reads, but a live
 `GetBucketCors` request returned `AccessDenied`. No Cloudflare administrative token
-or authenticated Wrangler profile was available. The policy is prepared, but its
-application is NOT verified. Use the dashboard or separate bucket-administration
+or authenticated Wrangler profile was available. The policy was initially prepared
+without applying it. Use the dashboard or separate bucket-administration
 credentials; the application does not need broader credentials for normal reads.
 
 ## Verify after application
+
+Update 2026-10-15, production rollout check: fresh signed Range reads for all three
+resources returned HTTP 206 with `Access-Control-Allow-Origin` matching the frontend
+and exposed `Content-Range`. The original missing-CORS response is no longer
+reproduced. The full bucket policy could not be inspected with runtime credentials;
+frontend/device interaction and an OPTIONS check remain separate checks. See
+[live snapshot](PRODUCTION_ROLLOUT_VERIFICATION.json).
 
 Request a NEW signed file URL with:
 

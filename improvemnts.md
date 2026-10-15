@@ -666,6 +666,29 @@ All five admin steps now have repository implementations and recorded checks.
 The remaining work is production rollout/integration verification and any issues
 found through actual administrator use; monetization remains deferred.
 
+### Production rollout checkpoint — 2026-10-15
+
+- [x] PR #90 merged; hosted container, SQLite and PostgreSQL checks passed.
+- [x] Current admin code deployed successfully on Railway; required migrations
+  present, health/liveness/catalogue/admin login return HTTP 200.
+- [x] One durable worker deployed from matching `prod` commit, with no public
+  endpoint or migration step. Both overdue inbox files were claimed and failed
+  once at the existing 100-page extraction limit; review is required.
+- [x] Private R2 signed reads now return the frontend CORS origin and range headers.
+  Telegram reports a configured webhook with no backlog or last error.
+- [ ] Verify a successful live upload/extraction, controlled notification and AI
+  workflow, authenticated admin changes and frontend/device resource viewing.
+- [ ] Verify full production backups and isolated restore, then deploy daily
+  maintenance after reviewing its subscription/reminder/file-cleanup effects.
+- [ ] Complete alerts, proxy trust and representative cost/capacity measurements.
+- [ ] Migrate legacy Railway JSON configuration before the 2026-12-01 cutoff.
+  New services already reject legacy config paths; the worker uses explicit
+  equivalent service settings, while existing web retains `/railway.json`.
+
+Details and measurement limits: [rollout evidence](docs/PHASE_6_OPERATIONS.md#admin-rollout-and-worker-activation--2026-10-15)
+and [sanitized snapshot](docs/PRODUCTION_ROLLOUT_VERIFICATION.json). No extraction
+limits were raised, failed jobs retried or monetization rules changed.
+
 ## Deferred — Monetization readiness
 
 This section is inactive until the owner explicitly decides to introduce paid
@@ -715,5 +738,5 @@ roadmap rather than implementing an outdated assumption.
 | 3 — Background processing | Repository implementation verified; rollout and OCR smoke pending | 134 PostgreSQL tests + 36 final focused checks; SQLite 128 passed / 7 skipped; recovery and restore drills pass. See docs/PHASE_3_BACKGROUND_WORK.md. |
 | 4 — File delivery | Repository implementation verified; live integration and measurements pending | 144 PostgreSQL tests; SQLite 137 passed / 7 skipped; restore/checks pass. See docs/PHASE_4_FILE_DELIVERY.md. |
 | 5 — Database and API efficiency | Repository implementation verified; rollout pending | 165 distinct PostgreSQL cases; SQLite 157 passed / 8 skipped; query plans and restore pass. See docs/PHASE_5_DATABASE_API.md. |
-| 6 — Code and production operation | Repository, Docker image and production web deployment verified; remaining operational checks pending | 182 PostgreSQL tests; container 174 passed / 8 skipped; real OCR passed. On 2026-10-15 production duplicate cleanup and health-check host correction unblocked exams.0007/content.0017; web redeploy succeeded and live health/liveness/catalogue returned HTTP 200. Worker, maintenance, hosted CI and other rollout checks remain pending. See docs/PHASE_6_OPERATIONS.md. |
+| 6 — Code and production operation | Repository, hosted CI, production web and worker deployment verified; remaining operational checks pending | Original baseline: 182 PostgreSQL tests and real container OCR. Current admin suite: 259 PostgreSQL tests; hosted SQLite/PostgreSQL/container checks pass. On 2026-10-15 current web/schema and one worker deployed; live endpoints and R2 CORS reads pass. Both overdue inbox files require review at the 100-page limit. Maintenance, full backups/restore, controlled integration flows, alerts, proxy trust and sizing remain open. See docs/PHASE_6_OPERATIONS.md. |
 | Monetization readiness | Deferred by owner | Free adoption period |

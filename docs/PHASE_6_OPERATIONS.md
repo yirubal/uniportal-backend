@@ -1,6 +1,6 @@
 # Phase 6 — Code layout and production operation
 
-Repository implementation: 2026-10-13. Railway rollout, actual proxy trust,
+Repository implementation: 2026-10-13. Remaining Railway integrations, actual proxy trust,
 production backups, alert delivery, traffic sizing and cost comparison remain
 unverified. Student access rules and payment approval rules are preserved.
 
@@ -103,6 +103,15 @@ uses the explicit pre-deploy configuration instead.
 
 Before pushing a release that Railway will auto-deploy, confirm each service’s
 config path and remove stale start/health-check/migration overrides:
+
+**2026-10-15 platform update:** the table below describes the committed legacy
+role manifests. Existing legacy services still read them, but Railway rejects
+assigning a JSON/TOML config path to a new service. The production worker uses
+equivalent explicit service settings (recorded below), with no config-file path.
+Do not attach the web manifest to it. Railway stops reading legacy files on
+2026-12-01; migrate to supported infrastructure configuration before that date,
+review the plan, and retain the current web migration ownership.
+[Railway migration guidance](https://docs.railway.com/infrastructure-as-code).
 
 | Railway service | Config-file path | Role |
 |---|---|---|
@@ -242,6 +251,55 @@ proxy behavior, representative OCR resource use and actual backups remain
 separate rollout checks. No Railway services or production data were changed.
 
 ## Sizing evidence and remaining rollout checks
+
+### Admin rollout and worker activation — 2026-10-15
+
+PR #90 merged with successful container, SQLite and PostgreSQL GitHub checks.
+Railway web deployment `9cd5712f-9e7b-4b3a-9582-1b5057161f6d` successfully deployed
+merge commit `a7cbd29e3917400bce10d61790a0612e5727f4b3`. Read-only inspection found
+all 65 migration records, including `accounts.0009_broadcastmessage_submission_token`,
+`content.0017` and `exams.0007`. Health, liveness, catalogue and admin login returned
+HTTP 200 with request IDs. This does not verify authenticated admin mutations.
+
+Created one `worker` service from the same repository's `prod` branch, deployment
+`f3446e3f-4c9b-4d03-8e6a-f279824d9876`, using the matching commit. Its effective
+deployment manifest and successful running status were inspected:
+
+- Dockerfile `/Dockerfile`; start `python manage.py run_worker`.
+- One replica; no public domain, HTTP health check, cron or pre-deploy command.
+- Sleep disabled; restart on failure with at most five platform restart attempts.
+- Eighteen environment variables reference existing `web` variables. No credential
+  values were copied into source or output. The database and private R2 are shared.
+
+Only web owns migrations. This rollout added no migrations and changed no access
+rules. The worker claimed the two existing overdue inbox items (406 and 424).
+Both exceeded the existing 100-page PDF extraction limit, became failed after one
+attempt, and released their claims. They require administrator review; limits were
+not raised and failures were not retried. The 14 historical failed exam imports
+remain unchanged. No notification or AI work was queued during these checks.
+
+Live Telegram `getWebhookInfo` reported a configured webhook, zero pending updates
+and no last error. This is not a controlled upload/delivery test and does not prove
+the webhook secret matches. Three signed private-resource Range reads returned
+HTTP 206, the exact frontend CORS origin and exposed Content-Range. The resource
+CORS failure is no longer reproduced; actual frontend/device use remains to be
+checked. See [sanitized live snapshot](PRODUCTION_ROLLOUT_VERIFICATION.json).
+
+The first one-hour web metric sample peaked at about 169 MB and 0.065 vCPU; the
+worker's initial sample reached about 87 MB and 0.134 vCPU. Startup/idle windows
+and rejected large PDFs do not establish representative OCR capacity or monthly
+cost savings. Keep concurrency one and gather a comparable workload/bill window.
+
+Additional remote OCR and disk-report commands could not start because no SSH key
+is available on this machine; no key or account access was created. Existing local
+and hosted CI OCR checks passed, but a successful live extraction remains open.
+
+Next: verify full database/media backups and an isolated restore, then roll out
+daily maintenance with a review of its subscription/reminder/file-cleanup effects.
+Maintenance is not deployed yet. Alert delivery, proxy trust, authenticated admin
+and student flows, real uploads/notifications/AI and cost sizing remain open.
+Hosted CI and worker deployment are now verified; earlier sections below retain
+their historical findings as of their original checks.
 
 ### Production web recovery — 2026-10-15
 
