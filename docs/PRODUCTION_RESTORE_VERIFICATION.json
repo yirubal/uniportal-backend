@@ -1,0 +1,14 @@
+{
+  "manifest_key": "operations/backups/daily-v1/snapshots/20261015T134110Z-e4b6fde2a8c44035b7879b09efbd5767/manifest.json",
+  "restored_at": "2026-10-15T14:11:30.505002+00:00",
+  "tables": 36,
+  "rows": 5817,
+  "table_hashes_match": true,
+  "media_objects": 564,
+  "media_bytes": 758163668,
+  "all_media_hashes_match": true,
+  "database_archive_sha256": "08ed79eedd15d1ee3a7c5aeb650ca4e0b223a8c5a0b0ca5fea2bb1ca02a71bb4",
+  "isolated_django_reads": true,
+  "external_app_credentials_disabled": true,
+  "duration_seconds": 1497.6
+}

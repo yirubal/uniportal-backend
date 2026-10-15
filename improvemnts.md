@@ -678,8 +678,8 @@ found through actual administrator use; monetization remains deferred.
   Telegram reports a configured webhook with no backlog or last error.
 - [ ] Verify a successful live upload/extraction, controlled notification and AI
   workflow, authenticated admin changes and frontend/device resource viewing.
-- [ ] Verify full production backups and isolated restore, then deploy daily
-  maintenance after reviewing its subscription/reminder/file-cleanup effects.
+- [x] Verify a full production database/media backup and isolated restore.
+- [ ] Deploy daily maintenance after reviewing its subscription/reminder/file-cleanup effects.
 - [ ] Complete alerts, proxy trust and representative cost/capacity measurements.
 - [ ] Migrate legacy Railway JSON configuration before the 2026-12-01 cutoff.
   New services already reject legacy config paths; the worker uses explicit
@@ -699,11 +699,14 @@ dump, incremental verified media copies and private completion manifests, with
 `run_maintenance --backup`; a failed backup prevents all maintenance effects.
 The container now has PostgreSQL client 18, matching the production server.
 
-Validation: 271 PostgreSQL tests pass; the container passes 271 tests with 11
-PostgreSQL-only skips, dependency checks and real OCR. Twelve backup tests cover
+Validation: 272 PostgreSQL tests pass; the container passes 272 tests with 12
+PostgreSQL-only skips, dependency checks and real OCR. Thirteen backup tests cover
 actual dumps, missing files, corrupt copies, retention, credentials and ordering.
-The real production backup/restore and cron rollout are being verified before
-marking this checkpoint complete. No migration or Python dependency was added.
+The real production database and all media were restored successfully in isolation:
+36 tables / 5,817 rows, 564 objects / 758,163,668 bytes, all hashes matching.
+Django reads/relationships passed with external credentials disabled; temporary
+private files and the local cluster were removed. Cron deployment is next.
+No migration or Python dependency was added.
 See [backup operation and recovery](docs/PRODUCTION_BACKUPS.md).
 
 ## Deferred — Monetization readiness

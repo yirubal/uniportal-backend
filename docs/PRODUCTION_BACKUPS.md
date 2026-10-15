@@ -1,7 +1,7 @@
 # Production backup and maintenance
 
-Implementation: 2026-10-15. Live backup/restore and maintenance deployment results
-will be recorded below after verification.
+Implementation and real backup/restore verified: 2026-10-15. Maintenance
+deployment is the next rollout action.
 
 ## Arrangement
 
@@ -99,13 +99,38 @@ evidence, not proof that the original academic content is correct.
 
 ## Verification
 
-Twelve tests cover real pg_dump completion/missing-media refusal on PostgreSQL,
+Thirteen tests cover real pg_dump completion/missing-media refusal on PostgreSQL,
 media-version reuse, changed-source detection, corrupt-copy/metadata refusal,
 retention boundaries, correct private credential handling and maintenance ordering.
-Full PostgreSQL suite: 271 tests pass. The rebuilt container passes 271 tests with
-11 PostgreSQL-only skips, dependency checks and real image/scanned-PDF OCR checks.
-Live restore results pending.
+Full PostgreSQL suite: 272 tests pass. The rebuilt container passes 272 tests with
+12 PostgreSQL-only skips, dependency checks and real image/scanned-PDF OCR checks.
+Hosted container, SQLite and PostgreSQL checks passed for the implementation.
 No new database migration or Python dependency is required.
+
+### Real production recovery drill
+
+Completed at 2026-10-15 14:11 UTC. The source snapshot contained 36 public tables
+and 5,817 rows. Its custom-format archive was 9,750,167 bytes. The private snapshot
+manifest is at:
+`operations/backups/daily-v1/snapshots/20261015T134110Z-e4b6fde2a8c44035b7879b09efbd5767/manifest.json`.
+
+The archive was downloaded from R2, SHA-256 checked, and restored with pg_restore
+into a new local PostgreSQL 18 instance bound to loopback. All 36 table row
+counts/hashes matched. All 564 backed-up media objects (758,163,668 bytes) were
+downloaded into isolated temporary storage and matched their manifest sizes and
+SHA-256 hashes. Django student/course/resource/quiz reads and relationship access
+passed with local storage and empty Telegram/AI credentials. The local database
+was stopped and private temporary files removed. Total drill time was about
+25 minutes on this workstation; it is not a Railway recovery-time guarantee.
+[Sanitized drill result](PRODUCTION_RESTORE_VERIFICATION.json).
+
+The first comparison exposed an ordering bug: production uses `en_US.utf8` and
+the isolated server uses `C`. Row counts matched but locale-dependent ordering
+changed the hashes. Fingerprints now explicitly use C collation and UTC; the
+verified replacement snapshot records `row-json-utf8-c-collation-utc-v1` as its
+hash format. An earlier snapshot without that format field is not this verified
+drill's reference. A separate streaming timeout led to bounded per-object retry
+handling. These checks changed no production records and sent no notifications.
 
 References: [Railway backups](https://docs.railway.com/volumes/backups),
 [PostgreSQL Debian packages](https://www.postgresql.org/download/linux/debian/),
