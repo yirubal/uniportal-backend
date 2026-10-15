@@ -1,0 +1,138 @@
+{
+  "checked_at": "2026-10-15T11:41:24.256921+00:00",
+  "migration_count": 65,
+  "latest_migrations": {
+    "accounts": "0009_broadcastmessage_submission_token",
+    "admin": "0003_logentry_add_action_flag_choices",
+    "api": "0001_initial",
+    "auth": "0012_alter_user_first_name_max_length",
+    "bot": "0002_notificationdelivery_exam_notification",
+    "content": "0017_resource_file_size_page_count",
+    "contenttypes": "0002_remove_content_type_name",
+    "exams": "0007_exampdfupload_records_updated_and_more",
+    "quiz": "0011_alter_quizattempt_student_and_more",
+    "sessions": "0001_initial"
+  },
+  "queues": {
+    "bot_telegramupdate": {
+      "statuses": {},
+      "eligible": 0,
+      "oldest_due": null
+    },
+    "bot_notificationdelivery": {
+      "statuses": {},
+      "eligible": 0,
+      "oldest_due": null
+    },
+    "content_fileinbox": {
+      "statuses": {
+        "failed": 2,
+        "processed": 276
+      },
+      "eligible": 0,
+      "oldest_due": null
+    },
+    "exams_exampdfupload": {
+      "statuses": {
+        "failed": 14,
+        "processed": 55
+      },
+      "eligible": 0,
+      "oldest_due": null
+    },
+    "bot_questionextraction": {
+      "statuses": {},
+      "eligible": 0,
+      "oldest_due": null
+    }
+  },
+  "database_connections_snapshot": 2,
+  "http": {
+    "/health/": {
+      "status": 200,
+      "request_id_present": true
+    },
+    "/live/": {
+      "status": 200,
+      "request_id_present": true
+    },
+    "/api/departments/": {
+      "status": 200,
+      "request_id_present": true
+    },
+    "/admin/login/": {
+      "status": 200,
+      "request_id_present": true
+    }
+  },
+  "resource_cors": [
+    {
+      "resource_id": 397,
+      "status": 206,
+      "allowed_origin": "https://unityuni.vercel.app",
+      "range_exposed": true
+    },
+    {
+      "resource_id": 396,
+      "status": 206,
+      "allowed_origin": "https://unityuni.vercel.app",
+      "range_exposed": true
+    },
+    {
+      "resource_id": 395,
+      "status": 206,
+      "allowed_origin": "https://unityuni.vercel.app",
+      "range_exposed": true
+    }
+  ],
+  "settings": {
+    "DJANGO_SETTINGS_MODULE": "config.settings.prod",
+    "TRUST_PROXY_HTTPS": "(unset)",
+    "SECURE_SSL_REDIRECT": "(unset)",
+    "SECURE_HSTS_SECONDS": "(unset)",
+    "GUNICORN_WORKERS": "(unset)",
+    "WORKER_MAX_ATTEMPTS": "(unset)"
+  },
+  "telegram_webhook": {
+    "api_ok": true,
+    "configured": true,
+    "pending_update_count": 0,
+    "last_error_date": null
+  },
+  "worker_deployment": {
+    "id": "f3446e3f-4c9b-4d03-8e6a-f279824d9876",
+    "status_observed": "SUCCESS",
+    "commit": "a7cbd29e3917400bce10d61790a0612e5727f4b3",
+    "start_command": "python manage.py run_worker",
+    "config_file": null,
+    "predeploy_commands": [],
+    "healthcheck_path": null,
+    "replicas": 1,
+    "sleep": false,
+    "public_domains": 0,
+    "environment_variable_references": 18,
+    "pending_upload_outcomes": [
+      {
+        "id": 406,
+        "status": "failed",
+        "attempts": 1,
+        "reason": "PDF exceeds 100 pages",
+        "claim_released": true
+      },
+      {
+        "id": 424,
+        "status": "failed",
+        "attempts": 1,
+        "reason": "PDF exceeds 100 pages",
+        "claim_released": true
+      }
+    ]
+  },
+  "limits": [
+    "Point-in-time checks, not continuous monitoring.",
+    "No controlled notification, AI extraction or successful live document extraction verified.",
+    "Authenticated admin changes and real-device frontend viewing not exercised.",
+    "Maintenance and full backup/restore remain unverified.",
+    "Remote OCR/disk smoke blocked by unavailable SSH key."
+  ]
+}
