@@ -689,6 +689,23 @@ Details and measurement limits: [rollout evidence](docs/PHASE_6_OPERATIONS.md#ad
 and [sanitized snapshot](docs/PRODUCTION_ROLLOUT_VERIFICATION.json). No extraction
 limits were raised, failed jobs retried or monetization rules changed.
 
+### Backup and maintenance implementation — 2026-10-15
+
+Railway rejected native backup scheduling on this Hobby workspace because it
+requires Pro. The owner selected the existing private R2 bucket for now, accepting
+that it does not protect against bucket/account loss. Added a PostgreSQL snapshot
+dump, incremental verified media copies and private completion manifests, with
+30-day retention scoped to the new backup namespace. Daily maintenance must use
+`run_maintenance --backup`; a failed backup prevents all maintenance effects.
+The container now has PostgreSQL client 18, matching the production server.
+
+Validation: 271 PostgreSQL tests pass; the container passes 271 tests with 11
+PostgreSQL-only skips, dependency checks and real OCR. Twelve backup tests cover
+actual dumps, missing files, corrupt copies, retention, credentials and ordering.
+The real production backup/restore and cron rollout are being verified before
+marking this checkpoint complete. No migration or Python dependency was added.
+See [backup operation and recovery](docs/PRODUCTION_BACKUPS.md).
+
 ## Deferred — Monetization readiness
 
 This section is inactive until the owner explicitly decides to introduce paid
