@@ -135,7 +135,8 @@ def create_backup(dsn, client, bucket, progress=lambda message: None):
                     progress(f'Media backup verified: {index}/{len(media)} objects.')
         progress(f'Media backup verified: {len(media)}/{len(media)} objects.')
         db_key = snapshot_key + '/database.dump'
-        digest = hashlib.sha256(archive.read_bytes()).hexdigest()
+        with archive.open('rb') as handle:
+            digest = hashlib.file_digest(handle, 'sha256').hexdigest()
         client.upload_file(str(archive), bucket, db_key)
         if object_hash(client, bucket, db_key) != digest:
             raise ValueError('Database backup readback hash mismatch')
