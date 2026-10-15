@@ -1,0 +1,4 @@
+{% extends "admin/change_form.html" %}
+{% load static %}
+{% block extrastyle %}{{ block.super }}<link rel="stylesheet" href="{% static 'content/admin_content.css' %}">{% endblock %}
+{% block form_top %}{% include "admin/content/workflow_help.html" %}{% endblock %}

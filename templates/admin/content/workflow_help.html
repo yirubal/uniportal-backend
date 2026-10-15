@@ -1,0 +1,7 @@
+<section class="content-workflow" aria-label="Next steps">
+  <h2 class="font-semibold">{{ workflow_title }}</h2>
+  <p class="mt-2 text-sm">{{ workflow_help }}</p>
+  {% if workflow_links %}<div class="content-workflow-links">
+    {% for link in workflow_links %}<a href="{{ link.url }}">{{ link.label }} →</a>{% endfor %}
+  </div>{% endif %}
+</section>
