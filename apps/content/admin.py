@@ -1,6 +1,6 @@
 import logging
 import mimetypes
-from urllib.parse import urlencode
+from urllib.parse import urlencode, parse_qsl
 
 from django.contrib import admin
 from django.contrib.admin.models import CHANGE, LogEntry
@@ -15,6 +15,7 @@ from django.http import FileResponse, Http404, HttpResponseRedirect
 from django.shortcuts import redirect
 from apps.bot.admin_filters import WorkAttentionFilter
 from unfold.admin import ModelAdmin, TabularInline
+from unfold.contrib.filters.admin import AutocompleteSelectFilter
 
 from . import views_admin
 from .models import (
@@ -188,7 +189,7 @@ class ResourceAdmin(ModelAdmin):
     change_form_template = 'admin/content/resource/change_form.html'
     change_list_template = 'admin/content/resource/change_list.html'
     list_display  = ['title', 'display_courses', 'file_type', 'source', 'access_level', 'status', 'downloads_count', 'created_at']
-    list_filter   = ['status', ResourceReviewFilter, 'file_type', 'source', 'access_level', 'courses']
+    list_filter   = ['status', ResourceReviewFilter, 'file_type', 'source', 'access_level', ('courses', AutocompleteSelectFilter)]
     search_fields = ['title', 'extracted_text', 'original_caption', 'courses__name', 'courses__code']
     readonly_fields = [
         'extracted_text', 'downloads_count', 'telegram_message_id',
@@ -279,9 +280,11 @@ class ResourceAdmin(ModelAdmin):
             'Publishing requires an attached file and at least one active course.'
         )
         if obj.pk:
+            filters = urlencode([(key, value) for key, value in parse_qsl(request.GET.get('_changelist_filters', ''))
+                                 if key != 'next'])
             context['workflow_links'] = [{
-                'label': 'Back to draft resources',
-                'url': reverse('admin:content_resource_changelist') + '?status__exact=pending',
+                'label': 'Back to resource list' if filters else 'Back to draft resources',
+                'url': reverse('admin:content_resource_changelist') + '?' + (filters or 'status__exact=pending'),
             }]
         return super().render_change_form(request, context, *args, **kwargs)
 

@@ -10,10 +10,10 @@
     {% csrf_token %}{{ form.selection }}
     {% if form.errors %}<div role="alert" class="content-workflow">Please correct the errors below. No changes were applied.{{ form.non_field_errors }}</div>{% endif %}
     {% for field in form.visible_fields %}
-    <div class="mb-4">{{ field.label_tag }}{{ field }}{{ field.errors }}{% if field.help_text %}<p class="mt-2 text-sm">{{ field.help_text }}</p>{% endif %}</div>
+    <div class="mb-4{% if field.field.widget.input_type == 'checkbox' %} content-checkbox-field{% endif %}">{{ field.label_tag }}{{ field }}{{ field.errors }}{% if field.help_text %}<p class="mt-2 text-sm">{{ field.help_text }}</p>{% endif %}</div>
     {% endfor %}
     <button type="submit" class="rounded-default bg-primary-600 px-4 py-2 text-white">Apply to {{ question_count }} selected questions</button>
-    <a href="{% url 'admin:quiz_question_changelist' %}">Cancel</a>
+    <a href="{{ bulk_return_url }}">Cancel</a>
   </form>
 </div>
 {% endblock %}

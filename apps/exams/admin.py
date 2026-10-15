@@ -3,13 +3,15 @@ from hashlib import sha256
 from django.conf import settings
 from django.contrib import admin, messages
 from django.core.exceptions import PermissionDenied
-from django.db.models import Count, Q
+from django.db.models import Count, Q, OuterRef, Subquery
+from django.db.models.functions import Coalesce
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import path, reverse
 from django.utils.html import format_html
 from django.utils.http import url_has_allowed_host_and_scheme
 from apps.bot.admin_filters import WorkAttentionFilter
 from unfold.admin import ModelAdmin, TabularInline
+from unfold.contrib.filters.admin import AutocompleteSelectFilter
 
 from .models import (
     ExamNotificationLog,
@@ -45,9 +47,19 @@ class ExamTermAdmin(ModelAdmin):
         'pdf_count',
         'activation_controls',
     ]
+    search_fields = ['center', 'year']
     readonly_fields = ['exam_start_date']
     inlines = [ExamSessionInline]
     actions = ['activate_selected_term', 'deactivate_selected_terms']
+
+    def get_queryset(self, request):
+        # Count each relation separately to avoid multiplying student rows by PDFs.
+        student_counts = StudentExam.objects.filter(term_id=OuterRef('pk')).order_by().values('term_id').annotate(total=Count('pk')).values('total')
+        pdf_counts = ExamPDFUpload.objects.filter(term_id=OuterRef('pk')).order_by().values('term_id').annotate(total=Count('pk')).values('total')
+        return super().get_queryset(request).annotate(
+            admin_student_count=Coalesce(Subquery(student_counts), 0),
+            admin_pdf_count=Coalesce(Subquery(pdf_counts), 0),
+        )
 
     def get_urls(self):
         urls = super().get_urls()
@@ -324,11 +336,11 @@ class ExamTermAdmin(ModelAdmin):
 
     @admin.display(description='Students')
     def student_count(self, obj):
-        return obj.student_exams.count()
+        return obj.admin_student_count
 
     @admin.display(description='PDFs')
     def pdf_count(self, obj):
-        return obj.pdf_uploads.count()
+        return obj.admin_pdf_count
 
 
 @admin.register(ExamSession)
@@ -352,7 +364,7 @@ class StudentExamAdmin(ModelAdmin):
 @admin.register(ExamPDFUpload)
 class ExamPDFUploadAdmin(ModelAdmin):
     list_display = ['original_name', 'pdf_type', 'term', 'status', 'records_created', 'records_updated', 'uploaded_at']
-    list_filter = [WorkAttentionFilter, 'term', 'status', 'pdf_type']
+    list_filter = [WorkAttentionFilter, ('term', AutocompleteSelectFilter), 'status', 'pdf_type']
     change_list_template = 'admin/exams/exampdfupload/change_list.html'
     readonly_fields = [
         'original_name',

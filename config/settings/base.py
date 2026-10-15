@@ -2,6 +2,7 @@ import environ
 import os
 from pathlib import Path
 from datetime import timedelta
+from django.templatetags.static import static
 
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 
@@ -187,6 +188,8 @@ DATA_UPLOAD_MAX_MEMORY_SIZE = 2 * 1024 * 1024
 UNFOLD = {
     'SITE_TITLE':    'UniPortal Admin',
     'DASHBOARD_CALLBACK': 'config.admin_dashboard.dashboard',
+    'SCRIPTS': [lambda request: static('content/admin_accessibility.js')],
+    'STYLES': [lambda request: static('content/admin_accessibility.css')],
     'SITE_HEADER':   'Unity University',
     'SITE_SUBHEADER': 'Student Portal',
     'SITE_URL':      '/',
@@ -201,7 +204,7 @@ UNFOLD = {
             '300': '125 211 252',
             '400': '56 189 248',
             '500': '14 165 233',
-            '600': '2 132 199',
+            '600': '2 121 181',
             '700': '3 105 161',
             '800': '7 89 133',
             '900': '12 74 110',

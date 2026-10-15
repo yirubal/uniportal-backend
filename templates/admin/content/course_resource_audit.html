@@ -48,7 +48,7 @@
           <th scope="row" class="font-medium">{{ course.name }}<span class="block text-xs">{{ course.code }}</span></th>
           <td>{% for placement in course.placements.all %}<p>{{ placement.department.name }} · {{ placement.get_program_display }} · Year {{ placement.year }}, period {{ placement.period }}</p>{% empty %}No active department placement{% endfor %}</td>
           <td>{{ course.published_count }} published<br>{{ course.pending_count }} drafts</td>
-          <td><a href="{% url 'admin:course_resource_detail' course.id %}">Review materials →</a>
+          <td><a href="{% url 'admin:course_resource_detail' course.id %}?audit_filters={{ return_query|urlencode }}">Review materials →</a>
             {% if perms.content.add_resource %}<br><a href="{% url 'admin:content_resource_add' %}?course={{ course.id }}">Create resource →</a>{% endif %}
           </td>
         </tr>{% endfor %}</tbody>

@@ -601,8 +601,70 @@ live Telegram flows and worker rollout verification remain pending. No productio
 jobs or records were changed during this work; no new dependency/service or paid
 access gate was introduced.
 
-Step 5 remains pending: browser usability/accessibility and measured admin query
-costs across representative data and workflows.
+### Step 5 implementation — 2026-10-15
+
+Usability and query-cost fixes are implemented and verified on synthetic data.
+Measured results and browser checks are saved in
+[ADMIN_VERIFICATION.json](docs/ADMIN_VERIFICATION.json). Reproduce the isolated
+SQLite measurements with `venv/bin/python scripts/check_admin_performance.py`;
+the script explicitly disables .env and uses a new in-memory test database.
+
+Rendered list-page SQL queries with 25 synthetic rows, including normal admin
+and session overhead:
+
+| Page | Before | After | After with one row |
+|---|---:|---:|---:|
+| Overview | 14 | 14 | 14 |
+| Exam terms | 56 | 6 | 6 |
+| Exam papers | 57 | 7 | 7 |
+| Chapters | 32 | 6 | 6 |
+| Questions | 110 | 6 | 6 |
+| Students | 32 | 7 | 7 |
+| Payment requests | 32 | 7 | 7 |
+| Message deliveries | 32 | 6 | 6 |
+
+- Term totals use separate correlated counts, avoiding both per-row round trips
+  and a student-by-PDF join multiplication. Papers/chapters annotate active
+  question counts; nullable relationships are fetched with their lists. Selected
+  relationship filters use Unfold's existing autocomplete instead of rendering
+  every possible chapter/course/broadcast. No cache or new dependency was added.
+- Resource review, coverage/course-detail pagination and question bulk edits
+  preserve their original search/filter scope on return. Return destinations
+  remain fixed local admin routes; arbitrary next URLs are not carried through.
+- Browser checks exposed unnamed list-edit checkboxes and generated Select2
+  controls. A small admin script supplies contextual labels, including after
+  Select2 replaces its controls. Native buttons replace the header/navigation
+  group's click-only spans/headings. Expanded state is announced; mobile opening
+  moves focus into navigation, and Escape closes it and restores toggle focus.
+- The primary blue was adjusted after measuring insufficient white-button text
+  contrast (4.10:1). The rendered checked button now measures 4.77:1. Focus
+  indicators, checkbox spacing and refresh-control targets were improved. The
+  broadcast confirmation dialog has an explicit name/description and begins on
+  Cancel. Three small Unfold template overrides preserve the installed layout;
+  review them and repeat the browser checks when upgrading the pinned theme.
+
+Verification: all 259 PostgreSQL tests pass; SQLite passes 250 with 9
+PostgreSQL-only skips. Seven new tests cover query growth, accurate aggregate
+counts, searchable filters, fixed local return routes and template controls.
+Final focused checks pass after the native navigation changes. Real Chromium
+checks covered eight pages at 390px/1280px in light/dark themes (32 combinations),
+with zero page-wide overflow, unnamed tested form controls or script exceptions.
+Keyboard checks verified focus indicators, Enter activation of navigation groups,
+mobile menu focus/Escape restoration, and named broadcast dialog cancellation.
+Static assets were served from an isolated collected-static directory; migration
+drift and diff checks pass. This step requires no migration.
+
+These are local checks, not an exhaustive accessibility certification or evidence
+of production savings. Timings in the JSON are warm medians of three requests;
+they do not establish Railway capacity, load latency or lower monthly bills.
+No production records/jobs were changed. Live worker/Telegram/R2 verification,
+real-device checks and the original production backup/alert/sizing follow-ups
+remain open. The Step 4 broadcast-token migration is still required when deploying
+from a version older than that change.
+
+All five admin steps now have repository implementations and recorded checks.
+The remaining work is production rollout/integration verification and any issues
+found through actual administrator use; monetization remains deferred.
 
 ## Deferred — Monetization readiness
 

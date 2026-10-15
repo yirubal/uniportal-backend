@@ -17,6 +17,7 @@ from .services import approve_subscription_request, reject_subscription_request
 
 @admin.register(Student)
 class StudentAdmin(ModelAdmin):
+    list_select_related = ['preferred_department']
     list_display = [
         'display_name',
         'telegram_id',
@@ -249,7 +250,7 @@ class SubscriptionRequestAdmin(ModelAdmin):
 
     # Show pending first in list
     def get_queryset(self, request):
-        qs = super().get_queryset(request)
+        qs = super().get_queryset(request).select_related('student', 'plan', 'activated_by')
         # pending first, then by date
         from django.db.models import Case, When, IntegerField
         return qs.annotate(
@@ -386,6 +387,8 @@ class SubscriptionPlanAdmin(ModelAdmin):
 
 @admin.register(BroadcastMessage)
 class BroadcastMessageAdmin(ModelAdmin):
+    search_fields = ['message']
+    list_select_related = ['sent_by']
     list_display  = ['truncated_message', 'sent_by', 'sent_at', 'total_users', 'success_count', 'failed_count']
     readonly_fields = ['message', 'parse_mode', 'sent_by', 'sent_at', 'total_users', 'success_count', 'failed_count']
     ordering      = ['-sent_at']

@@ -1,5 +1,6 @@
 {% extends "admin/base_site.html" %}
 {% load i18n static %}
+{% block extrastyle %}{{ block.super }}<link rel="stylesheet" href="{% static 'content/admin_content.css' %}">{% endblock %}
 
 {% block title %}Send Broadcast | {{ site_title }}{% endblock %}
 
@@ -204,7 +205,7 @@
 </div>
 
 {# ── Confirmation dialog ── #}
-<dialog id="confirmDialog"
+<dialog id="confirmDialog" aria-labelledby="confirm-broadcast-title" aria-describedby="confirm-broadcast-description"
   class="rounded-default border border-base-200 dark:border-base-700 bg-white dark:bg-base-900 p-0 shadow-xl w-full max-w-md backdrop:bg-black/40">
   <div class="p-6">
     <div class="flex items-center gap-3 mb-4">
@@ -212,9 +213,9 @@
         class="w-10 h-10 rounded-full bg-yellow-100 dark:bg-yellow-900/30 flex items-center justify-center flex-shrink-0">
         <span class="material-symbols-outlined text-yellow-600 dark:text-yellow-400">warning</span>
       </div>
-      <h3 class="text-base font-semibold text-base-900 dark:text-base-50">Confirm Broadcast</h3>
+      <h3 id="confirm-broadcast-title" class="text-base font-semibold text-base-900 dark:text-base-50">Confirm Broadcast</h3>
     </div>
-    <p class="text-sm text-base-500 dark:text-base-400 mb-6">
+    <p id="confirm-broadcast-description" class="text-sm text-base-500 dark:text-base-400 mb-6">
       This will send the message to <strong class="text-base-900 dark:text-base-100">{{ recipient_count }} currently active students</strong> as
       a private Telegram message. This action cannot be undone.
     </p>
@@ -232,7 +233,7 @@
   </div>
 </dialog>
 
-<div id="broadcast-status" data-status-url="{% url 'admin:accounts_broadcast_status' %}">
+<div class="content-workflow" id="broadcast-status" data-status-url="{% url 'admin:accounts_broadcast_status' %}">
   <button id="refresh-broadcast-status" type="button">Refresh delivery progress</button>
   <p id="broadcast-refresh-message" role="status" aria-live="polite">Progress is a saved snapshot. The worker must be running to deliver messages. Automatic refresh pauses after two minutes.</p>
 </div>
