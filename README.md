@@ -7,6 +7,14 @@
 
 ---
 
+## Admin handbook
+
+New administrators can start with the [visual admin guide (PDF)](docs/ADMIN_VISUAL_GUIDE.pdf).
+The [self-contained HTML version](docs/ADMIN_VISUAL_GUIDE.html) can be downloaded
+and opened offline in a browser. Both contain the same 20-page handbook, with
+annotated screenshots, navigation paths, workflows and a daily checklist.
+Screenshots use fictional training records, not production student data.
+
 ## Tech Stack
 
 | Layer | Technology |
