@@ -49,6 +49,21 @@ Secure session/CSRF cookies are mandatory with DEBUG=False, including Docker.
 WhiteNoise uses built, compressed manifest assets; runtime finder/autorefresh is
 disabled. Private storage still signs links and never uses a public custom domain.
 
+For the current Railway web service, set:
+
+```text
+CSRF_TRUSTED_ORIGINS=https://web-production-312b.up.railway.app
+```
+
+This is the backend admin origin, including `https://` and without a trailing
+slash or path. If the admin moves to a custom domain, add that exact HTTPS origin
+as a comma-separated entry. `ALLOWED_HOSTS` and CORS settings do not replace this
+setting. Behind TLS termination, Django can see an HTTP connection even though
+the browser submits an HTTPS Origin; without an explicit trusted origin or
+verified proxy HTTPS handling, token-bearing admin POSTs fail CSRF validation.
+This affects delete confirmations, edits, uploads and other admin actions.
+Keep CSRF middleware and secure cookies enabled; do not add a wildcard origin.
+
 `TRUST_PROXY_HTTPS=False` is the default. Set true only after confirming the
 Railway ingress overwrites `X-Forwarded-Proto` and the application is not publicly
 reachable around that trusted ingress. Verify HTTPS admin login and POSTs, then

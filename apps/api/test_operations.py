@@ -16,7 +16,9 @@ from django.conf import settings
 from django.core.management import call_command
 from django.core.management.base import CommandError
 from django.db import DatabaseError
-from django.test import SimpleTestCase, TestCase, override_settings
+from django.http import HttpResponse
+from django.middleware.csrf import CsrfViewMiddleware, get_token
+from django.test import RequestFactory, SimpleTestCase, TestCase, override_settings
 from django.utils import timezone
 from rest_framework.test import APIClient
 
@@ -180,6 +182,7 @@ class ProductionSettingsTests(SimpleTestCase):
             'import importlib, json; s=importlib.import_module("config.settings.' + module + '"); '
             'print(json.dumps({"secure": s.SESSION_COOKIE_SECURE and s.CSRF_COOKIE_SECURE, '
             '"reuse": s.DATABASES["default"]["CONN_MAX_AGE"], "proxy": s.SECURE_PROXY_SSL_HEADER, '
+            '"csrf_origins": s.CSRF_TRUSTED_ORIGINS, '
             '"handlers": s.LOGGING["root"]["handlers"]}))'],
             cwd=settings.BASE_DIR, env=environment, capture_output=True, text=True, timeout=20)
 
@@ -187,7 +190,14 @@ class ProductionSettingsTests(SimpleTestCase):
         for module in ('prod', 'docker'):
             result = self.load_settings(module)
             self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertEqual(json.loads(result.stdout), {'secure': True, 'reuse': 60, 'proxy': None, 'handlers': ['console']})
+            self.assertEqual(json.loads(result.stdout), {'secure': True, 'reuse': 60, 'proxy': None,
+                'csrf_origins': [], 'handlers': ['console']})
+
+    def test_explicit_https_admin_origin_is_loaded_for_both_entry_points(self):
+        for module in ('prod', 'docker'):
+            result = self.load_settings(module, CSRF_TRUSTED_ORIGINS='https://api.example.test')
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(json.loads(result.stdout)['csrf_origins'], ['https://api.example.test'])
 
     def test_missing_required_config_and_development_key_fail_closed(self):
         for field, value in (('SECRET_KEY', 'django-insecure-' + 'x' * 60), ('TELEGRAM_BOT_TOKEN', ''),
@@ -204,3 +214,35 @@ class ProductionSettingsTests(SimpleTestCase):
         result = self.load_settings('docker', DEBUG='True', TELEGRAM_BOT_TOKEN='', TELEGRAM_WEBHOOK_SECRET='')
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertFalse(json.loads(result.stdout)['secure'])
+
+
+@override_settings(ALLOWED_HOSTS=['api.example.test'], SECURE_PROXY_SSL_HEADER=None,
+    CSRF_TRUSTED_ORIGINS=['https://api.example.test'])
+class AdminProxyCsrfTests(SimpleTestCase):
+    """Railway terminates TLS before the HTTP connection to the application."""
+
+    def submit(self, path, origin='https://api.example.test', include_token=True):
+        factory = RequestFactory()
+        page = factory.get(path, HTTP_HOST='api.example.test')
+        token = get_token(page)
+        request = factory.post(path, {'csrfmiddlewaretoken': token} if include_token else {},
+            HTTP_HOST='api.example.test', HTTP_ORIGIN=origin, HTTP_X_FORWARDED_PROTO='https')
+        request.COOKIES[settings.CSRF_COOKIE_NAME] = page.META['CSRF_COOKIE']
+        self.assertFalse(request.is_secure())
+        middleware = CsrfViewMiddleware(lambda request: HttpResponse())
+        middleware.process_request(request)
+        return middleware.process_view(request, lambda request: HttpResponse(), (), {})
+
+    def test_valid_admin_forms_pass_behind_https_terminating_proxy(self):
+        for path in ('/admin/login/', '/admin/content/resource/1/delete/',
+                     '/admin/quiz/exampaper/1/change/'):
+            with self.subTest(path=path):
+                self.assertIsNone(self.submit(path))
+
+    @override_settings(CSRF_TRUSTED_ORIGINS=[])
+    def test_missing_origin_configuration_reproduces_rejection(self):
+        self.assertEqual(self.submit('/admin/login/').status_code, 403)
+
+    def test_untrusted_origin_and_missing_token_are_still_rejected(self):
+        self.assertEqual(self.submit('/admin/login/', origin='https://untrusted.example').status_code, 403)
+        self.assertEqual(self.submit('/admin/login/', include_token=False).status_code, 403)
