@@ -74,7 +74,16 @@ class ExamPaper(models.Model):
         verbose_name = 'Exam Paper'
         verbose_name_plural = 'Exam Papers'
         ordering = ['-year']
-        unique_together = ['course', 'department', 'exam_type', 'year']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['course', 'department', 'exam_type', 'year'],
+                condition=~models.Q(exam_type='quiz'),
+                name='non_quiz_paper_identity_unique',
+                violation_error_message=(
+                    'Exam Paper with this Course, Department, Exam type and Year already exists.'
+                ),
+            ),
+        ]
 
     def __str__(self):
         return f'{self.title} ({self.year})'
