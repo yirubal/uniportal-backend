@@ -139,8 +139,10 @@ class ExitQuestionImportTests(TestCase):
         workbook = load_workbook(BytesIO(response.content))
         sheet = workbook['Questions']
         self.assertTrue(sheet['A2'].value.startswith('Optional.'))
-        sheet.append(['', 'What is ethical leadership?', 'Accountability', 'Deception',
-                      'Favoritism', 'Silence', '', 'a', '', 'medium', 'ethics', ''])
+        row = {'question': 'What is ethical leadership?', 'option_a': 'Accountability',
+               'option_b': 'Deception', 'option_c': 'Favoritism', 'option_d': 'Silence',
+               'correct_option': 'a', 'difficulty': 'medium', 'topic_tags': 'ethics'}
+        sheet.append([row.get(cell.value, '') for cell in sheet[1]])
         output = BytesIO()
         workbook.save(output)
         workbook.close()

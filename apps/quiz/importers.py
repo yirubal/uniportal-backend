@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 
 VALID_TYPES = {'mcq', 'true_false', 'fill_blank', 'matching', 'essay'}
 VALID_DIFFICULTIES = {'easy', 'medium', 'hard'}
-VALID_OPTIONS = {'a', 'b', 'c', 'd', 'e'}
+VALID_OPTIONS = {'a', 'b', 'c', 'd', 'e', 'f'}
 
 
 class ImportResult(NamedTuple):
@@ -123,6 +123,7 @@ def import_questions_from_excel(file, exam_paper) -> ImportResult:
         "option_c":       col("option_c"),
         "option_d":       col("option_d"),
         "option_e":       col("option_e"),
+        "option_f":       col("option_f"),
         "correct_option": col("correct_option"),
         "explanation":    col("explanation"),
         "difficulty":     col("difficulty"),
@@ -189,13 +190,14 @@ def import_questions_from_excel(file, exam_paper) -> ImportResult:
         option_c = get(row, "option_c")
         option_d = get(row, "option_d")
         option_e = get(row, "option_e")
+        option_f = get(row, "option_f")
         correct  = get(row, "correct_option")
 
         # Enforce true_false options
         if q_type == "true_false":
             option_a = "True"
             option_b = "False"
-            option_c = option_d = option_e = ""
+            option_c = option_d = option_e = option_f = ""
             if correct.lower() not in ("a", "b", "true", "false", ""):
                 correct = ""
             elif correct.lower() == "true":
@@ -206,8 +208,13 @@ def import_questions_from_excel(file, exam_paper) -> ImportResult:
         # Normalize correct_option for MCQ/true_false
         if q_type in ("mcq", "true_false"):
             correct = correct.lower()
-            if correct not in VALID_OPTIONS:
+            if correct not in ({'a', 'b'} if q_type == 'true_false' else VALID_OPTIONS):
                 correct = ""
+
+        if q_type == 'mcq' and correct == 'f' and not option_f:
+            errors.append(f"Row {row_num}: skipped — option_f is required when correct_option is 'f'.")
+            skipped += 1
+            continue
 
         # Essay/matching — no correct option
         if q_type in ("essay", "matching"):
@@ -250,6 +257,7 @@ def import_questions_from_excel(file, exam_paper) -> ImportResult:
                 option_c=option_c,
                 option_d=option_d,
                 option_e=option_e,
+                option_f=option_f,
                 correct_option=correct,
                 explanation=explanation,
                 difficulty=difficulty,
@@ -315,6 +323,7 @@ def import_exit_questions_from_excel(file, exam_paper, *, is_active=False) -> Im
         "option_c": col("option_c"),
         "option_d": col("option_d"),
         "option_e": col("option_e"),
+        "option_f": col("option_f"),
         "correct_option": col("correct_option"),
         "explanation": col("explanation"),
         "difficulty": col("difficulty"),
@@ -397,12 +406,13 @@ def import_exit_questions_from_excel(file, exam_paper, *, is_active=False) -> Im
         option_c = get(row, "option_c")
         option_d = get(row, "option_d")
         option_e = get(row, "option_e")
+        option_f = get(row, "option_f")
         correct = get(row, "correct_option")
 
         if q_type == "true_false":
             option_a = "True"
             option_b = "False"
-            option_c = option_d = option_e = ""
+            option_c = option_d = option_e = option_f = ""
             if correct.lower() == "true":
                 correct = "a"
             elif correct.lower() == "false":
@@ -410,10 +420,15 @@ def import_exit_questions_from_excel(file, exam_paper, *, is_active=False) -> Im
 
         if q_type in ("mcq", "true_false"):
             correct = correct.lower()
-            if correct not in VALID_OPTIONS:
+            if correct not in ({'a', 'b'} if q_type == 'true_false' else VALID_OPTIONS):
                 errors.append(f"Row {row_num}: skipped — invalid correct_option '{correct}'.")
                 skipped += 1
                 continue
+
+        if q_type == 'mcq' and correct == 'f' and not option_f:
+            errors.append(f"Row {row_num}: skipped — option_f is required when correct_option is 'f'.")
+            skipped += 1
+            continue
 
         if q_type in ("essay", "matching"):
             correct = ""
@@ -447,6 +462,7 @@ def import_exit_questions_from_excel(file, exam_paper, *, is_active=False) -> Im
                 option_c=option_c,
                 option_d=option_d,
                 option_e=option_e,
+                option_f=option_f,
                 correct_option=correct,
                 explanation=get(row, "explanation"),
                 difficulty=difficulty,

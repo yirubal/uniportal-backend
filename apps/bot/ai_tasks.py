@@ -48,7 +48,7 @@ def process_question_extraction(extraction):
         Question.objects.bulk_create([
             Question(text=row['question'], question_type=row['question_type'],
                      correct_option=row['correct_option'], explanation=row['explanation'],
-                     **{f'option_{letter}': row[f'option_{letter}'] for letter in 'abcde'}, is_active=False)
+                     **{f'option_{letter}': row[f'option_{letter}'] for letter in 'abcdef'}, is_active=False)
             for row in questions
         ])
         current.questions = questions

@@ -370,9 +370,9 @@ class QuestionAdmin(ModelAdmin):
         }),
         ('Options', {
             'description': (
-                'MCQ: fill A–D (and E if needed). '
+                'MCQ: fill A–D (and E/F if needed). '
                 'True/False: A=True, B=False only. '
-                'Fill blank: put answer in Correct Option, leave A–E blank. '
+                'Fill blank: put answer in Correct Option, leave A–F blank. '
                 'Matching: each option is "Term → Answer". '
                 'Essay: leave all blank.'
             ),
@@ -382,6 +382,7 @@ class QuestionAdmin(ModelAdmin):
                 'option_c',
                 'option_d',
                 'option_e',
+                'option_f',
                 'correct_option',
             )
         }),

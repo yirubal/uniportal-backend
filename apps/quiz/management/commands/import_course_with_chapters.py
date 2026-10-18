@@ -3,13 +3,12 @@ from django.db import transaction
 from django.db.models import Q
 
 from apps.content.models import Course
-from apps.quiz.importers import parse_chapter_label
+from apps.quiz.importers import VALID_OPTIONS, parse_chapter_label
 from apps.quiz.models import Chapter, ExamPaper, Question
 
 
 VALID_TYPES = {'mcq', 'true_false', 'fill_blank', 'matching', 'essay'}
 VALID_DIFFICULTIES = {'easy', 'medium', 'hard'}
-VALID_OPTIONS = {'a', 'b', 'c', 'd', 'e'}
 
 
 class Command(BaseCommand):
@@ -250,6 +249,15 @@ class Command(BaseCommand):
                 skipped += 1
                 continue
 
+            if question_type == Question.TYPE_MCQ and correct_option == 'f' and not self._clean(row.get('option_f')):
+                errors.append(f'QUESTIONS row {row_num}: option_f is required when correct_option is "f".')
+                skipped += 1
+                continue
+            if question_type == Question.TYPE_TRUE_FALSE and correct_option not in {'a', 'b'}:
+                errors.append(f'QUESTIONS row {row_num}: true/false correct_option must be "a" or "b".')
+                skipped += 1
+                continue
+
             topic_tags = self._topic_tags(chapter, row.get('topic_tags'))
 
             Question.objects.create(
@@ -262,6 +270,7 @@ class Command(BaseCommand):
                 option_c=self._clean(row.get('option_c')),
                 option_d=self._clean(row.get('option_d')),
                 option_e=self._clean(row.get('option_e')),
+                option_f=self._clean(row.get('option_f')),
                 correct_option=correct_option,
                 explanation=explanation,
                 difficulty=difficulty,

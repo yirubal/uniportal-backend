@@ -25,7 +25,7 @@ from .worker import claim_work, fail_work, process_claimed_work, recover_stale_c
 
 
 QUESTION = {'question_type': 'mcq', 'question': 'What is correct?', 'option_a': 'Yes', 'option_b': 'No',
-            'option_c': '', 'option_d': '', 'option_e': '', 'correct_option': 'a', 'explanation': ''}
+            'option_c': '', 'option_d': '', 'option_e': '', 'option_f': '', 'correct_option': 'a', 'explanation': ''}
 
 
 class WorkerLifecycleTests(TestCase):
@@ -198,6 +198,15 @@ class AIExtractionTests(TestCase):
     def inbox(self, message_id, text):
         return FileInbox.objects.create(telegram_message_id=message_id, original_filename='questions.pdf', posted_date=timezone.now(),
                                        extracted_text=text, processing_status='processed')
+
+    def test_sixth_choice_survives_worker_extraction_and_draft_creation(self):
+        queue_question_extraction(self.inbox(44, 'a' * 100))
+        row = {**QUESTION, 'option_f': 'Sixth choice', 'correct_option': 'f'}
+        with patch('apps.bot.ai_tasks._extract_from_chunk', return_value=[row]):
+            process_claimed_work('ai', *claim_work('ai'))
+        question = Question.objects.get()
+        self.assertEqual((question.option_f, question.correct_option), ('Sixth choice', 'f'))
+        self.assertFalse(question.is_active)
 
     def test_completed_chunks_survive_retry_and_draft_creation_is_once_only(self):
         extraction, _ = queue_question_extraction(self.inbox(40, 'a' * 8100))
