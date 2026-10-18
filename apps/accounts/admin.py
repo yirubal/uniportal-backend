@@ -46,6 +46,7 @@ class StudentAdmin(ModelAdmin):
         'telegram_id',
         'joined_at',
         'updated_at',
+        'last_download_reset',
         'subscription_status',
         'subscription_expiry',
         'is_premium',
