@@ -252,6 +252,15 @@
     <div class="bm-card">
       <span class="bm-section-label">What happens on import</span>
       <ul class="bm-info-list">
+        {% if exam_paper.is_exit_exam %}
+        <li>Exit exam questions belong to this paper. <strong>Course and chapter are not required.</strong></li>
+        <li>Use optional <strong>topic_tags</strong> to organize questions for topic practice.</li>
+        <li>The optional legacy <strong>course</strong> column accepts an active course name or code.
+          Its course name is saved as a topic tag; it does not assign a course to this paper.
+          If the paper already has a course, a different course in a row is rejected.</li>
+        {% else %}
+        <li>The course comes from this paper. Each row needs a <strong>chapter</strong> for selective practice.</li>
+        {% endif %}
         <li>Each row in the Questions sheet becomes one Question record.</li>
         <li>All imported questions are set to <strong>inactive</strong> — you review them first.</li>
         <li>After import you will be redirected to the Questions list filtered to this exam paper.</li>

@@ -15,6 +15,9 @@ and opened offline in a browser. Both contain the same 20-page handbook, with
 annotated screenshots, navigation paths, workflows and a daily checklist.
 Screenshots use fictional training records, not production student data.
 
+See [Question imports](docs/QUESTION_IMPORTS.md) for the spreadsheet fields needed
+by each paper type, including department-wide exit exams without a course.
+
 ## Tech Stack
 
 | Layer | Technology |
