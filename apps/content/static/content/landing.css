@@ -1,0 +1,79 @@
+:root {
+  color-scheme: light;
+  font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  color: #082f49;
+  background: #f5f8fa;
+  font-synthesis: none;
+  -webkit-font-smoothing: antialiased;
+}
+
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: radial-gradient(ellipse at 50% 38%, #e0f2fe 0, transparent 65%);
+}
+.page {
+  min-height: 100vh;
+  min-height: 100svh;
+  max-width: 1280px;
+  padding: 32px 48px 24px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+}
+.brand { display: flex; align-items: center; gap: 12px; font-size: 20px; font-weight: 750; }
+.brand-symbol {
+  width: 44px;
+  height: 44px;
+  border-radius: 14px;
+  background: #082f49;
+  color: white;
+  font-size: 26px;
+  display: block;
+  text-align: center;
+  line-height: 44px;
+}
+.brand-symbol span { color: #7dd3fc; }
+.brand small { display: block; margin-top: 2px; font-size: 11px; font-weight: 500; color: #526778; }
+main { flex: 1; display: grid; place-items: center; padding: 64px 0; }
+.welcome { max-width: 660px; text-align: center; }
+.logo {
+  display: block;
+  margin: 0 auto 30px;
+  border-radius: 50%;
+  background: white;
+  box-shadow: 0 0 0 8px #ffffffa6, 0 12px 40px #082f4912;
+}
+.eyebrow { margin: 0 0 18px; font-size: 11px; letter-spacing: .2em; font-weight: 700; color: #0369a1; }
+h1 { margin: 0; font-size: clamp(38px, 6vw, 64px); letter-spacing: -.055em; line-height: 1.12; font-weight: 750; }
+h1 span { color: #0369a1; }
+.description { max-width: 455px; margin: 24px auto 32px; font-size: 17px; line-height: 1.75; color: #526778; }
+.admin-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 32px;
+  min-height: 54px;
+  padding: 15px 24px;
+  background: #082f49;
+  color: white;
+  border: 2px solid transparent;
+  border-radius: 12px;
+  font-size: 15px;
+  font-weight: 650;
+  text-decoration: none;
+  box-shadow: 0 8px 20px #082f491a;
+}
+.admin-link:hover { background: #075985; }
+.admin-link:focus-visible { outline: 3px solid #0284c7; outline-offset: 5px; }
+.admin-link span { font-size: 23px; line-height: 1; }
+.sign-in-note { margin: 16px 0 0; font-size: 12px; line-height: 1.6; color: #526778; }
+footer { display: flex; justify-content: space-between; gap: 16px; padding-top: 20px; border-top: 1px solid #dce5eb; font-size: 12px; color: #526778; }
+@media (max-width: 520px) {
+  .page { padding: 24px; }
+  main { padding: 48px 0; }
+  .logo { width: 96px; height: 96px; }
+  .description { font-size: 16px; }
+  .admin-link { width: 100%; }
+  footer { font-size: 11px; }
+}
