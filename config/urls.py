@@ -5,6 +5,7 @@ from django.conf.urls.static import static
 from django.db import connections
 from django.db.utils import DatabaseError
 from django.http import JsonResponse
+from django.views.generic import TemplateView
 from drf_spectacular.views import (
     SpectacularAPIView,
     SpectacularSwaggerView,
@@ -31,6 +32,7 @@ def liveness_check(request):
 
 
 urlpatterns = [
+    path('', TemplateView.as_view(template_name='landing.html'), name='home'),
     path('health/', health_check, name='health-check'),
     path('live/', liveness_check, name='liveness-check'),
 

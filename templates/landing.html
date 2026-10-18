@@ -1,0 +1,38 @@
+{% load static %}
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="robots" content="noindex, nofollow">
+    <meta name="theme-color" content="#082f49">
+    <title>UniPortal · Unity University</title>
+    <link rel="icon" type="image/webp" href="{% static 'content/uniportal-logo.webp' %}">
+    <link rel="stylesheet" href="{% static 'content/landing.css' %}">
+  </head>
+  <body>
+    <div class="page">
+      <header class="brand" aria-label="UniPortal, Unity University">
+        <span class="brand-symbol" aria-hidden="true">U<span>.</span></span>
+        <span>UniPortal<small>Unity University</small></span>
+      </header>
+
+      <main>
+        <section class="welcome" aria-labelledby="welcome-title">
+          <img class="logo" src="{% static 'content/uniportal-logo.webp' %}"
+               alt="Unity University crest" width="112" height="112">
+          <p class="eyebrow">THE CAMPUS WORKSPACE</p>
+          <h1 id="welcome-title">Welcome to <span>UniPortal.</span></h1>
+          <p class="description">One place to manage learning resources, prepare exams
+            and keep your students connected.</p>
+          <a class="admin-link" href="{% url 'admin:index' %}">
+            Open admin dashboard <span aria-hidden="true">↗</span>
+          </a>
+          <p class="sign-in-note">Sign in with your administrator account to continue.</p>
+        </section>
+      </main>
+
+      <footer><span>Unity University</span><span>Learning. Connected.</span></footer>
+    </div>
+  </body>
+</html>
