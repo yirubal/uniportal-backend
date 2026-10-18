@@ -800,7 +800,7 @@ class QuizChapterImportTests(TestCase):
         self.assertIn('Format: single sheet', command_output.getvalue())
         self.assertIn('Questions created: 3', command_output.getvalue())
 
-    def test_import_exit_exam_questions_sets_exam_course_and_leaves_chapter_empty(self):
+    def test_import_exit_exam_questions_keeps_paper_course_empty_and_tags_subject(self):
         from openpyxl import Workbook
 
         department = Department.objects.create(name='Computing')
@@ -873,15 +873,15 @@ class QuizChapterImportTests(TestCase):
 
         exit_paper.refresh_from_db()
         question = Question.objects.get()
-        self.assertEqual(exit_paper.course, self.course)
+        self.assertIsNone(exit_paper.course)
         self.assertEqual(question.exam_paper, exit_paper)
         self.assertIsNone(question.chapter)
         self.assertTrue(question.is_active)
-        self.assertEqual(question.topic_tags, ['Definition', 'Basics'])
+        self.assertEqual(question.topic_tags, [self.course.name, 'Definition', 'Basics'])
         self.assertEqual(question.year_source, '2024')
         self.assertIn('Questions created: 1', command_output.getvalue())
 
-    def test_import_exit_exam_questions_rejects_multiple_courses_for_one_paper(self):
+    def test_import_exit_exam_questions_accepts_multiple_subjects_for_department_paper(self):
         from openpyxl import Workbook
 
         department = Department.objects.create(name='Computing')
@@ -929,15 +929,20 @@ class QuizChapterImportTests(TestCase):
             tmp.write(output.read())
             tmp.flush()
 
-            with self.assertRaises(CommandError):
-                call_command(
-                    'import_exit_exam_questions',
-                    file=tmp.name,
-                    exam_paper_id=exit_paper.id,
-                    stdout=StringIO(),
-                )
+            call_command(
+                'import_exit_exam_questions',
+                file=tmp.name,
+                exam_paper_id=exit_paper.id,
+                stdout=StringIO(),
+            )
 
-        self.assertEqual(Question.objects.count(), 0)
+        self.assertEqual(Question.objects.count(), 2)
+        exit_paper.refresh_from_db()
+        self.assertIsNone(exit_paper.course)
+        self.assertEqual(
+            {question.topic_tags[0] for question in Question.objects.all()},
+            {self.course.name, other_course.name},
+        )
 
     def test_admin_import_page_uses_exit_template_for_exit_papers(self):
         department = Department.objects.create(name='Computing')
@@ -1023,8 +1028,8 @@ class QuizChapterImportTests(TestCase):
         question = Question.objects.get()
         self.assertEqual(result.created, 1)
         self.assertEqual(result.skipped, 0)
-        self.assertEqual(exit_paper.course, self.course)
+        self.assertIsNone(exit_paper.course)
         self.assertEqual(question.exam_paper, exit_paper)
         self.assertIsNone(question.chapter)
         self.assertFalse(question.is_active)
-        self.assertEqual(question.topic_tags, ['assessment', 'basics'])
+        self.assertEqual(question.topic_tags, [self.course.name, 'assessment', 'basics'])

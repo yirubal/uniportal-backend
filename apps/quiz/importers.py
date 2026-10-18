@@ -265,10 +265,11 @@ def import_questions_from_excel(file, exam_paper) -> ImportResult:
     return ImportResult(created=created, skipped=skipped, errors=errors)
 
 
-def import_exit_questions_from_excel(file, exam_paper) -> ImportResult:
+def import_exit_questions_from_excel(file, exam_paper, *, is_active=False) -> ImportResult:
     """
     Reads an uploaded exit-exam Excel file and creates Question records linked
-    to the given ExamPaper using a course column instead of a chapter column.
+    to the given ExamPaper. Course and chapter are not required for exit exams.
+    Optional legacy course labels become topic tags, without reassigning the paper.
     """
     try:
         import openpyxl
@@ -286,11 +287,15 @@ def import_exit_questions_from_excel(file, exam_paper) -> ImportResult:
     except Exception as e:
         return ImportResult(0, 0, [f"Could not open Excel file: {e}"])
 
-    ws = wb["Questions"] if "Questions" in wb.sheetnames else wb.active
-    rows = list(ws.iter_rows(values_only=True))
+    sheet_name = next((name for name in wb.sheetnames if name.lower() == 'questions'), None)
+    ws = wb[sheet_name] if sheet_name else wb.active
+    try:
+        rows = list(ws.iter_rows(values_only=True))
+    finally:
+        wb.close()
 
-    if len(rows) < 3:
-        return ImportResult(0, 0, ["File has no data rows. Make sure you start from row 3."])
+    if len(rows) < 2:
+        return ImportResult(0, 0, ["File has no data rows."])
 
     header_row = [str(h).strip().lower() if h else "" for h in rows[0]]
 
@@ -317,9 +322,9 @@ def import_exit_questions_from_excel(file, exam_paper) -> ImportResult:
         "year_source": col("year_source"),
     }
 
-    if COL["course"] is None or (COL["question"] is None and COL["question_text"] is None):
+    if COL["question"] is None and COL["question_text"] is None:
         return ImportResult(0, 0, [
-            "Could not find required columns 'course' and 'question'. "
+            "Could not find required column 'question' (or 'question_text'). "
             "Make sure you are using the official exit exam template."
         ])
 
@@ -340,10 +345,10 @@ def import_exit_questions_from_excel(file, exam_paper) -> ImportResult:
     created = 0
     skipped = 0
     errors = []
-    resolved_courses = {}
+    course_cache = {}
     year_source_max = Question._meta.get_field("year_source").max_length
 
-    for row_num, row in enumerate(rows[2:], start=3):
+    for row_num, row in enumerate(rows[1:], start=2):
         if all(v is None or str(v).strip() == "" for v in row):
             continue
 
@@ -351,18 +356,22 @@ def import_exit_questions_from_excel(file, exam_paper) -> ImportResult:
         q_text = get(row, "question") or get(row, "question_text")
         course_label = get(row, "course")
 
-        if not course_label:
-            errors.append(f"Row {row_num}: skipped — course is required.")
-            skipped += 1
+        # The official template includes a notes row; header-only workbooks do not.
+        if q_text.lower() == 'full question text':
             continue
 
-        course = resolve_course(course_label)
-        if course is None:
-            errors.append(f"Row {row_num}: skipped — active course '{course_label}' was not found.")
-            skipped += 1
-            continue
+        course = None
+        if course_label:
+            key = course_label.casefold()
+            if key not in course_cache:
+                course_cache[key] = resolve_course(course_label)
+            course = course_cache[key]
+            if course is None:
+                errors.append(f"Row {row_num}: skipped — active course '{course_label}' was not found.")
+                skipped += 1
+                continue
 
-        if exam_paper.course_id and exam_paper.course_id != course.id:
+        if course and exam_paper.course_id and exam_paper.course_id != course.id:
             errors.append(
                 f"Row {row_num}: skipped — course '{course_label}' does not match "
                 f"exam paper course '{exam_paper.course.name}'."
@@ -414,8 +423,8 @@ def import_exit_questions_from_excel(file, exam_paper) -> ImportResult:
             difficulty = "medium"
 
         raw_tags = get(row, "topic_tags")
-        topic_tags = []
-        seen_tags = set()
+        topic_tags = [course.name] if course else []
+        seen_tags = set(topic_tags)
         if raw_tags:
             for tag in raw_tags.split(","):
                 tag = tag.strip()
@@ -428,15 +437,6 @@ def import_exit_questions_from_excel(file, exam_paper) -> ImportResult:
             year_source = ""
 
         try:
-            if exam_paper.course_id is None:
-                resolved_courses[course.id] = course
-                if len(resolved_courses) > 1:
-                    errors.append(
-                        f"Row {row_num}: skipped — one exit exam paper can only import one course."
-                    )
-                    skipped += 1
-                    continue
-
             Question.objects.create(
                 exam_paper=exam_paper,
                 chapter=None,
@@ -452,15 +452,11 @@ def import_exit_questions_from_excel(file, exam_paper) -> ImportResult:
                 difficulty=difficulty,
                 topic_tags=topic_tags,
                 year_source=year_source,
-                is_active=False,
+                is_active=is_active,
             )
             created += 1
         except Exception as e:
             errors.append(f"Row {row_num}: failed to save — {e}")
             skipped += 1
-
-    if created and exam_paper.course_id is None and len(resolved_courses) == 1:
-        exam_paper.course = next(iter(resolved_courses.values()))
-        exam_paper.save(update_fields=["course", "updated_at"])
 
     return ImportResult(created=created, skipped=skipped, errors=errors)
