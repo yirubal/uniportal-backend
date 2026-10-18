@@ -142,6 +142,10 @@ class ExamPaperAdmin(ModelAdmin):
     list_editable = ['access_level', 'is_active']
     fieldsets = (
         ('Exam Info', {
+            'description': (
+                'You can create multiple Team Quizzes for the same course and year. '
+                'Give each quiz a clear, descriptive title.'
+            ),
             'fields': (
                 'title',
                 'exam_type',
