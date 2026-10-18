@@ -258,6 +258,7 @@ class QuestionSerializer(serializers.ModelSerializer):
             'option_c',
             'option_d',
             'option_e',
+            'option_f',
             'correct_option',
             'explanation',
             'difficulty',
@@ -293,6 +294,7 @@ class QuestionSimulationSerializer(serializers.ModelSerializer):
             'option_c',
             'option_d',
             'option_e',
+            'option_f',
             'available_options',
             'is_auto_gradable',
         ]

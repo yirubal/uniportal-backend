@@ -31,6 +31,10 @@ the question-text column. The template's notes row can be kept or removed.
 
 Question text is required. An omitted question type defaults to MCQ; supplied
 types must be valid. MCQ and true/false questions need a valid `correct_option`.
+MCQ supports choices A–F. For a sixth choice, fill `option_f` and set
+`correct_option` to `f` if it is the answer. An answer of `f` without option F's
+text is rejected. Existing files without an `option_f` column still work for
+questions with fewer choices. True/false answers remain `a`/`true` or `b`/`false`.
 True/false options are filled automatically. Essay and matching questions do not
 need a correct-option value. Explanation, difficulty, topic tags and source year
 are optional; difficulty defaults to medium.

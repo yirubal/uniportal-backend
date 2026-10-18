@@ -12,7 +12,7 @@ from .models import ExamPaper, Question, QuizAttempt, QuizSimulation
 
 SNAPSHOT_FIELDS = (
     'id', 'text', 'question_type', 'option_a', 'option_b', 'option_c', 'option_d',
-    'option_e', 'correct_option', 'explanation', 'difficulty', 'topic_tags', 'year_source',
+    'option_e', 'option_f', 'correct_option', 'explanation', 'difficulty', 'topic_tags', 'year_source',
 )
 
 
@@ -137,8 +137,12 @@ def submit_quiz(student, data):
             raise SimulationCompleted()
         if simulation.expires_at <= timezone.now():
             raise ValidationError({'simulation_id': 'Simulation expired. Open the paper again.'})
-        questions = [Question(**{field: row[field] for field in SNAPSHOT_FIELDS}, exam_paper_id=simulation.exam_paper_id)
-                     for row in simulation.question_snapshot]
+        questions = []
+        for snapshot in simulation.question_snapshot:
+            # Attempts issued before option F was introduced have no such field.
+            row = {'option_f': '', **snapshot}
+            questions.append(Question(**{field: row[field] for field in SNAPSHOT_FIELDS},
+                                      exam_paper_id=simulation.exam_paper_id))
         if not ids.issubset({question.pk for question in questions}):
             raise ValidationError({'answers': 'Answers contain questions that were not issued.'})
         validate_quiz_context(data, questions)

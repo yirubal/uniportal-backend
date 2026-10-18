@@ -192,7 +192,7 @@ class Question(models.Model):
         choices=TYPE_CHOICES,
         default=TYPE_MCQ,
         help_text=(
-            'MCQ: options A–E with correct_option. '
+            'MCQ: options A–F with correct_option. '
             'True/False: option_a=True, option_b=False. '
             'Fill blank: correct_option holds the answer text. '
             'Matching: each option is a "Term → Answer" pair. '
@@ -227,11 +227,17 @@ class Question(models.Model):
         blank=True,
         help_text='5th MCQ option only. Leave blank for other question types.',
     )
+    option_f = models.CharField(
+        max_length=500,
+        blank=True,
+        default='',
+        help_text='Optional 6th MCQ choice. Leave blank when there is no option F.',
+    )
     correct_option = models.CharField(
         max_length=100,
         blank=True,
         help_text=(
-            'MCQ/True-False: single letter a–e. '
+            'MCQ: single letter a–f. True/False: a or b. '
             'Fill blank: the correct answer text. '
             'Matching/Essay: leave blank.'
         ),
@@ -296,7 +302,7 @@ class Question(models.Model):
 
     @property
     def has_five_options(self):
-        return bool(self.option_e) and self.question_type == self.TYPE_MCQ
+        return bool(self.option_e) and not self.option_f and self.question_type == self.TYPE_MCQ
 
     @property
     def available_options(self):
@@ -309,6 +315,8 @@ class Question(models.Model):
             options['d'] = self.option_d
             if self.option_e:
                 options['e'] = self.option_e
+            if self.option_f:
+                options['f'] = self.option_f
         return {k: v for k, v in options.items() if v}
 
     # ── Shortcuts through exam_paper ──────────────────────────────────────────
