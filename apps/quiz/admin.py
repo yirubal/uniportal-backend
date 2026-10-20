@@ -7,14 +7,14 @@ from django.core.exceptions import PermissionDenied
 from django.db import transaction
 from django.db.models import Count, Q
 from django.http import HttpResponse, HttpResponseRedirect
-from django.shortcuts import render, redirect
+from django.shortcuts import get_object_or_404, render, redirect
 from django.urls import path, reverse
 from django.utils.html import format_html
 from unfold.admin import ModelAdmin
 from unfold.contrib.filters.admin import AutocompleteSelectFilter
 
 from .models import Chapter, ExamPaper, Question, QuizAttempt
-from .forms import QuestionBulkEditForm
+from .forms import PaperQuestionExtractionForm, QuestionBulkEditForm
 
 
 # ─── Filters ──────────────────────────────────────────────────────────────────
@@ -196,6 +196,10 @@ class ExamPaperAdmin(ModelAdmin):
     def get_urls(self):
         urls = super().get_urls()
         custom = [
+            path('extract-questions/', self.admin_site.admin_view(self.extract_questions_view),
+                 name='quiz_exampaper_extract_questions_select'),
+            path('<int:paper_id>/extract-questions/', self.admin_site.admin_view(self.extract_questions_view),
+                 name='quiz_exampaper_extract_questions'),
             path(
                 '<int:paper_id>/import-questions/',
                 self.admin_site.admin_view(self.import_questions_view),
@@ -213,6 +217,39 @@ class ExamPaperAdmin(ModelAdmin):
             ),
         ]
         return custom + urls
+
+    def extract_questions_view(self, request, paper_id=None):
+        from apps.bot.ai_tasks import queue_question_extraction
+        from apps.bot.models import QuestionExtraction
+        paper = get_object_or_404(ExamPaper, pk=paper_id) if paper_id else None
+        if not (self.has_change_permission(request, paper) and request.user.has_perm('quiz.add_question')):
+            raise PermissionDenied
+        form = PaperQuestionExtractionForm(request.POST if request.method == 'POST' else None,
+            user=request.user, paper=paper,
+            initial={name: request.GET.get(name) for name in ('inbox', 'resource')})
+        if request.method == 'POST' and form.is_valid():
+            target = form.cleaned_data['exam_paper']
+            if not self.has_change_permission(request, target):
+                raise PermissionDenied
+            try:
+                job, created = queue_question_extraction(
+                    form.cleaned_data.get('inbox'), resource=form.cleaned_data.get('resource'),
+                    exam_paper=target, chapter=form.cleaned_data.get('chapter'), requested_by=request.user)
+            except ValueError as exc:
+                form.add_error(None, str(exc))
+            else:
+                self.message_user(request,
+                    f'Extraction #{job.pk} queued. Questions will be inactive for review.' if created
+                    else f'Extraction #{job.pk} already exists ({job.get_status_display()}); no duplicate was queued.')
+                return redirect('admin:quiz_exampaper_extract_questions', paper_id=target.pk)
+        jobs = (QuestionExtraction.objects.filter(exam_paper=paper).select_related('chapter')
+                .defer('source_text', 'chunks', 'questions').annotate(draft_count=Count('draft_questions'))
+                .order_by('-pk')[:10]) if paper else []
+        return render(request, 'admin/quiz/extract_questions.html', {
+            **self.admin_site.each_context(request), 'opts': self.model._meta,
+            'title': 'Extract questions with AI', 'form': form, 'paper': paper, 'jobs': jobs,
+            'can_view_jobs': request.user.has_perm('bot.view_questionextraction') or request.user.has_perm('bot.change_questionextraction'),
+        })
 
     # ── Download template ─────────────────────────────────────────────────────
 
@@ -319,6 +356,8 @@ class ExamPaperAdmin(ModelAdmin):
             'admin:quiz_exampaper_import_questions',
             args=[object_id]
         ) if self.has_change_permission(request) and request.user.has_perm('quiz.add_question') else None
+        if extra_context['import_url']:
+            extra_context['ai_extract_url'] = reverse('admin:quiz_exampaper_extract_questions', args=[object_id])
         return super().change_view(request, object_id, form_url, extra_context)
 
 
@@ -399,7 +438,9 @@ class QuestionAdmin(ModelAdmin):
                 'is_active',
             )
         }),
+        ('AI source', {'fields': ('source_extraction',), 'classes': ('collapse',)}),
     )
+    readonly_fields = ['source_extraction']
     actions = [
         'activate_questions',
         'deactivate_questions',

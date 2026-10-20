@@ -1,0 +1,39 @@
+{% extends "admin/base_site.html" %}
+{% load static %}
+{% block extrastyle %}{{ block.super }}<link rel="stylesheet" href="{% static 'content/admin_content.css' %}">{% endblock %}
+{% block content %}
+<div class="content-audit">
+  <h1 class="text-2xl font-semibold">Extract questions with AI</h1>
+  {% if paper %}<p class="mt-2">Target paper: <strong>{{ paper }}</strong></p>{% endif %}
+  <p class="my-4">Choose an existing exam or question document. AI copies its questions into inactive drafts for review.
+    Missing answers stay unconfirmed. Generating new practice questions from notes will be a separate step.</p>
+  <p class="mb-4">The selected text is sent to your configured Gemini project. Use teaching material appropriate for that project's data-use terms.
+    Each source is extracted once; repeating this form reuses its existing job.</p>
+  <form method="post" class="content-workflow">
+    {% csrf_token %}
+    {{ form.non_field_errors }}
+    {% for hidden in form.hidden_fields %}{{ hidden }}{{ hidden.errors }}{% endfor %}
+    {% for field in form.visible_fields %}
+    <div class="mb-4"><label for="{{ field.id_for_label }}" class="block font-medium mb-2">{{ field.label }}</label>
+      {{ field }}{{ field.errors }}{% if field.help_text %}<p class="text-sm mt-1">{{ field.help_text }}</p>{% endif %}</div>
+    {% endfor %}
+    <p class="mb-4">Choose exactly one source. Inbox files must have finished text extraction; resources must already contain extracted text.
+      Assign a chapter only for a source about that chapter; organize mixed papers during review.
+      Department-wide exit exams do not need a course or chapter.</p>
+    <button type="submit" class="rounded-default bg-primary-600 px-4 py-3 font-medium text-white">Queue extraction</button>
+    {% if paper %}<a class="ml-4 underline" href="{% url 'admin:quiz_exampaper_change' paper.pk %}">Back to paper</a>{% endif %}
+  </form>
+  <h2 class="mt-8 mb-3 text-lg font-semibold">Recent extractions for this paper</h2>
+  <p class="mb-3 text-sm">Refresh this page to check progress. A queued job waits for the worker; quota errors delay retries.
+    Open the draft questions, review their wording and answers, then activate only those ready for students.</p>
+  <div class="content-table-scroll"><table class="w-full text-left">
+    <thead><tr><th>Source</th><th>Status</th><th>Requests</th><th>Review</th></tr></thead>
+    <tbody>{% for job in jobs %}<tr>
+      <td>{{ job.source_label }}{% if can_view_jobs %}<br><a class="underline" href="{% url 'admin:bot_questionextraction_change' job.pk %}">Source snapshot &amp; job details #{{ job.pk }}</a>{% endif %}</td>
+      <td>{{ job.get_status_display }}{% if job.error_message %}<p class="text-sm">{{ job.error_message }}</p>{% endif %}</td>
+      <td>{{ job.provider_calls }}</td>
+      <td>{% if job.draft_count %}<a class="underline" href="{% url 'admin:quiz_question_changelist' %}?source_extraction__id__exact={{ job.pk }}">Review {{ job.draft_count }} question{{ job.draft_count|pluralize }}</a>{% else %}No drafts yet{% endif %}</td>
+    </tr>{% empty %}<tr><td colspan="4">No extractions queued for this paper.</td></tr>{% endfor %}</tbody>
+  </table></div>
+</div>
+{% endblock %}

@@ -264,6 +264,9 @@ class Question(models.Model):
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
+    source_extraction = models.ForeignKey('bot.QuestionExtraction', null=True, blank=True,
+        on_delete=models.SET_NULL, related_name='draft_questions', editable=False)
+
     class Meta:
         verbose_name = 'Question'
         verbose_name_plural = 'Questions'

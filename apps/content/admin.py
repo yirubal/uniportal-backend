@@ -358,7 +358,7 @@ class FileInboxAdmin(ModelAdmin):
         actions = super().get_actions(request)
         if not request.user.has_perm('content.add_resource'):
             actions.pop('publish_as_resource', None)
-        if not request.user.has_perm('quiz.add_question'):
+        if not (request.user.has_perm('quiz.add_question') and request.user.has_perm('quiz.change_exampaper')):
             actions.pop('extract_questions', None)
         return actions
 
@@ -498,16 +498,12 @@ class FileInboxAdmin(ModelAdmin):
                 'id__in': ','.join(map(str, created_ids)), 'status__exact': Resource.STATUS_PENDING,
             }))
 
-    @admin.action(permissions=['change'], description='Extract questions from selected files using AI')
+    @admin.action(permissions=['change'], description='Extract questions with AI (choose paper)')
     def extract_questions(self, request, queryset):
-        if not request.user.has_perm('quiz.add_question'):
+        if not (request.user.has_perm('quiz.add_question') and request.user.has_perm('quiz.change_exampaper')):
             raise PermissionDenied
-        from apps.bot.ai_tasks import queue_question_extraction
-        queued = 0
-        for item in queryset.filter(processing_status=FileInbox.STATUS_PROCESSED).exclude(extracted_text=''):
-            try:
-                _, created = queue_question_extraction(item)
-                queued += int(created)
-            except ValueError as exc:
-                self.message_user(request, f'{item.original_filename}: {exc}', messages.WARNING)
-        self.message_user(request, f'Queued {queued} extraction(s). Review progress at /admin/bot/questionextraction/ and generated questions under Quiz.', messages.SUCCESS)
+        ids = list(queryset.values_list('pk', flat=True)[:2])
+        if len(ids) != 1:
+            self.message_user(request, 'Select one source file, then choose its target paper and chapter.', messages.WARNING)
+            return
+        return HttpResponseRedirect(reverse('admin:quiz_exampaper_extract_questions_select') + '?' + urlencode({'inbox': ids[0]}))

@@ -1,3 +1,4 @@
+from django.conf import settings
 from django.db import models
 from django.utils import timezone
 
@@ -36,7 +37,17 @@ class NotificationDelivery(models.Model):
 
 
 class QuestionExtraction(models.Model):
-    inbox = models.OneToOneField('content.FileInbox', on_delete=models.CASCADE, related_name='question_extraction')
+    inbox = models.OneToOneField('content.FileInbox', null=True, blank=True,
+                                on_delete=models.SET_NULL, related_name='question_extraction')
+    resource = models.OneToOneField('content.Resource', null=True, blank=True,
+                                   on_delete=models.SET_NULL, related_name='question_extraction')
+    exam_paper = models.ForeignKey('quiz.ExamPaper', null=True, blank=True,
+                                  on_delete=models.SET_NULL, related_name='ai_extractions')
+    chapter = models.ForeignKey('quiz.Chapter', null=True, blank=True, on_delete=models.SET_NULL)
+    requested_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL)
+    target_required = models.BooleanField(default=False, editable=False)
+    source_label = models.CharField(max_length=500, blank=True)
+    provider_calls = models.PositiveIntegerField(default=0, verbose_name='Provider request attempts')
     source_hash = models.CharField(max_length=64, db_index=True)
     version = models.CharField(max_length=80)
     source_text = models.TextField()
@@ -49,3 +60,6 @@ class QuestionExtraction(models.Model):
     claimed_at = models.DateTimeField(null=True, blank=True)
     claim_token = models.UUIDField(null=True, blank=True, editable=False)
     next_attempt_at = models.DateTimeField(default=timezone.now, db_index=True)
+
+    def __str__(self):
+        return f'Extraction #{self.pk}: {self.source_label or "Inbox file"}'
