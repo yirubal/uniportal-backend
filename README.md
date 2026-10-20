@@ -18,6 +18,9 @@ Screenshots use fictional training records, not production student data.
 See [Question imports](docs/QUESTION_IMPORTS.md) for the spreadsheet fields needed
 by each paper type, including department-wide exit exams without a course.
 
+See [Admin AI workflow](docs/ADMIN_AI_WORKFLOW.md) for source-based question
+extraction, draft review, quota handling and the remaining AI implementation steps.
+
 ## Tech Stack
 
 | Layer | Technology |

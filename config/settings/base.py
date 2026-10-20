@@ -261,6 +261,10 @@ EXTRACTION_TIMEOUT_SECONDS = 240
 OCR_MAX_FILE_BYTES = 5 * 1024 * 1024
 AI_MAX_INPUT_CHARS = 40000
 AI_MAX_QUESTIONS = 500
+AI_MAX_CALLS_PER_JOB = env.int('AI_MAX_CALLS_PER_JOB', default=10)
+AI_QUOTA_RETRY_SECONDS = env.int('AI_QUOTA_RETRY_SECONDS', default=1800)
+if AI_MAX_CALLS_PER_JOB < 1 or AI_QUOTA_RETRY_SECONDS < 60:
+    raise ValueError('AI call limit must be positive and quota retry delay must be at least 60 seconds.')
 GEMINI_MODEL = os.environ.get('GEMINI_MODEL', 'gemini-3.1-flash-lite')
 
 RESOURCE_LINK_TTL_SECONDS = 900

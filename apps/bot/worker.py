@@ -14,6 +14,7 @@ from django.conf import settings
 from django.db import transaction
 from django.db.models import F
 from django.utils import timezone
+from .extractor import GeminiQuotaExceeded
 
 logger = logging.getLogger(__name__)
 
@@ -178,6 +179,13 @@ def process_claimed_work(kind, pk, token):
             refresh_broadcast(row.broadcast_id)
             refresh_exam_reminder(row.exam_notification_id)
         logger.info('job_kind=%s job_id=%s claim_id=%s state=processed', kind, pk, token)
+    except GeminiQuotaExceeded:
+        delay = settings.AI_QUOTA_RETRY_SECONDS
+        fail_work(kind, pk, token, 'Gemini quota reached; retry scheduled after cooldown.', delay=delay)
+        from .models import QuestionExtraction
+        # The project quota is shared; avoid hammering it with the next AI job.
+        available = timezone.now() + timedelta(seconds=delay)
+        QuestionExtraction.objects.filter(status='pending', next_attempt_at__lt=available).update(next_attempt_at=available)
     except RetryLater as exc:
         if kind == 'notification':
             from .models import NotificationDelivery
