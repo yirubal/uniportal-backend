@@ -2,7 +2,7 @@
 
 ## Step 1: extract questions into a selected paper
 
-Implemented in the backend and admin; deployment and a real provider smoke test
+Implemented in the backend and admin; deployment and a full admin/worker smoke test
 are separate checks. This step extracts existing questions. To generate new
 questions from notes, use Step 2 below.
 
@@ -28,7 +28,7 @@ immediately create unassigned questions.
 
 ## Step 2: generate a new practice paper
 
-Implemented in the backend and admin; deployment and a live Gemini smoke test
+Implemented in the backend and admin; deployment and a full admin/worker smoke test
 remain separate checks.
 
 1. Open **Exams & quizzes → Exam papers → Generate practice paper with AI**.
@@ -175,14 +175,57 @@ stop for review before making a new provider request, rather than mixing
 different extraction versions. Review their saved chunks/source before deciding
 how to recover them.
 
-Automated verification uses mocked provider responses and disposable databases.
-A production smoke test should use a short non-sensitive sample, confirm worker
-completion and inactive drafts, then review the saved source reference. No live
-Gemini call or production extraction is triggered by the implementation tests.
+Automated tests use mocked provider responses and disposable databases. A separate
+live probe on 2026-10-21 passed using the Railway worker's configured Gemini key
+and model: one synthetic extraction and one generated MCQ, with no production
+database access or saved records. This verifies provider connectivity and output
+validation, not deployed worker/admin operation or billing-tier eligibility.
+See the [sanitized verification record](ADMIN_AI_VERIFICATION.json).
+
+### AI verification command
+
+Run `python manage.py check_ai` for configuration readiness. By default it makes
+no provider request and does not access the database. A successful result only
+confirms that a key is configured; `provider: not_tested` is explicit.
+
+On each deployed web/worker service, run:
+
+```sh
+python manage.py check_ai --database
+```
+
+This reads required migrations, queue counts and recorded quota cooldowns. It
+does not write records, process/retry jobs or prove the worker is consuming its
+queue. Existing failed-job counts are informational; use `check_operations` for
+queue health thresholds. Missing migrations, unavailable database, missing key
+or active quota cooldown cause a nonzero exit.
+
+To test provider connectivity explicitly, run:
+
+```sh
+python manage.py check_ai --database --probe
+```
+
+The probe uses only built-in synthetic library material. It makes at most two
+provider requests, stops at the first failure and does not retry. Extraction
+must preserve a known supplied answer; generation must pass the existing MCQ,
+answer, explanation and literal source-excerpt validators. It reports sanitized
+JSON without credentials, document text or raw provider/database errors. With
+`--database`, a recorded quota cooldown prevents provider requests. It does not
+record a new cooldown or create papers, questions, files or jobs. Each explicit
+probe uses the configured project's quota and any applicable billing.
+
+Finally, use a short non-sensitive sample through the deployed admin: queue one
+extraction and one generated practice paper, confirm worker completion and
+inactive drafts, then open the review page and inspect the saved source. Keep
+the test paper/questions inactive. This end-to-end check remains unverified.
 
 ## Further work
 
-Live Gemini extraction/generation and the deployed review screen still need a
-production smoke test. More advanced semantic topic suggestions or revision
+The configured Gemini provider passed its synthetic check. Railway still showed
+the older `d6044e0` deployment after PR #101 merged; deploy the updated web/worker
+and verify migrations, queue consumption and the authenticated review screen.
+SSH verification on the current machine requires an SSH key; none is configured.
+More advanced semantic topic suggestions or revision
 based on student mistakes can follow actual admin feedback. Shared-question
 reuse needs an explicit design because questions currently belong to one paper.

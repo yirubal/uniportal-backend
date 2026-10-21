@@ -1,0 +1,44 @@
+{
+  "checked_at_utc": "2026-10-21T14:35:17Z",
+  "application_commit_under_test": "a916e65",
+  "github": {
+    "pr": 101,
+    "state": "MERGED",
+    "prod_merge_commit": "9a7e880822c81f5b03f3634817e34665fc3a477f",
+    "container_sqlite_postgres_checks": "passed"
+  },
+  "railway_snapshot": {
+    "web": {
+      "commit": "d6044e0597f0ac81a19cd193439ec7fa130349f4",
+      "status": "SLEEPING",
+      "key_configured": true
+    },
+    "worker": {
+      "commit": "d6044e0597f0ac81a19cd193439ec7fa130349f4",
+      "status": "SUCCESS",
+      "key_configured": true
+    },
+    "maintenance": {
+      "commit": "d6044e0597f0ac81a19cd193439ec7fa130349f4",
+      "status": "SUCCESS",
+      "cron_utc": "0 3 * * *"
+    }
+  },
+  "provider_probe": {
+    "execution": "Local process with Railway worker Gemini configuration and isolated in-memory SQLite settings; no production database access",
+    "model": "gemini-3.1-flash-lite",
+    "provider_requests_attempted": 2,
+    "synthetic_extraction": "passed: one question and its supplied answer preserved",
+    "synthetic_generation": "passed: one MCQ with answer, explanation and source excerpt validated",
+    "input": "Synthetic fictional library material only",
+    "records_written": 0,
+    "billing_tier": "not_verified"
+  },
+  "remaining": [
+    "Deploy current prod application code to Railway web and worker; apply required migrations before the updated worker starts.",
+    "Verify deployed migrations and AI queue readiness on both services with check_ai --database.",
+    "Complete one authenticated admin-to-worker extraction, generation and review using a non-sensitive sample; keep drafts inactive.",
+    "Verify paper review in a real browser on desktop and mobile. Local Chromium screenshot validation is unavailable because libnspr4.so is missing."
+  ],
+  "access_limit": "Railway SSH unavailable on the current machine: no SSH key in the agent or ~/.ssh. No service settings or deployments were changed."
+}
