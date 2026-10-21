@@ -3,7 +3,7 @@ import os
 from django.contrib import admin, messages
 from django.contrib.admin.models import CHANGE, LogEntry
 from django.core import signing
-from django.core.exceptions import PermissionDenied
+from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import transaction
 from django.db.models import Count, Q
 from django.http import HttpResponse, HttpResponseRedirect
@@ -14,7 +14,7 @@ from unfold.admin import ModelAdmin
 from unfold.contrib.filters.admin import AutocompleteSelectFilter
 
 from .models import Chapter, ExamPaper, Question, QuizAttempt
-from .forms import PaperQuestionExtractionForm, QuestionBulkEditForm
+from .forms import PaperQuestionExtractionForm, PracticePaperGenerationForm, QuestionBulkEditForm
 
 
 # ─── Filters ──────────────────────────────────────────────────────────────────
@@ -111,6 +111,7 @@ class ChapterAdmin(ModelAdmin):
 
 @admin.register(ExamPaper)
 class ExamPaperAdmin(ModelAdmin):
+    change_list_template = 'admin/quiz/exampaper/change_list.html'
     list_display = [
         'title',
         'exam_type',
@@ -196,6 +197,10 @@ class ExamPaperAdmin(ModelAdmin):
     def get_urls(self):
         urls = super().get_urls()
         custom = [
+            path('<int:paper_id>/review-questions/', self.admin_site.admin_view(self.review_questions_view),
+                 name='quiz_exampaper_review_questions'),
+            path('generate-paper/', self.admin_site.admin_view(self.generate_paper_view),
+                 name='quiz_exampaper_generate_paper'),
             path('extract-questions/', self.admin_site.admin_view(self.extract_questions_view),
                  name='quiz_exampaper_extract_questions_select'),
             path('<int:paper_id>/extract-questions/', self.admin_site.admin_view(self.extract_questions_view),
@@ -217,6 +222,48 @@ class ExamPaperAdmin(ModelAdmin):
             ),
         ]
         return custom + urls
+
+    def changelist_view(self, request, extra_context=None):
+        extra_context = extra_context or {}
+        extra_context['can_generate_paper'] = (self.has_add_permission(request)
+            and self.has_change_permission(request) and request.user.has_perm('quiz.add_question'))
+        return super().changelist_view(request, extra_context)
+
+    def generate_paper_view(self, request):
+        from apps.bot.generation import queue_paper_generation
+        from apps.bot.models import QuestionExtraction
+        if not (self.has_add_permission(request) and self.has_change_permission(request)
+                and request.user.has_perm('quiz.add_question')):
+            raise PermissionDenied
+        initial = {key: request.GET[key] for key in ('title', 'exam_type', 'course', 'year', 'chapter', 'focus', 'resource', 'inbox')
+                   if key in request.GET}
+        form = PracticePaperGenerationForm(request.POST if request.method == 'POST' else None, user=request.user, initial=initial)
+        if request.method == 'POST' and form.is_valid():
+            data = form.cleaned_data
+            try:
+                job, created = queue_paper_generation(inbox=data.get('inbox'), resource=data.get('resource'),
+                    chapter=data.get('chapter'), requested_by=request.user, submission_token=data['submission_token'],
+                    paper_values={name: data[name] for name in ('title', 'exam_type', 'course', 'department',
+                                                               'year', 'duration_minutes', 'access_level')},
+                    generation_settings={name: data[name] for name in ('count', 'question_type', 'difficulty', 'focus')})
+            except (ValueError, ValidationError) as exc:
+                form.add_error(None, '; '.join(exc.messages) if isinstance(exc, ValidationError) else str(exc))
+            else:
+                self.message_user(request, f'Generation job #{job.pk} queued for a new inactive paper.' if created
+                    else f'Generation job #{job.pk} already exists; no duplicate paper was created.')
+                return redirect('admin:quiz_exampaper_generate_paper')
+        jobs = (QuestionExtraction.objects.filter(mode='generate', requested_by=request.user)
+            .select_related('exam_paper').defer('source_text', 'chunks', 'questions')
+            .annotate(draft_count=Count('draft_questions')).order_by('-pk')[:10])
+        return render(request, 'admin/quiz/generate_paper.html', {
+            **self.admin_site.each_context(request), 'opts': self.model._meta,
+            'title': 'Generate a practice paper', 'form': form, 'jobs': jobs,
+            'can_view_jobs': request.user.has_perm('bot.view_questionextraction') or request.user.has_perm('bot.change_questionextraction'),
+        })
+
+    def review_questions_view(self, request, paper_id):
+        from .review import paper_review_view
+        return paper_review_view(self, request, paper_id)
 
     def extract_questions_view(self, request, paper_id=None):
         from apps.bot.ai_tasks import queue_question_extraction
@@ -242,7 +289,7 @@ class ExamPaperAdmin(ModelAdmin):
                     f'Extraction #{job.pk} queued. Questions will be inactive for review.' if created
                     else f'Extraction #{job.pk} already exists ({job.get_status_display()}); no duplicate was queued.')
                 return redirect('admin:quiz_exampaper_extract_questions', paper_id=target.pk)
-        jobs = (QuestionExtraction.objects.filter(exam_paper=paper).select_related('chapter')
+        jobs = (QuestionExtraction.objects.filter(exam_paper=paper).select_related('chapter', 'exam_paper')
                 .defer('source_text', 'chunks', 'questions').annotate(draft_count=Count('draft_questions'))
                 .order_by('-pk')[:10]) if paper else []
         return render(request, 'admin/quiz/extract_questions.html', {
@@ -352,6 +399,8 @@ class ExamPaperAdmin(ModelAdmin):
 
     def change_view(self, request, object_id, form_url='', extra_context=None):
         extra_context = extra_context or {}
+        if request.user.has_perm('quiz.change_question'):
+            extra_context['question_review_url'] = reverse('admin:quiz_exampaper_review_questions', args=[object_id])
         extra_context['import_url'] = reverse(
             'admin:quiz_exampaper_import_questions',
             args=[object_id]
@@ -438,9 +487,10 @@ class QuestionAdmin(ModelAdmin):
                 'is_active',
             )
         }),
-        ('AI source', {'fields': ('source_extraction',), 'classes': ('collapse',)}),
+        ('AI source', {'fields': ('source_extraction', 'source_quote'), 'classes': ('collapse',),
+            'description': 'AI-generated answers and difficulty are suggestions. Verify them against the source before activation.'}),
     )
-    readonly_fields = ['source_extraction']
+    readonly_fields = ['source_extraction', 'source_quote']
     actions = [
         'activate_questions',
         'deactivate_questions',

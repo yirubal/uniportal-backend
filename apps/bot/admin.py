@@ -57,8 +57,8 @@ class NotificationDeliveryAdmin(ModelAdmin):
 @admin.register(QuestionExtraction)
 class QuestionExtractionAdmin(ModelAdmin):
     list_select_related = ['exam_paper']
-    list_display = ['id', 'source_label', 'exam_paper', 'status', 'provider_calls', 'attempt_count', 'next_attempt_at', 'created_at']
-    list_filter = [WorkAttentionFilter, 'status']
+    list_display = ['id', 'mode', 'source_label', 'exam_paper', 'status', 'provider_calls', 'attempt_count', 'next_attempt_at', 'created_at']
+    list_filter = [WorkAttentionFilter, 'status', 'mode']
     readonly_fields = [field.name for field in QuestionExtraction._meta.fields]
     actions = [retry_failed]
 

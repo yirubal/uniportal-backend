@@ -1,4 +1,7 @@
+from uuid import UUID, uuid4
+
 from django import forms
+from django.core import signing
 from unfold.widgets import UnfoldAdminSelectWidget, UnfoldAdminTextInputWidget
 
 from .models import Chapter, ExamPaper, Question
@@ -39,6 +42,60 @@ class PaperQuestionExtractionForm(forms.Form):
             self.add_error('exam_paper', 'Assign a course to this paper first.')
         if paper and chapter and chapter.course_id != paper.course_id:
             self.add_error('chapter', 'Choose a chapter belonging to the paper course.')
+        return data
+
+
+class PracticePaperGenerationForm(PaperQuestionExtractionForm):
+    title = forms.CharField(max_length=500, widget=UnfoldAdminTextInputWidget)
+    exam_type = forms.ChoiceField(choices=[('quiz', 'Practice quiz'), ('exit_model', 'Exit exam — model')], widget=UnfoldAdminSelectWidget)
+    course = forms.ModelChoiceField(queryset=None, required=False, widget=UnfoldAdminSelectWidget,
+                                   help_text='Required for practice quizzes. Leave blank for exit models.')
+    department = forms.ModelChoiceField(queryset=None, required=False, widget=UnfoldAdminSelectWidget,
+                                       help_text='Required for exit model papers.')
+    year = forms.IntegerField(min_value=1, max_value=9999, help_text='Use the same year/calendar convention as your other papers.')
+    duration_minutes = forms.IntegerField(min_value=1, max_value=300, initial=30)
+    access_level = forms.ChoiceField(choices=ExamPaper.ACCESS_CHOICES, initial='free', widget=UnfoldAdminSelectWidget)
+    count = forms.IntegerField(min_value=1, max_value=30, initial=10, label='Number of questions')
+    question_type = forms.ChoiceField(choices=Question.TYPE_CHOICES, widget=UnfoldAdminSelectWidget)
+    difficulty = forms.ChoiceField(choices=Question.DIFFICULTY_CHOICES, initial='medium', widget=UnfoldAdminSelectWidget)
+    focus = forms.CharField(max_length=500, required=False, widget=UnfoldAdminTextInputWidget,
+                           help_text='Optional topics to emphasize within the selected source.')
+    submission_token = forms.CharField(widget=forms.HiddenInput)
+
+    def __init__(self, *args, user, **kwargs):
+        self.user = user
+        super().__init__(*args, user=user, **kwargs)
+        del self.fields['exam_paper']
+        from apps.content.models import Course, Department
+        for name, model in [('course', Course), ('department', Department)]:
+            self.fields[name].queryset = (model.objects.filter(is_active=True)
+                if user.has_perm(f'content.view_{name}') or user.has_perm(f'content.change_{name}') else model.objects.none())
+        if not self.is_bound:
+            self.initial['submission_token'] = signing.dumps({'user': user.pk, 'nonce': str(uuid4())}, salt='admin-paper-generation')
+        self.order_fields(['title', 'exam_type', 'course', 'department', 'year', 'duration_minutes',
+            'access_level', 'inbox', 'resource', 'chapter', 'count', 'question_type', 'difficulty', 'focus', 'submission_token'])
+
+    def clean_submission_token(self):
+        try:
+            token = signing.loads(self.cleaned_data['submission_token'], salt='admin-paper-generation', max_age=3600)
+            if token['user'] != self.user.pk:
+                raise signing.BadSignature
+            return UUID(token['nonce'])
+        except (signing.BadSignature, ValueError, TypeError, KeyError):
+            raise forms.ValidationError('This generation form expired or is invalid. Open a fresh form.') from None
+
+    def clean(self):
+        data = super().clean()
+        if data.get('exam_type') == 'quiz' and not data.get('course'):
+            self.add_error('course', 'Choose a course for the practice quiz.')
+        if data.get('exam_type') == 'exit_model':
+            if not data.get('department'):
+                self.add_error('department', 'Choose a department for the exit model.')
+            if data.get('course'):
+                self.add_error('course', 'Leave course blank for a department-wide exit model.')
+        chapter = data.get('chapter')
+        if chapter and chapter.course_id != getattr(data.get('course'), 'pk', None):
+            self.add_error('chapter', 'Choose a chapter belonging to the selected course.')
         return data
 
 

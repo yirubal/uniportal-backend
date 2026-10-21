@@ -1,0 +1,55 @@
+{% extends "admin/base_site.html" %}
+{% load static %}
+{% block extrastyle %}{{ block.super }}<link rel="stylesheet" href="{% static 'content/admin_content.css' %}">{% endblock %}
+{% block content %}
+<div class="content-audit">
+  <h1 class="text-2xl font-semibold">Review questions — {{ paper.title }}</h1>
+  <p class="my-4">{{ counts.total }} questions · {{ counts.active }} active · {{ counts.unassigned }} without a chapter.
+    Paper: {% if paper.is_active %}<strong>Active — activating questions here makes them available to students.</strong>{% else %}<strong>Inactive — activate the paper separately when ready.</strong>{% endif %}</p>
+  <p class="mb-4">Check each answer against its source. Local checks find structural issues and repeated text;
+    they do not verify facts or measure difficulty. Chapter suggestions use title-word matches, require your selection,
+    and make no AI requests. Questions remain in this paper.</p>
+  <p class="mb-4"><a class="underline" href="{% url 'admin:quiz_exampaper_change' paper.pk %}">Edit paper / visibility</a> ·
+    <a class="underline" href="{% url 'admin:quiz_question_changelist' %}?exam_paper__id__exact={{ paper.pk }}">Question table &amp; bulk metadata</a></p>
+  {% if coverage %}
+  <h2 class="text-lg font-semibold">Chapter coverage in this paper</h2>
+  <p class="my-3">Counts reflect assignments, not complete syllabus coverage. Zero assigned questions is a gap to investigate.</p>
+  <div class="content-table-scroll"><table class="w-full text-left"><thead><tr><th>Chapter</th><th>Assigned</th><th>Active</th><th>Next action</th></tr></thead><tbody>
+  {% for chapter in coverage %}<tr><td>{{ chapter.number }}. {{ chapter.title }}</td><td>{{ chapter.total }}</td><td>{{ chapter.active }}</td><td>{% if chapter.revision_url %}<a class="underline" href="{{ chapter.revision_url }}">Prepare revision paper</a>{% else %}Use a processed source to generate revision{% endif %}</td></tr>{% endfor %}
+  </tbody></table></div>
+  {% elif paper.course_id %}<p class="my-4">No active chapters are available, or you lack permission to view them. Chapter coverage is unavailable.</p>
+  {% else %}<p class="my-4">Department-wide papers have no course chapters. Organize granular topics through the question editor.</p>{% endif %}
+  {% if errors %}<div role="alert" class="my-4 rounded-default border border-red-500 p-4"><strong>No changes were applied.</strong><ul>{% for error in errors %}<li>{{ error }}</li>{% endfor %}</ul></div>{% endif %}
+  <form method="post">
+    {% csrf_token %}{{ form.selection }}
+    {% for card in cards %}{% with question=card.question %}
+    <article class="my-6 rounded-default border border-base-200 p-5 dark:border-base-700 break-words" id="question-{{ question.pk }}">
+      <div class="flex gap-3 items-center mb-3">
+        {% if not question.is_active %}<input type="checkbox" name="selected" value="{{ question.pk }}" id="select_{{ question.pk }}" {% if card.selected %}checked{% endif %}><label for="select_{{ question.pk }}">Select #{{ question.pk }}</label>{% else %}<strong>#{{ question.pk }} · Active</strong>{% endif %}
+        <span>{{ question.get_question_type_display }} · {{ question.get_difficulty_display }}</span>
+        <a class="underline" href="{% url 'admin:quiz_question_change' question.pk %}">Edit question</a>
+      </div>
+      <p class="whitespace-pre-wrap font-medium">{{ question.text }}</p>
+      {% for letter, text in card.options %}<p class="mt-2"><strong>{{ letter }}.</strong> {{ text }}</p>{% endfor %}
+      <p class="mt-4"><strong>Suggested / saved answer:</strong> {{ question.correct_option|default:'Manual marking / not provided' }}</p>
+      <p class="mt-2 whitespace-pre-wrap"><strong>Explanation / marking guide:</strong> {{ question.explanation|default:'Not provided' }}</p>
+      {% if question.source_quote %}<blockquote class="my-4 border-l-4 border-primary-500 pl-4 whitespace-pre-wrap">{{ question.source_quote }}</blockquote>{% endif %}
+      {% if question.source_extraction_id %}<p class="my-2">AI {{ question.source_extraction.get_mode_display }} · {% if can_view_jobs %}<a class="underline" href="{% url 'admin:bot_questionextraction_change' question.source_extraction_id %}">Source snapshot &amp; job #{{ question.source_extraction_id }}</a>{% else %}Ask an admin with AI-job permission to view the source snapshot.{% endif %}</p>{% endif %}
+      {% if card.errors %}<div class="my-3"><strong>Fix before activation:</strong><ul>{% for error in card.errors %}<li>{{ error }}</li>{% endfor %}</ul></div>{% endif %}
+      {% if card.warnings %}<div class="my-3"><strong>Review notes:</strong><ul>{% for warning in card.warnings %}<li>{{ warning }}</li>{% endfor %}</ul></div>{% endif %}
+      <p class="mt-3">Current chapter: {{ question.chapter.title|default:'Unassigned' }} · Tags: {{ question.topic_tags|join:', '|default:'None' }}</p>
+      {% if can_chapters and not question.is_active and paper.course_id %}
+      <div class="mt-3"><label for="{{ card.chapter_field.id_for_label }}">Choose chapter for selected question</label><br>{{ card.chapter_field }}{{ card.chapter_field.errors }}</div>
+      {% if card.suggestion %}<p class="mt-2">Title-word match suggests <strong>{{ card.suggestion.title }}</strong>. Choose it above only if appropriate.</p>{% endif %}
+      {% endif %}
+    </article>{% endwith %}{% empty %}<p class="my-6">No questions yet. Import or generate draft questions first.</p>{% endfor %}
+    {% if cards %}<div class="my-6 rounded-default border border-base-200 p-5 dark:border-base-700">
+      <p class="mb-3">Actions apply only to selected questions on this page. Chapter choices also update their chapter tag; other tags are preserved.</p>
+      <label>{{ form.reviewed }} I checked the selected answers and source material.</label>
+      <div class="mt-4 flex gap-4"><button name="action" value="chapters" class="rounded-default border px-4 py-3">Save chapter choices</button>
+      <button name="action" value="activate" class="rounded-default bg-primary-600 px-4 py-3 text-white">Activate reviewed questions</button></div>
+    </div>{% endif %}
+  </form>
+  <nav aria-label="Question pages" class="my-5">{% if page.has_previous %}<a class="underline" href="?page={{ page.previous_page_number }}">Previous</a> · {% endif %}Page {{ page.number }} of {{ page.paginator.num_pages }}{% if page.has_next %} · <a class="underline" href="?page={{ page.next_page_number }}">Next</a>{% endif %}</nav>
+</div>
+{% endblock %}
