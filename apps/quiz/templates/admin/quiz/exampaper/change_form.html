@@ -4,7 +4,7 @@
 {% block content %}
 {{ block.super }}
 
-{% if import_url %}
+{% if import_url or question_review_url %}
 <div style="
   margin-top: 1rem;
   padding: 1.25rem 1.5rem;
@@ -21,6 +21,7 @@
     margin: 0 0 0.65rem;
   ">Quick Actions</p>
 
+  {% if import_url %}
   <a href="{{ import_url }}" style="
     display: inline-flex;
     align-items: center;
@@ -47,6 +48,10 @@
   {% if ai_extract_url %}
   <a href="{{ ai_extract_url }}" class="inline-flex items-center rounded-default bg-primary-600 px-4 py-3 font-medium text-white">Extract questions with AI</a>
   <p class="mt-2 text-sm">Choose a source and create inactive questions assigned to this paper.</p>
+  {% endif %}
+  {% endif %}
+  {% if question_review_url %}
+  <a href="{{ question_review_url }}" class="inline-flex items-center rounded-default bg-primary-600 px-4 py-3 font-medium text-white">Review questions &amp; chapter coverage</a>
   {% endif %}
 </div>
 {% endif %}

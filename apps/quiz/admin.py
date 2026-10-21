@@ -197,6 +197,8 @@ class ExamPaperAdmin(ModelAdmin):
     def get_urls(self):
         urls = super().get_urls()
         custom = [
+            path('<int:paper_id>/review-questions/', self.admin_site.admin_view(self.review_questions_view),
+                 name='quiz_exampaper_review_questions'),
             path('generate-paper/', self.admin_site.admin_view(self.generate_paper_view),
                  name='quiz_exampaper_generate_paper'),
             path('extract-questions/', self.admin_site.admin_view(self.extract_questions_view),
@@ -233,7 +235,9 @@ class ExamPaperAdmin(ModelAdmin):
         if not (self.has_add_permission(request) and self.has_change_permission(request)
                 and request.user.has_perm('quiz.add_question')):
             raise PermissionDenied
-        form = PracticePaperGenerationForm(request.POST if request.method == 'POST' else None, user=request.user)
+        initial = {key: request.GET[key] for key in ('title', 'exam_type', 'course', 'year', 'chapter', 'focus', 'resource', 'inbox')
+                   if key in request.GET}
+        form = PracticePaperGenerationForm(request.POST if request.method == 'POST' else None, user=request.user, initial=initial)
         if request.method == 'POST' and form.is_valid():
             data = form.cleaned_data
             try:
@@ -256,6 +260,10 @@ class ExamPaperAdmin(ModelAdmin):
             'title': 'Generate a practice paper', 'form': form, 'jobs': jobs,
             'can_view_jobs': request.user.has_perm('bot.view_questionextraction') or request.user.has_perm('bot.change_questionextraction'),
         })
+
+    def review_questions_view(self, request, paper_id):
+        from .review import paper_review_view
+        return paper_review_view(self, request, paper_id)
 
     def extract_questions_view(self, request, paper_id=None):
         from apps.bot.ai_tasks import queue_question_extraction
@@ -391,6 +399,8 @@ class ExamPaperAdmin(ModelAdmin):
 
     def change_view(self, request, object_id, form_url='', extra_context=None):
         extra_context = extra_context or {}
+        if request.user.has_perm('quiz.change_question'):
+            extra_context['question_review_url'] = reverse('admin:quiz_exampaper_review_questions', args=[object_id])
         extra_context['import_url'] = reverse(
             'admin:quiz_exampaper_import_questions',
             args=[object_id]

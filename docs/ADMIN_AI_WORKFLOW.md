@@ -66,6 +66,51 @@ leaves an inactive paper and a visible failed job for review; no partial questio
 set is published. A short source may not support the requested question count;
 reduce the count rather than treating missing output as a complete paper.
 
+## Step 3: review quality, organize chapters and prepare revision
+
+Implemented as **Exam papers → open a paper → Quick Actions → Review questions &
+chapter coverage**. AI job lists also link to this screen. It works with manual,
+imported and AI-created questions and shows 25 questions per page.
+
+1. Read the question, options, saved/suggested answer, explanation and available
+   source excerpt together. Staff with AI-job permission can open the full saved
+   source snapshot. AI-generated answers still require human verification.
+2. Fix structural blockers through **Edit question**: missing/invalid answers,
+   repeated option values, wrong type/option shapes, mismatched or inactive
+   chapters, unverified generated source excerpts, or repeated question text
+   within this paper. Repeated-text checks ignore case and surrounding spaces;
+   they do not detect paraphrases or prove that two questions are equivalent.
+3. For unassigned course questions, consider the **title-word match** chapter
+   suggestion. It compares question words with existing active chapter titles,
+   declines tied matches and makes no provider call. It is a navigation aid,
+   not an AI semantic classification or a confidence score. Select a chapter
+   explicitly; nothing is assigned automatically.
+4. Select questions and choose **Save chapter choices**, or use those choices
+   while activating reviewed questions. The chosen chapter's tag replaces the
+   prior chapter tag; granular topic tags are preserved. Use the existing
+   question editor for granular topics or removing chapter assignments.
+5. Check **I checked the selected answers and source material**, then click
+   **Activate reviewed questions**. A blocking issue prevents changes to the
+   whole selected set. Changes to displayed content, paper course/type or paper
+   visibility require a fresh review; expired/tampered selections are rejected.
+   Activation records the admin action. The paper's visibility is a separate
+   decision: activating questions in an already active paper exposes them.
+6. Use **Chapter coverage in this paper** to compare assigned and active counts.
+   These are assignment counts, not evidence of complete syllabus coverage.
+   Department-wide exit papers have no course-chapter coverage table.
+7. **Prepare revision paper** opens a fresh generation form with the course,
+   chapter, topic focus and accessible original source selected. Review settings
+   and submit explicitly to request generation. This creates a separate paper
+   with new questions. A source may not cover a selected chapter; choose suitable
+   material rather than assuming an assignment gap is covered by that source.
+
+Viewing coverage, suggesting chapters and reviewing drafts make no Gemini calls.
+Queries and displayed question content are bounded by the page size; shared
+source snapshots and chapter choices are loaded together. No new worker,
+database tables or migrations are required for this step. Existing question
+editor and bulk activation tools remain available; the new review checks apply
+to actions submitted through this review screen, not a global publication gate.
+
 ## Source references and repeated requests
 
 Questions link to their extraction record under **AI source**. Staff with
@@ -135,8 +180,9 @@ A production smoke test should use a short non-sensitive sample, confirm worker
 completion and inactive drafts, then review the saved source reference. No live
 Gemini call or production extraction is triggered by the implementation tests.
 
-## Remaining steps
+## Further work
 
-3. Add quality review, suggested chapter/topic classification, coverage checks
-   and targeted revision generation. Shared-question reuse needs an explicit
-   design because questions currently belong to one paper.
+Live Gemini extraction/generation and the deployed review screen still need a
+production smoke test. More advanced semantic topic suggestions or revision
+based on student mistakes can follow actual admin feedback. Shared-question
+reuse needs an explicit design because questions currently belong to one paper.

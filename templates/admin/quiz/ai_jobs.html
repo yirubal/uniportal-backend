@@ -6,6 +6,6 @@
     <td>{{ job.get_mode_display }}</td>
     <td>{{ job.get_status_display }}{% if job.error_message %}<p class="text-sm">{{ job.error_message }}</p>{% endif %}</td>
     <td>{{ job.provider_calls }}</td>
-    <td>{% if job.draft_count %}<a class="underline" href="{% url 'admin:quiz_question_changelist' %}?source_extraction__id__exact={{ job.pk }}">Review {{ job.draft_count }} question{{ job.draft_count|pluralize }}</a>{% else %}No drafts yet{% endif %}</td>
+    <td>{% if job.draft_count %}<a class="underline" href="{% url 'admin:quiz_question_changelist' %}?source_extraction__id__exact={{ job.pk }}">Review {{ job.draft_count }} question{{ job.draft_count|pluralize }}</a>{% if job.exam_paper_id %}<br><a class="underline" href="{% url 'admin:quiz_exampaper_review_questions' job.exam_paper_id %}">Paper review &amp; coverage</a>{% endif %}{% else %}No drafts yet{% endif %}</td>
   </tr>{% empty %}<tr><td colspan="5">No AI jobs yet.</td></tr>{% endfor %}</tbody>
 </table></div>
