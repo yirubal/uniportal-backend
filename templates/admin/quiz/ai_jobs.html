@@ -1,0 +1,11 @@
+<div class="content-table-scroll"><table class="w-full text-left">
+  <thead><tr><th>Paper / source</th><th>Task</th><th>Status</th><th>Requests</th><th>Review</th></tr></thead>
+  <tbody>{% for job in jobs %}<tr>
+    <td>{% if job.exam_paper_id %}<a class="underline" href="{% url 'admin:quiz_exampaper_change' job.exam_paper_id %}">{{ job.exam_paper }}</a><br>{% endif %}
+      {{ job.source_label }}{% if can_view_jobs %}<br><a class="underline" href="{% url 'admin:bot_questionextraction_change' job.pk %}">Source snapshot &amp; job details #{{ job.pk }}</a>{% endif %}</td>
+    <td>{{ job.get_mode_display }}</td>
+    <td>{{ job.get_status_display }}{% if job.error_message %}<p class="text-sm">{{ job.error_message }}</p>{% endif %}</td>
+    <td>{{ job.provider_calls }}</td>
+    <td>{% if job.draft_count %}<a class="underline" href="{% url 'admin:quiz_question_changelist' %}?source_extraction__id__exact={{ job.pk }}">Review {{ job.draft_count }} question{{ job.draft_count|pluralize }}</a>{% else %}No drafts yet{% endif %}</td>
+  </tr>{% empty %}<tr><td colspan="5">No AI jobs yet.</td></tr>{% endfor %}</tbody>
+</table></div>

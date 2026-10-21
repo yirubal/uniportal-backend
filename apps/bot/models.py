@@ -37,10 +37,14 @@ class NotificationDelivery(models.Model):
 
 
 class QuestionExtraction(models.Model):
-    inbox = models.OneToOneField('content.FileInbox', null=True, blank=True,
-                                on_delete=models.SET_NULL, related_name='question_extraction')
-    resource = models.OneToOneField('content.Resource', null=True, blank=True,
-                                   on_delete=models.SET_NULL, related_name='question_extraction')
+    inbox = models.ForeignKey('content.FileInbox', null=True, blank=True,
+                              on_delete=models.SET_NULL, related_name='question_extractions')
+    resource = models.ForeignKey('content.Resource', null=True, blank=True,
+                                 on_delete=models.SET_NULL, related_name='question_extractions')
+    mode = models.CharField(max_length=12, default='extract',
+        choices=[('extract', 'Extract existing questions'), ('generate', 'Generate practice paper')])
+    generation_settings = models.JSONField(default=dict, blank=True)
+    submission_token = models.UUIDField(null=True, blank=True, unique=True, editable=False)
     exam_paper = models.ForeignKey('quiz.ExamPaper', null=True, blank=True,
                                   on_delete=models.SET_NULL, related_name='ai_extractions')
     chapter = models.ForeignKey('quiz.Chapter', null=True, blank=True, on_delete=models.SET_NULL)
@@ -62,4 +66,12 @@ class QuestionExtraction(models.Model):
     next_attempt_at = models.DateTimeField(default=timezone.now, db_index=True)
 
     def __str__(self):
-        return f'Extraction #{self.pk}: {self.source_label or "Inbox file"}'
+        return f'{self.get_mode_display()} #{self.pk}: {self.source_label or "Inbox file"}'
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=['inbox'], condition=models.Q(mode='extract', inbox__isnull=False),
+                                    name='unique_inbox_question_extract'),
+            models.UniqueConstraint(fields=['resource'], condition=models.Q(mode='extract', resource__isnull=False),
+                                    name='unique_resource_question_extract'),
+        ]

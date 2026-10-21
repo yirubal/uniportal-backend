@@ -1,0 +1,28 @@
+{% extends "admin/base_site.html" %}
+{% load static %}
+{% block extrastyle %}{{ block.super }}<link rel="stylesheet" href="{% static 'content/admin_content.css' %}">{% endblock %}
+{% block content %}
+<div class="content-audit">
+  <h1 class="text-2xl font-semibold">Generate a practice paper</h1>
+  <p class="my-4">Create a new draft paper from learning material already in UniPortal. Choose one source,
+    up to 30 questions, a question type, and a difficulty target. The paper and questions stay inactive.</p>
+  <p class="mb-4">Answers, explanations and difficulty are AI suggestions for review. Each question includes
+    a supporting source excerpt, checked against the source text. This check does not verify that the suggested answer is correct.</p>
+  <p class="mb-4">The source text is sent to your configured Gemini project. Use material appropriate for its
+    data-use terms. Repeating the same submission does not create another paper; a fresh form creates a new variation.</p>
+  <form method="post" class="content-workflow">
+    {% csrf_token %}{{ form.non_field_errors }}
+    {% for hidden in form.hidden_fields %}{{ hidden }}{{ hidden.errors }}{% endfor %}
+    {% for field in form.visible_fields %}<div class="mb-4">
+      <label for="{{ field.id_for_label }}" class="block mb-2 font-medium">{{ field.label }}</label>
+      {{ field }}{{ field.errors }}{% if field.help_text %}<p class="mt-1 text-sm">{{ field.help_text }}</p>{% endif %}
+    </div>{% endfor %}
+    <button type="submit" class="rounded-default bg-primary-600 px-4 py-3 font-medium text-white">Generate draft paper</button>
+    <a href="{% url 'admin:quiz_exampaper_changelist' %}" class="ml-4 underline">Back to exam papers</a>
+  </form>
+  <h2 class="mt-8 mb-3 text-lg font-semibold">Your recent generation jobs</h2>
+  <p class="mb-4">Refresh to check progress. Review all questions and their source excerpts, activate the approved questions,
+    then activate the paper when it is ready. Essay and matching answers require manual review.</p>
+  {% include 'admin/quiz/ai_jobs.html' %}
+</div>
+{% endblock %}

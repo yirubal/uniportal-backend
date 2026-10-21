@@ -1,0 +1,5 @@
+{% extends "admin/change_list.html" %}
+{% block object-tools-items %}
+  {% if can_generate_paper %}<a href="{% url 'admin:quiz_exampaper_generate_paper' %}" class="inline-flex items-center rounded-default bg-primary-600 px-4 py-2 font-medium text-white">Generate practice paper with AI</a>{% endif %}
+  {{ block.super }}
+{% endblock %}

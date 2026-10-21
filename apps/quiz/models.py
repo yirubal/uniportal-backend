@@ -266,6 +266,8 @@ class Question(models.Model):
 
     source_extraction = models.ForeignKey('bot.QuestionExtraction', null=True, blank=True,
         on_delete=models.SET_NULL, related_name='draft_questions', editable=False)
+    source_quote = models.TextField(blank=True, editable=False,
+        help_text='Source excerpt supporting an AI-generated question. Verify the answer against the source.')
 
     class Meta:
         verbose_name = 'Question'

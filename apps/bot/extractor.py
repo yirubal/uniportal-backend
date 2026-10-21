@@ -112,6 +112,10 @@ def extract_questions_from_text(raw_text):
 
 
 def _extract_from_chunk(api_key, text_chunk):
+    return validate_questions(_request_question_json(api_key, EXTRACTION_PROMPT + text_chunk))
+
+
+def _request_question_json(api_key, prompt):
     if not api_key:
         raise ValueError('GEMINI_API_KEY is not configured. Configure it before retrying.')
     from google import genai
@@ -119,7 +123,7 @@ def _extract_from_chunk(api_key, text_chunk):
     client = genai.Client(api_key=api_key, http_options=types.HttpOptions(timeout=60000))
     try:
         response = client.models.generate_content(
-            model=settings.GEMINI_MODEL, contents=EXTRACTION_PROMPT + text_chunk,
+            model=settings.GEMINI_MODEL, contents=prompt,
             config=types.GenerateContentConfig(max_output_tokens=8000, response_mime_type='application/json'),
         )
     except errors.ClientError as exc:
@@ -133,6 +137,6 @@ def _extract_from_chunk(api_key, text_chunk):
         raise ValueError('AI response exceeds the output limit.')
     # Incomplete JSON is a visible failure; never publish a silently truncated set.
     try:
-        return validate_questions(json.loads(content))
+        return json.loads(content)
     except json.JSONDecodeError as exc:
         raise ValueError('AI returned incomplete or invalid JSON; manual review required.') from exc
